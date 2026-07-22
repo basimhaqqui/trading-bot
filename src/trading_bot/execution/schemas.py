@@ -26,6 +26,12 @@ class OrderType(StrEnum):
     POST_ONLY = "post_only"
 
 
+class TimeInForce(StrEnum):
+    DAY = "day"
+    GTC = "gtc"
+    IOC = "ioc"
+
+
 @dataclass(frozen=True)
 class OrderIntent:
     intent_id: str
@@ -43,6 +49,9 @@ class OrderIntent:
     min_price: float | None = None
     reduce_only: bool = False
     created_at: datetime = field(default_factory=utc_now)
+    quantity: float | None = None
+    time_in_force: TimeInForce = TimeInForce.DAY
+    forecast_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "created_at", require_aware(self.created_at, "created_at"))
@@ -59,6 +68,10 @@ class OrderIntent:
             raise ValueError("max_price must be positive")
         if self.min_price is not None and self.min_price < 0:
             raise ValueError("min_price cannot be negative")
+        if self.quantity is not None and self.quantity <= 0:
+            raise ValueError("quantity must be positive")
+        if self.forecast_id is not None and not self.forecast_id:
+            raise ValueError("forecast_id cannot be blank")
 
 
 @dataclass(frozen=True)

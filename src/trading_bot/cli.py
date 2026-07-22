@@ -22,6 +22,18 @@ from trading_bot.data.collectors import (
     KalshiCollector,
 )
 from trading_bot.execution.control import DeterministicExecutor, PaperLedgerAdapter
+from trading_bot.execution.alpaca import AlpacaPaperClient
+from trading_bot.execution.operations import (
+    PaperControlStore,
+    PaperExecutionLedger,
+    PaperReconciler,
+)
+from trading_bot.execution.paper import (
+    AlpacaPaperAllocator,
+    PaperExecutionService,
+    candidate_eligibility,
+    load_paper_risk_config,
+)
 from trading_bot.execution.risk import ApprovalSigner, RiskGovernor, RiskLimits
 from trading_bot.execution.schemas import (
     ExecutionEnvironment,
@@ -130,6 +142,48 @@ def _parser() -> argparse.ArgumentParser:
     scorecard.add_argument("--json-output", help="optional machine-readable scorecard path")
     scorecard.add_argument("--emit-github-alerts", action="store_true")
     scorecard.add_argument("--fail-on-critical", action="store_true")
+    paper_status = subparsers.add_parser(
+        "paper-status", help="read Alpaca paper account state without placing orders"
+    )
+    paper_status.add_argument(
+        "--costs", default="config/economic-costs.json", help="cost registry JSON"
+    )
+    paper_status.add_argument(
+        "--policy", default="config/paper-execution.json", help="paper policy JSON"
+    )
+    subparsers.add_parser(
+        "paper-reconcile",
+        help="record paper account, positions, and order state without placing orders",
+    )
+    paper_control = subparsers.add_parser(
+        "paper-control", help="manage the persistent paper execution interlock"
+    )
+    paper_control.add_argument(
+        "action", choices=("status", "enable", "disable", "kill", "release")
+    )
+    paper_control.add_argument("--confirm", default="")
+    paper_control.add_argument("--reason", default="operator request")
+    paper_control.add_argument("--cancel-open-orders", action="store_true")
+    paper_plan = subparsers.add_parser(
+        "paper-plan", help="preview eligibility-gated Alpaca paper allocations"
+    )
+    paper_plan.add_argument(
+        "--costs", default="config/economic-costs.json", help="cost registry JSON"
+    )
+    paper_plan.add_argument(
+        "--policy", default="config/paper-execution.json", help="paper policy JSON"
+    )
+    paper_cycle = subparsers.add_parser(
+        "paper-cycle", help="preview or execute one eligibility-gated paper cycle"
+    )
+    paper_cycle.add_argument(
+        "--costs", default="config/economic-costs.json", help="cost registry JSON"
+    )
+    paper_cycle.add_argument(
+        "--policy", default="config/paper-execution.json", help="paper policy JSON"
+    )
+    paper_cycle.add_argument("--execute", action="store_true")
+    paper_cycle.add_argument("--confirm", default="")
     snapshot = subparsers.add_parser(
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
@@ -165,12 +219,44 @@ def _initialize(path: Path) -> tuple[PointInTimeStore, ExperimentRegistry, Audit
     audit = AuditLedger(path)
     audit.initialize()
     IngestionRunLedger(path).initialize()
+    PaperControlStore(path).initialize()
+    PaperExecutionLedger(path).initialize()
     return store, registry, audit
 
 
 def _risk_signer() -> ApprovalSigner:
     key = os.getenv("RISK_SIGNING_KEY", "development-only-change-me").encode("utf-8")
     return ApprovalSigner(key)
+
+
+def _paper_client() -> AlpacaPaperClient:
+    key_id = os.getenv("ALPACA_PAPER_KEY_ID") or os.getenv("ALPACA_MARKET_DATA_KEY_ID", "")
+    secret_key = os.getenv("ALPACA_PAPER_SECRET_KEY") or os.getenv(
+        "ALPACA_MARKET_DATA_SECRET_KEY", ""
+    )
+    return AlpacaPaperClient(key_id, secret_key)
+
+
+def _paper_signer() -> ApprovalSigner:
+    key = os.getenv("RISK_SIGNING_KEY", "")
+    if not key or key == "development-only-change-me":
+        raise PermissionError("paper execution requires a non-default RISK_SIGNING_KEY")
+    return ApprovalSigner(key.encode("utf-8"), key_id="paper-risk-v1")
+
+
+def _paper_risk_limits() -> RiskLimits:
+    return RiskLimits(
+        max_gross_notional=float(os.getenv("MAX_GROSS_NOTIONAL", "100000")),
+        max_instrument_notional=float(os.getenv("MAX_INSTRUMENT_NOTIONAL", "10000")),
+        max_venue_notional=float(os.getenv("MAX_VENUE_NOTIONAL", "30000")),
+        asset_class_caps={
+            AssetClass.EQUITY: float(os.getenv("MAX_EQUITY_NOTIONAL", "30000")),
+            AssetClass.OPTION: float(os.getenv("MAX_OPTION_NOTIONAL", "10000")),
+            AssetClass.MEMECOIN: 0,
+            AssetClass.PREDICTION: float(os.getenv("MAX_PREDICTION_NOTIONAL", "5000")),
+        },
+        allow_live=False,
+    )
 
 
 def _demo(path: Path) -> int:
@@ -508,7 +594,8 @@ def _snapshot(path: Path, output: Path) -> int:
     print(f"SHA-256: {summary.sha256}")
     print(
         f"Verified: events={summary.events} audit_records={summary.audit_records} "
-        f"ingestion_runs={summary.ingestion_runs}"
+        f"ingestion_runs={summary.ingestion_runs} paper_records={summary.paper_records} "
+        f"paper_ready={str(summary.paper_control_ready).lower()}"
     )
     return 0
 
@@ -596,6 +683,153 @@ def _daily_scorecard(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def _paper_status(path: Path, args: argparse.Namespace) -> int:
+    store, _, audit = _initialize(path)
+    client = _paper_client()
+    account = client.account()
+    positions = client.positions()
+    orders = client.orders(status="open")
+    control = PaperControlStore(path).status()
+    policy = load_paper_risk_config(args.policy)
+    eligibility = candidate_eligibility(audit, load_cost_registry(args.costs), policy)
+    print(f"Paper account: {account.account_id}")
+    print(
+        f"Status: {account.status} can_trade={str(account.can_trade).lower()} "
+        f"equity={account.equity:.2f} buying_power={account.buying_power:.2f} "
+        f"daily_return={account.daily_return:.2%}"
+    )
+    print(
+        f"Control: enabled={str(control.enabled).lower()} "
+        f"kill_switch={str(control.kill_switch_active).lower()} ready={str(control.ready).lower()}"
+    )
+    print(f"Remote positions: {len(positions)} open_orders: {len(orders)}")
+    print(f"Eligible strategy families: {len(eligibility.candidates)}")
+    print(f"Paper policy: {policy.version}")
+    print(f"Known Alpaca instruments: {len([item for item in store.instruments() if item.venue == 'alpaca'])}")
+    print("Live trading: structurally unavailable")
+    return 0
+
+
+def _paper_reconcile(path: Path) -> int:
+    _, _, audit = _initialize(path)
+    result = PaperReconciler(
+        _paper_client(), PaperExecutionLedger(path), audit
+    ).run()
+    print(
+        f"Reconciled: remote_orders={result.remote_orders} open_orders={result.open_orders} "
+        f"new_order_events={result.order_events_added} "
+        f"account_snapshot_added={str(result.account_snapshot_added).lower()}"
+    )
+    print(
+        f"Consistency: {'clean' if result.clean else 'mismatch'} "
+        f"missing_remote={len(result.missing_remote_client_order_ids)} "
+        f"unexpected_remote={len(result.unexpected_remote_client_order_ids)}"
+    )
+    for item in result.missing_remote_client_order_ids:
+        print(f"  missing remote client order: {item}")
+    for item in result.unexpected_remote_client_order_ids:
+        print(f"  unexpected remote client order: {item}")
+    if not result.clean:
+        PaperControlStore(path).activate_kill_switch(
+            reason="automatic reconciliation mismatch"
+        )
+        print("Paper kill switch activated because reconciliation was not clean.")
+    return 0 if result.clean else 1
+
+
+def _paper_control(path: Path, args: argparse.Namespace) -> int:
+    _initialize(path)
+    controls = PaperControlStore(path)
+    if args.action == "enable":
+        status = controls.enable(confirmation=args.confirm, reason=args.reason)
+    elif args.action == "disable":
+        status = controls.disable(reason=args.reason)
+    elif args.action == "kill":
+        status = controls.activate_kill_switch(reason=args.reason)
+        if args.cancel_open_orders:
+            cancellations = _paper_client().cancel_open_orders()
+            print(f"Cancel requests: {len(cancellations)}")
+    elif args.action == "release":
+        status = controls.release_kill_switch(
+            confirmation=args.confirm, reason=args.reason
+        )
+    else:
+        status = controls.status()
+    print(
+        f"Paper control: enabled={str(status.enabled).lower()} "
+        f"kill_switch={str(status.kill_switch_active).lower()} "
+        f"ready={str(status.ready).lower()} reason={status.reason}"
+    )
+    return 0
+
+
+def _paper_plan(path: Path, args: argparse.Namespace) -> int:
+    store, _, audit = _initialize(path)
+    policy = load_paper_risk_config(args.policy)
+    plan = AlpacaPaperAllocator(
+        store,
+        audit,
+        _paper_client(),
+        PaperControlStore(path),
+        load_cost_registry(args.costs),
+        policy,
+    ).plan()
+    print(
+        f"Paper plan: intents={len(plan.intents)} equity={plan.account_equity:.2f} "
+        f"daily_return={plan.account_daily_return:.2%}"
+    )
+    for intent in plan.intents:
+        print(
+            f"  {intent.intent_id} {intent.side.value} {intent.quantity:g} "
+            f"{intent.instrument_id} notional={intent.notional:.2f} "
+            f"forecast={intent.forecast_id}"
+        )
+    for reason in plan.skipped:
+        print(f"  blocked: {reason}")
+    print("Preview only; no orders were placed.")
+    return 0
+
+
+def _paper_cycle(path: Path, args: argparse.Namespace) -> int:
+    store, _, audit = _initialize(path)
+    submission_enabled = False
+    if args.execute:
+        if args.confirm != "PAPER-ONLY":
+            raise PermissionError("paper execution requires --confirm PAPER-ONLY")
+        if os.getenv("ALPACA_PAPER_TRADING_ENABLED", "").lower() != "true":
+            raise PermissionError(
+                "paper execution requires ALPACA_PAPER_TRADING_ENABLED=true"
+            )
+        submission_enabled = True
+    signer = _paper_signer() if submission_enabled else _risk_signer()
+    policy = load_paper_risk_config(args.policy)
+    result = PaperExecutionService(
+        store,
+        audit,
+        _paper_client(),
+        PaperControlStore(path),
+        load_cost_registry(args.costs),
+        signer,
+        _paper_risk_limits(),
+        config=policy,
+        submission_enabled=submission_enabled,
+    ).run()
+    print(
+        f"Paper cycle: planned={len(result.plan.intents)} "
+        f"submitted={len(result.receipts)} rejected={len(result.rejected)}"
+    )
+    for receipt in result.receipts:
+        print(
+            f"  submitted intent={receipt.intent_id} status={receipt.status} "
+            f"order_id={receipt.venue_order_id}"
+        )
+    for reason in result.rejected:
+        print(f"  blocked: {reason}")
+    if not submission_enabled:
+        print("Preview only; no orders were placed.")
+    return 0 if not result.rejected or not submission_enabled else 1
+
+
 def main() -> int:
     args = _parser().parse_args()
     path = Path(args.db)
@@ -648,6 +882,16 @@ def main() -> int:
             return _economic_report(path, args)
         if args.command == "daily-scorecard":
             return _daily_scorecard(path, args)
+        if args.command == "paper-status":
+            return _paper_status(path, args)
+        if args.command == "paper-reconcile":
+            return _paper_reconcile(path)
+        if args.command == "paper-control":
+            return _paper_control(path, args)
+        if args.command == "paper-plan":
+            return _paper_plan(path, args)
+        if args.command == "paper-cycle":
+            return _paper_cycle(path, args)
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:
@@ -655,16 +899,23 @@ def main() -> int:
                 event_count = connection.execute("SELECT COUNT(*) FROM market_events").fetchone()[0]
             audit_count = audit.verify_integrity()
             ingestion_count = IngestionRunLedger(path).verify_integrity()
+            paper_count = PaperExecutionLedger(path).verify_integrity()
+            paper_control = PaperControlStore(path).status()
             print(f"Database integrity: {integrity}")
             print(f"Stored events: {event_count}")
             print(f"Verified audit records: {audit_count}")
             print(f"Verified ingestion runs: {ingestion_count}")
+            print(f"Verified paper reconciliation records: {paper_count}")
+            print(
+                f"Paper execution: enabled={str(paper_control.enabled).lower()} "
+                f"kill_switch={str(paper_control.kill_switch_active).lower()}"
+            )
             print("Live execution: disabled by default")
             print(
                 "Observation collectors: Kalshi, Coinbase books/candles, "
                 "Alpaca options and stock bars"
             )
-            print("External execution adapters: none installed")
+            print("External execution adapters: Alpaca paper only (default locked)")
             return 0
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

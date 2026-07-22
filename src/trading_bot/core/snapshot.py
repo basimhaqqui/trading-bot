@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 import tempfile
@@ -8,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from trading_bot.core.audit import AuditLedger
+from trading_bot.core.serialization import sha256_digest
 from trading_bot.ingestion.runner import IngestionRunLedger
 
 
@@ -19,6 +21,8 @@ class SnapshotSummary:
     events: int
     audit_records: int
     ingestion_runs: int
+    paper_records: int
+    paper_control_ready: bool
 
 
 def create_verified_snapshot(
@@ -49,6 +53,7 @@ def create_verified_snapshot(
             events = int(connection.execute("SELECT COUNT(*) FROM market_events").fetchone()[0])
         audit_records = AuditLedger(temporary).verify_integrity()
         ingestion_runs = IngestionRunLedger(temporary).verify_integrity()
+        paper_records, paper_control_ready = _verify_paper_state(temporary)
         digest = _file_digest(temporary)
         bytes_written = temporary.stat().st_size
         os.replace(temporary, output)
@@ -62,6 +67,8 @@ def create_verified_snapshot(
         events,
         audit_records,
         ingestion_runs,
+        paper_records,
+        paper_control_ready,
     )
 
 
@@ -71,3 +78,38 @@ def _file_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _verify_paper_state(path: Path) -> tuple[int, bool]:
+    """Verify optional paper tables without mutating a snapshot under review."""
+    with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as connection:
+        table_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        total = 0
+        for table in ("paper_account_snapshots", "paper_order_events"):
+            if table not in table_names:
+                continue
+            rows = connection.execute(
+                f"SELECT payload_json, digest FROM {table}"
+            ).fetchall()
+            total += len(rows)
+            for payload_json, digest in rows:
+                if sha256_digest(json.loads(payload_json)) != digest:
+                    raise RuntimeError(f"digest mismatch in {table}")
+
+        ready = False
+        if "paper_execution_control" in table_names:
+            row = connection.execute(
+                """
+                SELECT enabled, kill_switch_active
+                FROM paper_execution_control
+                WHERE environment = 'paper'
+                """
+            ).fetchone()
+            if row is not None:
+                ready = bool(row[0]) and not bool(row[1])
+    return total, ready

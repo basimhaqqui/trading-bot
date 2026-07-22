@@ -2,7 +2,7 @@
 
 Foundation for researching stocks, listed options, futures, perpetual futures, spot crypto, memecoins, and prediction markets without giving research agents direct control of money.
 
-Milestone 11 adds a candidate-only economic validation gate. Forecast families must first pass every statistical and duration cohort, then survive executable-side payoffs, explicit fees, spread, slippage, latency haircuts, and doubled-cost stress before receiving an economic candidate label. It still has no broker, wallet, order-entry, or live execution adapter.
+Milestone 12 adds a default-locked Alpaca paper-execution boundary. It can synchronize the paper account, reconcile positions and orders, and submit deterministic equity or option paper orders only after the forecast and economic gates both produce a candidate. Live trading remains structurally unavailable.
 
 ## Implemented
 
@@ -49,6 +49,14 @@ Milestone 11 adds a candidate-only economic validation gate. Forecast families m
 - Fail-closed handling for missing cost models, missing executable fields, and forecast types without defensible payoff mappings.
 - A fixed-parameter twenty-bar breakout specialist that only emits on completed bars with adequate volume and predicts one source bar ahead.
 - Semantic candle deduplication that preserves first receipt time while storing later venue revisions as new immutable versions.
+- A host-pinned Alpaca paper client that cannot address the live Trading API host.
+- Read-only paper account, buying-power, position, and order synchronization.
+- Restart-safe client order IDs and remote idempotency checks before submission.
+- Persistent default-locked paper controls with an independent kill switch and append-only control history.
+- Append-only paper account snapshots and order-event reconciliation with mismatch detection.
+- Candidate-only allocation linked to an exact forecast, model version, instrument, and point-in-time evidence set.
+- Daily-loss, stale-data, per-trade, per-plan, instrument, venue, and asset-class limits.
+- Three execution interlocks: persistent control state, an environment flag, and explicit CLI confirmation.
 
 ## Safety boundary
 
@@ -65,10 +73,55 @@ Risk governor (may reject or reduce)
         ↓ signed, expiring intent
 Deterministic executor
         ↓
-Shadow/paper adapter only
+Shadow ledger or eligibility-gated paper adapter
 ```
 
 Research agents cannot call execution adapters. Execution adapters cannot browse, interpret news, select strategies, or change risk limits.
+
+## Alpaca paper operations
+
+Paper support is installed but locked by default. The Trading API client is pinned to
+`paper-api.alpaca.markets`; constructing it with the live host is rejected. The existing
+market-data credentials can be reused locally, or explicit `ALPACA_PAPER_KEY_ID` and
+`ALPACA_PAPER_SECRET_KEY` aliases can be set.
+
+Read account state and reconcile remote orders without submitting anything:
+
+```bash
+trading-bot --db var/trading.db paper-status
+trading-bot --db var/trading.db paper-reconcile
+trading-bot --db var/trading.db paper-plan
+trading-bot --db var/trading.db paper-cycle
+```
+
+The checked-in policy at `config/paper-execution.json` risks 0.25% of paper equity per
+eligible trade, caps a complete plan at 5%, stops after a 1% daily paper loss, rejects
+quotes older than 20 minutes and stock bars older than two days, and retains the 30
+independent-outcome and 30 after-cost-trade gates.
+
+Do not unlock submission while a strategy is collecting or rejected. When a strategy
+eventually clears both gates, paper submission still requires all of the following:
+
+```bash
+export ALPACA_PAPER_TRADING_ENABLED=true
+export RISK_SIGNING_KEY="a-long-random-secret-from-your-secret-store"
+trading-bot --db var/trading.db paper-control release \
+  --confirm PAPER-ONLY --reason "approved paper trial"
+trading-bot --db var/trading.db paper-control enable \
+  --confirm PAPER-ONLY --reason "approved paper trial"
+trading-bot --db var/trading.db paper-cycle --execute --confirm PAPER-ONLY
+```
+
+Emergency stop first locks future submissions, then optionally requests cancellation of
+all open paper orders:
+
+```bash
+trading-bot --db var/trading.db paper-control kill \
+  --reason "operator emergency stop" --cancel-open-orders
+```
+
+The scheduled shadow workflow performs read-only paper reconciliation but never calls the
+paper submission command and does not set the paper enable flag.
 
 ## Run locally
 
@@ -176,7 +229,8 @@ The tests deliberately attempt look-ahead evidence, premature outcome scoring, e
 ## Next milestone
 
 1. Accumulate at least 30 scored outcome clusters in every observed horizon cohort.
-2. Add the two read-only Alpaca repository secrets to activate option/underlying collection.
-3. Build a paper portfolio allocator only for baselines that survive both forecast and economic gates out of sample.
+2. Keep the Alpaca paper control locked until a family passes both evidence gates.
+3. Run paper incident drills for duplicate submission, stale feeds, reconciliation mismatch, daily-loss shutdown, and remote rejection before enabling an allocation trial.
+4. Add venue-specific paper or sandbox adapters for perpetuals and prediction markets only after the corresponding families become candidates.
 
-Live venue adapters remain out of scope until their data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.
+Live venue adapters remain out of scope until data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.

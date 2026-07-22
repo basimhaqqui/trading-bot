@@ -74,6 +74,8 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(summary.events, 1)
         self.assertEqual(summary.audit_records, 0)
         self.assertEqual(summary.ingestion_runs, 1)
+        self.assertEqual(summary.paper_records, 0)
+        self.assertFalse(summary.paper_control_ready)
         self.assertEqual(summary.bytes_written, self.output.stat().st_size)
         self.assertEqual(
             summary.sha256, hashlib.sha256(self.output.read_bytes()).hexdigest()

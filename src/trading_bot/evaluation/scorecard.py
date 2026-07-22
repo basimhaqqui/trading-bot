@@ -25,6 +25,7 @@ from trading_bot.evaluation.reporting import (
 )
 from trading_bot.ingestion.health import IngestionHealthReport, ingestion_health
 from trading_bot.ingestion.plan import ShadowIngestionPlan
+from trading_bot.execution.operations import PaperControlStore, PaperExecutionLedger
 
 
 class ScorecardStatus(StrEnum):
@@ -97,6 +98,15 @@ class EconomicSummary:
 
 
 @dataclass(frozen=True)
+class PaperOperationsSummary:
+    enabled: bool
+    kill_switch_active: bool
+    ready: bool
+    reason: str
+    reconciliation_records: int
+
+
+@dataclass(frozen=True)
 class DailyScorecard:
     generated_at: datetime
     status: ScorecardStatus
@@ -104,6 +114,7 @@ class DailyScorecard:
     coverage: tuple[CoverageSummary, ...]
     strategies: tuple[StrategySummary, ...]
     economics: tuple[EconomicSummary, ...]
+    paper: PaperOperationsSummary
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -218,7 +229,16 @@ def build_daily_scorecard(
         )
         for item in economic.evaluations
     )
-    alerts = _build_alerts(health, strategies, economics, totals)
+    control = PaperControlStore(path).status()
+    reconciliation_records = PaperExecutionLedger(path).verify_integrity()
+    paper = PaperOperationsSummary(
+        control.enabled,
+        control.kill_switch_active,
+        control.ready,
+        control.reason,
+        reconciliation_records,
+    )
+    alerts = _build_alerts(health, strategies, economics, totals, paper)
     return DailyScorecard(
         as_of,
         _scorecard_status(alerts),
@@ -226,6 +246,7 @@ def build_daily_scorecard(
         coverage,
         strategies,
         economics,
+        paper,
         health,
         alerts,
     )
@@ -244,6 +265,12 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"totals: instruments={scorecard.totals.instruments} "
             f"events={scorecard.totals.events} forecasts={scorecard.totals.forecasts} "
             f"scores={scorecard.totals.scores} ingestion_runs={scorecard.totals.ingestion_runs}"
+        ),
+        (
+            f"paper: enabled={str(scorecard.paper.enabled).lower()} "
+            f"kill_switch={str(scorecard.paper.kill_switch_active).lower()} "
+            f"ready={str(scorecard.paper.ready).lower()} "
+            f"reconciliation_records={scorecard.paper.reconciliation_records}"
         ),
     ]
     for alert in scorecard.alerts:
@@ -299,6 +326,7 @@ def _build_alerts(
     strategies: tuple[StrategySummary, ...],
     economics: tuple[EconomicSummary, ...],
     totals: SystemTotals,
+    paper: PaperOperationsSummary,
 ) -> tuple[OperationalAlert, ...]:
     alerts: list[OperationalAlert] = []
     unhealthy = [job.job_id for job in health.jobs if not job.healthy]
@@ -333,6 +361,14 @@ def _build_alerts(
     economic_candidate_keys = {
         (item.specialist_id, item.kind) for item in economic_candidates
     }
+    if paper.ready and not economic_candidates:
+        alerts.append(
+            OperationalAlert(
+                "paper_execution_unlocked_without_candidate",
+                AlertSeverity.WARNING,
+                "Paper execution is unlocked while no strategy has cleared the economic gate",
+            )
+        )
     for item in strategies:
         if item.status is EdgeStatus.CANDIDATE and (
             item.specialist_id,
@@ -445,6 +481,16 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
         )
     lines.extend(
         [
+            "",
+            "### Paper execution",
+            "",
+            (
+                f"Control: **{'ready' if scorecard.paper.ready else 'locked'}** · "
+                f"enabled={str(scorecard.paper.enabled).lower()} · "
+                f"kill switch={str(scorecard.paper.kill_switch_active).lower()} · "
+                f"reconciliation records={scorecard.paper.reconciliation_records:,} · "
+                f"reason={_markdown_escape(scorecard.paper.reason)}"
+            ),
             "",
             "### Ingestion health",
             "",
