@@ -34,6 +34,12 @@ from trading_bot.execution.crypto_sandbox import (
     run_crypto_sandbox_scenarios,
     sandbox_scenario_names,
 )
+from trading_bot.execution.prediction_sandbox import (
+    load_prediction_sandbox_config,
+    prediction_scenario_names,
+    render_prediction_sandbox_report,
+    run_prediction_sandbox_scenarios,
+)
 from trading_bot.execution.operations import (
     PaperControlStore,
     PaperExecutionLedger,
@@ -223,6 +229,22 @@ def _parser() -> argparse.ArgumentParser:
         "--format", choices=("text", "json", "markdown"), default="text"
     )
     crypto_sandbox.add_argument("--output", help="optional sandbox report path")
+    prediction_sandbox = subparsers.add_parser(
+        "prediction-sandbox",
+        help="run credential-free prediction execution and settlement scenarios",
+    )
+    prediction_sandbox.add_argument(
+        "--scenario", choices=("all", *prediction_scenario_names()), default="all"
+    )
+    prediction_sandbox.add_argument(
+        "--policy",
+        default="config/prediction-sandbox.json",
+        help="prediction sandbox policy JSON",
+    )
+    prediction_sandbox.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    prediction_sandbox.add_argument("--output", help="optional sandbox report path")
     snapshot = subparsers.add_parser(
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
@@ -901,6 +923,18 @@ def _crypto_sandbox(args: argparse.Namespace) -> int:
     return 0 if report.successful else 1
 
 
+def _prediction_sandbox(args: argparse.Namespace) -> int:
+    config = load_prediction_sandbox_config(args.policy)
+    report = run_prediction_sandbox_scenarios(args.scenario, config=config)
+    rendered = render_prediction_sandbox_report(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    return 0 if report.successful else 1
+
+
 def main() -> int:
     args = _parser().parse_args()
     path = Path(args.db)
@@ -967,6 +1001,8 @@ def main() -> int:
             return _paper_drill(args)
         if args.command == "crypto-sandbox":
             return _crypto_sandbox(args)
+        if args.command == "prediction-sandbox":
+            return _prediction_sandbox(args)
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:

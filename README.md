@@ -2,9 +2,9 @@
 
 Foundation for researching stocks, listed options, futures, perpetual futures, spot crypto, memecoins, and prediction markets without giving research agents direct control of money.
 
-Milestone 14 adds a credential-free spot crypto and perpetual sandbox with executable-side fills, fees, leverage, cross margin, funding, liquidation, reduce-only orders, post-only protection, and independent runtime and evidence gates. It never loads venue credentials or accesses a network. Live trading remains structurally unavailable.
+Milestone 15 adds a credential-free prediction-market execution and settlement sandbox with complementary Yes/No pricing, maker and taker fees, fully collateralized positions, lifecycle and dispute gates, binary and scalar payouts, cent rounding, and restart-safe settlement identities. It never loads venue credentials or accesses a network. Live trading remains structurally unavailable.
 
-Project build: `[##############----] 14/18 (78%)`
+Project build: `[###############---] 15/18 (83%)`
 
 ## Implemented
 
@@ -66,6 +66,11 @@ Project build: `[##############----] 14/18 (78%)`
 - Fail-closed reduce-only, post-only, stale-market, maximum-leverage, minimum-notional, signed-notional, and strategy-eligibility controls.
 - Deterministic cross-margin liquidation and an integrity-checked append-only event trail with restart-safe intent identity checks.
 - Eight credential-free sandbox scenarios and a dedicated cloud workflow that verify execution behavior without contacting a venue.
+- A Decimal-based prediction ledger with complementary Yes/No executable prices, long-only inventory, realized P&L, and conservative open-cost limits.
+- Versioned July 7, 2026 taker and maker fee formulas with centicent rounding and explicit per-series fee multipliers.
+- Determined, disputed, and amended markets that remain nonpayable until finalization; binary and rule-defined scalar settlements pay with cent rounding and zero settlement fee.
+- Signed, expiring prediction approvals, duplicate-order and conflicting-settlement protection, and an integrity-checked event trail.
+- Eight offline prediction settlement scenarios plus a dedicated cloud workflow with credentials, network access, and real orders fixed at zero.
 
 ## Safety boundary
 
@@ -172,6 +177,37 @@ verify spot fills, perpetual margin, reduce-only behavior, funding idempotency, 
 stale-data rejection, independent gates, and post-only protection. This is an in-memory
 execution simulator, not a venue connection or evidence that a strategy has an edge.
 
+## Prediction settlement sandbox
+
+Run the complete prediction lifecycle without an exchange account, API key, or network:
+
+```bash
+trading-bot prediction-sandbox --scenario all
+trading-bot prediction-sandbox --scenario all \
+  --format markdown --output var/reports/prediction-sandbox.md
+trading-bot prediction-sandbox --scenario lifecycle --format json
+```
+
+The policy at `config/prediction-sandbox.json` pins its fee schedule to July 7, 2026
+and links the official fee and settlement sources. It models Yes buys at the observed
+Yes ask, No buys at the complement of the Yes bid, matched-order fees rounded up to a
+centicent, and settlement payouts rounded to cents. General taker fees default on while
+maker fees require the applicable series multiplier.
+
+Orders require signed, expiring approvals and the adapter has separate runtime and
+strategy-evidence gates that default closed. Trading is accepted only for fresh active
+markets. Determined, disputed, and amended states cannot pay; settlement requires a
+finalized market plus an identified public source event. Standard Yes/No settlement pays
+the winner $1 per contract. Nonbinary outcomes must arrive as an explicit rule-defined
+scalar value—the simulator does not invent a generic void or refund rule. If eligibility
+closes after a simulated fill, new orders stop but a finalized settlement can still close
+the existing position rather than trapping it.
+
+The eight scenarios verify Yes and No payouts, scalar rounding, lifecycle disputes,
+restart idempotency, conflicting-result rejection, maker/taker fees, stale and closed
+markets, independent gates, and naked-short rejection. This remains an in-memory
+simulator and does not establish that a prediction strategy has an edge.
+
 ## Run locally
 
 Python 3.11 or newer is required. The current foundation has no third-party runtime dependencies.
@@ -195,6 +231,7 @@ trading-bot --db var/trading.db daily-scorecard --plan config/shadow-ingestion.j
 trading-bot --db var/trading.db snapshot --output var/snapshots/trading.db
 trading-bot paper-drill --scenario all
 trading-bot crypto-sandbox --scenario all
+trading-bot prediction-sandbox --scenario all
 ```
 
 The demo creates deterministic delayed market events, replays two decision times, records the complete audit chain, signs one approved shadow intent, and records it without contacting a venue.
@@ -275,13 +312,13 @@ These are competence baselines, not proven edges. Each is compared with a simple
 python -m unittest discover -s tests -v
 ```
 
-The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, altered intent reuse, non-finite sandbox values, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
+The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, altered intent reuse, conflicting prediction settlement, premature disputed-market payout, non-finite sandbox values, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
 
 ## Next milestone
 
 1. Accumulate at least 30 scored outcome clusters in every observed horizon cohort.
-2. Keep both Alpaca paper and crypto/perpetual sandbox strategy gates locked until a family passes the evidence and after-cost gates.
-3. Require fresh passing paper-drill and sandbox reports before every execution-control change.
-4. Add a credential-free prediction-market settlement sandbox before considering any venue-specific order adapter.
+2. Keep every paper and sandbox strategy gate locked until its family passes the evidence and after-cost gates.
+3. Require fresh passing incident-drill and sandbox reports before every execution-control change.
+4. Build an options lifecycle and delta-hedged payoff sandbox before enabling options allocation.
 
 Live venue adapters remain out of scope until data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.

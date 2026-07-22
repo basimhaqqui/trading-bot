@@ -1,0 +1,15 @@
+{
+  "version": "prediction-settlement-sandbox-v1",
+  "initial_cash": 100000,
+  "taker_fee_coefficient": 0.07,
+  "maker_fee_coefficient": 0.0175,
+  "fee_increment": 0.0001,
+  "settlement_increment": 0.01,
+  "max_market_age_seconds": 60,
+  "max_order_contracts": 1000,
+  "max_market_cost": 5000,
+  "max_total_cost": 10000,
+  "fee_schedule_effective_date": "2026-07-07",
+  "fee_source_url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+  "settlement_source_url": "https://docs.kalshi.com/getting_started/market_settlement"
+}
