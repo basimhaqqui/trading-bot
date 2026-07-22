@@ -23,10 +23,16 @@ from trading_bot.data.collectors import (
 )
 from trading_bot.execution.control import DeterministicExecutor, PaperLedgerAdapter
 from trading_bot.execution.alpaca import AlpacaPaperClient
+from trading_bot.execution.drills import (
+    render_paper_drill_report,
+    run_paper_drills,
+    scenario_names,
+)
 from trading_bot.execution.operations import (
     PaperControlStore,
     PaperExecutionLedger,
     PaperReconciler,
+    activate_paper_emergency_stop,
 )
 from trading_bot.execution.paper import (
     AlpacaPaperAllocator,
@@ -184,6 +190,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     paper_cycle.add_argument("--execute", action="store_true")
     paper_cycle.add_argument("--confirm", default="")
+    paper_drill = subparsers.add_parser(
+        "paper-drill",
+        help="run isolated paper incident drills without network or broker credentials",
+    )
+    paper_drill.add_argument(
+        "--scenario", choices=("all", *scenario_names()), default="all"
+    )
+    paper_drill.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    paper_drill.add_argument("--output", help="optional drill report path")
     snapshot = subparsers.add_parser(
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
@@ -745,10 +762,19 @@ def _paper_control(path: Path, args: argparse.Namespace) -> int:
     elif args.action == "disable":
         status = controls.disable(reason=args.reason)
     elif args.action == "kill":
-        status = controls.activate_kill_switch(reason=args.reason)
+        cancellation = (
+            (lambda: _paper_client().cancel_open_orders())
+            if args.cancel_open_orders
+            else None
+        )
+        stopped = activate_paper_emergency_stop(
+            controls,
+            reason=args.reason,
+            cancel_open_orders=cancellation,
+        )
+        status = stopped.control
         if args.cancel_open_orders:
-            cancellations = _paper_client().cancel_open_orders()
-            print(f"Cancel requests: {len(cancellations)}")
+            print(f"Cancel requests: {stopped.cancellation_requests}")
     elif args.action == "release":
         status = controls.release_kill_switch(
             confirmation=args.confirm, reason=args.reason
@@ -830,6 +856,17 @@ def _paper_cycle(path: Path, args: argparse.Namespace) -> int:
     return 0 if not result.rejected or not submission_enabled else 1
 
 
+def _paper_drill(args: argparse.Namespace) -> int:
+    report = run_paper_drills(args.scenario)
+    rendered = render_paper_drill_report(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    return 0 if report.successful else 1
+
+
 def main() -> int:
     args = _parser().parse_args()
     path = Path(args.db)
@@ -892,6 +929,8 @@ def main() -> int:
             return _paper_plan(path, args)
         if args.command == "paper-cycle":
             return _paper_cycle(path, args)
+        if args.command == "paper-drill":
+            return _paper_drill(args)
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:

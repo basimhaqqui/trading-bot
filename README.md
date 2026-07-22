@@ -2,7 +2,7 @@
 
 Foundation for researching stocks, listed options, futures, perpetual futures, spot crypto, memecoins, and prediction markets without giving research agents direct control of money.
 
-Milestone 12 adds a default-locked Alpaca paper-execution boundary. It can synchronize the paper account, reconcile positions and orders, and submit deterministic equity or option paper orders only after the forecast and economic gates both produce a candidate. Live trading remains structurally unavailable.
+Milestone 13 adds isolated paper incident drills for duplicate submission, ambiguous timeouts, partial fills, remote rejection, stale data, reconciliation mismatch, daily-loss shutdown, emergency cancellation, and snapshot recovery. The drills never load broker credentials or access a network. Live trading remains structurally unavailable.
 
 ## Implemented
 
@@ -57,6 +57,9 @@ Milestone 12 adds a default-locked Alpaca paper-execution boundary. It can synch
 - Candidate-only allocation linked to an exact forecast, model version, instrument, and point-in-time evidence set.
 - Daily-loss, stale-data, per-trade, per-plan, instrument, venue, and asset-class limits.
 - Three execution interlocks: persistent control state, an environment flag, and explicit CLI confirmation.
+- Eight deterministic paper incident scenarios that exercise the real adapter, executor, control, reconciliation, and snapshot interfaces using isolated fakes.
+- Text, Markdown, and JSON drill reports with scenario-level verified behaviors.
+- A credential-free manual GitHub workflow that publishes the complete drill report as a run summary and retained artifact.
 
 ## Safety boundary
 
@@ -123,6 +126,23 @@ trading-bot --db var/trading.db paper-control kill \
 The scheduled shadow workflow performs read-only paper reconciliation but never calls the
 paper submission command and does not set the paper enable flag.
 
+## Paper incident drills
+
+Run every scenario locally without loading an Alpaca key or contacting any venue:
+
+```bash
+trading-bot paper-drill --scenario all
+trading-bot paper-drill --scenario all \
+  --format markdown --output var/reports/paper-drills.md
+trading-bot paper-drill --scenario ambiguous-timeout --format json
+```
+
+The complete suite verifies restart-safe duplicate handling, ambiguous acceptance recovery,
+partial-fill preservation, terminal rejection idempotency, stale-data rejection,
+reconciliation shutdown, daily-loss shutdown, emergency cancellation, and locked snapshot
+recovery. The `Paper incident drills` GitHub workflow runs the same credential-free suite on
+demand and retains its report for 30 days.
+
 ## Run locally
 
 Python 3.11 or newer is required. The current foundation has no third-party runtime dependencies.
@@ -144,6 +164,7 @@ trading-bot --db var/trading.db economic-report --costs config/economic-costs.js
 trading-bot --db var/trading.db shadow-health --plan config/shadow-ingestion.json
 trading-bot --db var/trading.db daily-scorecard --plan config/shadow-ingestion.json --format markdown
 trading-bot --db var/trading.db snapshot --output var/snapshots/trading.db
+trading-bot paper-drill --scenario all
 ```
 
 The demo creates deterministic delayed market events, replays two decision times, records the complete audit chain, signs one approved shadow intent, and records it without contacting a venue.
@@ -224,13 +245,13 @@ These are competence baselines, not proven edges. Each is compared with a simple
 python -m unittest discover -s tests -v
 ```
 
-The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, and duplicate execution.
+The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
 
 ## Next milestone
 
 1. Accumulate at least 30 scored outcome clusters in every observed horizon cohort.
 2. Keep the Alpaca paper control locked until a family passes both evidence gates.
-3. Run paper incident drills for duplicate submission, stale feeds, reconciliation mismatch, daily-loss shutdown, and remote rejection before enabling an allocation trial.
+3. Require a fresh passing incident-drill report before every paper allocation trial or execution-control change.
 4. Add venue-specific paper or sandbox adapters for perpetuals and prediction markets only after the corresponding families become candidates.
 
 Live venue adapters remain out of scope until data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.

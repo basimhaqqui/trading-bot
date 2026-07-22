@@ -1,0 +1,43 @@
+name: Paper incident drills
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/paper-drills.yml"
+      - "src/trading_bot/execution/**"
+      - "src/trading_bot/cli.py"
+      - "tests/test_paper_*.py"
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install -e .
+
+      - name: Run isolated paper drills
+        run: |
+          trading-bot paper-drill \
+            --scenario all \
+            --format markdown \
+            --output var/reports/paper-drills.md
+          cat var/reports/paper-drills.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload drill report
+        uses: actions/upload-artifact@v7
+        with:
+          name: paper-incident-drills
+          path: var/reports/paper-drills.md
+          if-no-files-found: error
+          retention-days: 30
