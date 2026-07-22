@@ -1,0 +1,15 @@
+{
+  "version": "memecoin-safety-sandbox-v1",
+  "min_liquidity_usd": 100000,
+  "min_pool_age_hours": 168,
+  "max_top10_holder_pct": 50,
+  "max_largest_holder_pct": 10,
+  "max_transfer_fee_bps": 200,
+  "max_price_impact_bps": 300,
+  "max_oracle_deviation_bps": 500,
+  "min_sell_recovery_pct": 90,
+  "max_snapshot_age_seconds": 60,
+  "max_shadow_position_usd": 500,
+  "token_authority_source_url": "https://solana.com/docs/tokens/basics",
+  "token_risk_source_url": "https://docs.raydium.io/security/oracle-and-token-risks"
+}

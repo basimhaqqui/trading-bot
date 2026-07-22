@@ -40,6 +40,18 @@ from trading_bot.execution.prediction_sandbox import (
     render_prediction_sandbox_report,
     run_prediction_sandbox_scenarios,
 )
+from trading_bot.execution.options_sandbox import (
+    load_options_sandbox_config,
+    options_scenario_names,
+    render_options_sandbox_report,
+    run_options_sandbox_scenarios,
+)
+from trading_bot.execution.memecoin_sandbox import (
+    load_memecoin_sandbox_config,
+    memecoin_scenario_names,
+    render_memecoin_sandbox_report,
+    run_memecoin_sandbox_scenarios,
+)
 from trading_bot.execution.operations import (
     PaperControlStore,
     PaperExecutionLedger,
@@ -74,6 +86,11 @@ from trading_bot.evaluation.scorecard import (
     build_daily_scorecard,
     render_github_alerts,
     render_scorecard,
+)
+from trading_bot.evaluation.launch_readiness import (
+    LaunchReadinessStatus,
+    build_launch_readiness_report,
+    render_launch_readiness_report,
 )
 from trading_bot.ingestion.plan import load_plan
 from trading_bot.ingestion.health import ingestion_health, render_health
@@ -245,6 +262,62 @@ def _parser() -> argparse.ArgumentParser:
         "--format", choices=("text", "json", "markdown"), default="text"
     )
     prediction_sandbox.add_argument("--output", help="optional sandbox report path")
+    options_sandbox = subparsers.add_parser(
+        "options-sandbox",
+        help="run credential-free option lifecycle and delta-hedging scenarios",
+    )
+    options_sandbox.add_argument(
+        "--scenario", choices=("all", *options_scenario_names()), default="all"
+    )
+    options_sandbox.add_argument(
+        "--policy",
+        default="config/options-sandbox.json",
+        help="options sandbox policy JSON",
+    )
+    options_sandbox.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    options_sandbox.add_argument("--output", help="optional sandbox report path")
+    memecoin_sandbox = subparsers.add_parser(
+        "memecoin-sandbox",
+        help="run credential-free token and liquidity safety scenarios",
+    )
+    memecoin_sandbox.add_argument(
+        "--scenario", choices=("all", *memecoin_scenario_names()), default="all"
+    )
+    memecoin_sandbox.add_argument(
+        "--policy",
+        default="config/memecoin-sandbox.json",
+        help="memecoin sandbox policy JSON",
+    )
+    memecoin_sandbox.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    memecoin_sandbox.add_argument("--output", help="optional sandbox report path")
+    launch_readiness = subparsers.add_parser(
+        "launch-readiness",
+        help="evaluate the complete roadmap without authorizing live execution",
+    )
+    launch_readiness.add_argument(
+        "--plan", default="config/shadow-ingestion.json", help="ingestion plan JSON"
+    )
+    launch_readiness.add_argument(
+        "--costs", default="config/economic-costs.json", help="cost registry JSON"
+    )
+    launch_readiness.add_argument(
+        "--policy",
+        default="config/launch-readiness.json",
+        help="launch readiness policy JSON",
+    )
+    launch_readiness.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    launch_readiness.add_argument("--output", help="optional readiness report path")
+    launch_readiness.add_argument(
+        "--require-paper-review",
+        action="store_true",
+        help="return a failure unless every paper-review gate passes",
+    )
     snapshot = subparsers.add_parser(
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
@@ -935,6 +1008,51 @@ def _prediction_sandbox(args: argparse.Namespace) -> int:
     return 0 if report.successful else 1
 
 
+def _options_sandbox(args: argparse.Namespace) -> int:
+    config = load_options_sandbox_config(args.policy)
+    report = run_options_sandbox_scenarios(args.scenario, config=config)
+    rendered = render_options_sandbox_report(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    return 0 if report.successful else 1
+
+
+def _memecoin_sandbox(args: argparse.Namespace) -> int:
+    config = load_memecoin_sandbox_config(args.policy)
+    report = run_memecoin_sandbox_scenarios(args.scenario, config=config)
+    rendered = render_memecoin_sandbox_report(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    return 0 if report.successful else 1
+
+
+def _launch_readiness(path: Path, args: argparse.Namespace) -> int:
+    report = build_launch_readiness_report(
+        path,
+        plan_path=args.plan,
+        costs_path=args.costs,
+        config_path=args.policy,
+        as_of=utc_now(),
+    )
+    rendered = render_launch_readiness_report(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    if not report.technical_successful:
+        return 1
+    if args.require_paper_review and report.status is not LaunchReadinessStatus.PAPER_REVIEW:
+        return 1
+    return 0
+
+
 def main() -> int:
     args = _parser().parse_args()
     path = Path(args.db)
@@ -1003,6 +1121,12 @@ def main() -> int:
             return _crypto_sandbox(args)
         if args.command == "prediction-sandbox":
             return _prediction_sandbox(args)
+        if args.command == "options-sandbox":
+            return _options_sandbox(args)
+        if args.command == "memecoin-sandbox":
+            return _memecoin_sandbox(args)
+        if args.command == "launch-readiness":
+            return _launch_readiness(path, args)
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:

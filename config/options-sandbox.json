@@ -1,0 +1,14 @@
+{
+  "version": "options-lifecycle-sandbox-v1",
+  "initial_cash": 100000,
+  "contract_multiplier": 100,
+  "auto_exercise_threshold": 0.01,
+  "option_slippage_bps": 25,
+  "stock_slippage_bps": 5,
+  "max_market_age_seconds": 60,
+  "max_order_contracts": 10,
+  "max_premium_cost": 5000,
+  "max_hedge_notional": 25000,
+  "exercise_source_url": "https://docs.alpaca.markets/us/v1.1/docs/options-trading",
+  "activity_source_url": "https://docs.alpaca.markets/us/v1.1/docs/non-trade-activities-for-option-events"
+}
