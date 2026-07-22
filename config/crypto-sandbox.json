@@ -1,0 +1,11 @@
+{
+  "version": "crypto-perpetual-sandbox-v1",
+  "initial_cash": 100000,
+  "default_leverage": 3,
+  "max_leverage": 5,
+  "maintenance_margin_pct": 0.05,
+  "trading_fee_bps": 10,
+  "slippage_bps": 5,
+  "max_market_age_seconds": 60,
+  "min_order_notional": 10
+}
