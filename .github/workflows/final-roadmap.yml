@@ -1,0 +1,66 @@
+name: Final roadmap safety gates
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/final-roadmap.yml"
+      - "config/options-sandbox.json"
+      - "config/memecoin-sandbox.json"
+      - "config/launch-readiness.json"
+      - "src/trading_bot/execution/options_sandbox.py"
+      - "src/trading_bot/execution/memecoin_sandbox.py"
+      - "src/trading_bot/evaluation/launch_readiness.py"
+      - "src/trading_bot/execution/__init__.py"
+      - "src/trading_bot/cli.py"
+      - "tests/test_options_sandbox.py"
+      - "tests/test_memecoin_sandbox.py"
+      - "tests/test_launch_readiness.py"
+
+permissions:
+  contents: read
+
+jobs:
+  safety-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install -e .
+
+      - name: Run isolated options lifecycle scenarios
+        run: |
+          trading-bot options-sandbox \
+            --scenario all \
+            --format markdown \
+            --output var/reports/options-sandbox.md
+          cat var/reports/options-sandbox.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run isolated memecoin safety scenarios
+        run: |
+          trading-bot memecoin-sandbox \
+            --scenario all \
+            --format markdown \
+            --output var/reports/memecoin-sandbox.md
+          cat var/reports/memecoin-sandbox.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Evaluate launch readiness without live authorization
+        run: |
+          trading-bot --db var/readiness.db launch-readiness \
+            --format markdown \
+            --output var/reports/launch-readiness.md
+          cat var/reports/launch-readiness.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload safety reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: final-roadmap-safety-reports
+          path: var/reports/*.md
+          if-no-files-found: error
+          retention-days: 30

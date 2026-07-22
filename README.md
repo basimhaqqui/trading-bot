@@ -2,9 +2,9 @@
 
 Foundation for researching stocks, listed options, futures, perpetual futures, spot crypto, memecoins, and prediction markets without giving research agents direct control of money.
 
-Milestone 15 adds a credential-free prediction-market execution and settlement sandbox with complementary Yes/No pricing, maker and taker fees, fully collateralized positions, lifecycle and dispute gates, binary and scalar payouts, cent rounding, and restart-safe settlement identities. It never loads venue credentials or accesses a network. Live trading remains structurally unavailable.
+Milestones 16–18 complete the engineering roadmap with isolated options lifecycle and delta-hedging scenarios, a fail-closed memecoin token/liquidity safety gate, and one unified launch-readiness report. Completion means the controls are built and tested—not that an edge exists. The strongest launch result is `PAPER_REVIEW`; live trading remains structurally unavailable.
 
-Project build: `[###############---] 15/18 (83%)`
+Project build: `[##################] 18/18 (100%)`
 
 ## Implemented
 
@@ -71,6 +71,12 @@ Project build: `[###############---] 15/18 (83%)`
 - Determined, disputed, and amended markets that remain nonpayable until finalization; binary and rule-defined scalar settlements pay with cent rounding and zero settlement fee.
 - Signed, expiring prediction approvals, duplicate-order and conflicting-settlement protection, and an integrity-checked event trail.
 - Eight offline prediction settlement scenarios plus a dedicated cloud workflow with credentials, network access, and real orders fixed at zero.
+- A standard American equity-option lifecycle ledger covering premium fills, delta hedges, exercise, do-not-exercise instructions, expiry, and buying-power risk sellouts.
+- Eight credential-free options scenarios with fees, slippage, stale-data gates, position caps, and an integrity-checked event trail.
+- A memecoin safety evaluator that blocks dangerous token authorities and extensions, unverified programs, concentrated holders, young or thin pools, excessive costs, price divergence, and failed round-trip simulations.
+- Shadow-only memecoin intents capped at $500, with two independent gates and no wallet, transaction-signing, or venue code path.
+- A unified 18-milestone readiness report combining incident drills, every market sandbox, database integrity, ingestion health, evidence, after-cost eligibility, locked paper controls, and a live-intent rejection probe.
+- A final cloud workflow that publishes all three safety reports while keeping credentials, network use, signed transactions, and real orders at zero.
 
 ## Safety boundary
 
@@ -208,6 +214,58 @@ restart idempotency, conflicting-result rejection, maker/taker fees, stale and c
 markets, independent gates, and naked-short rejection. This remains an in-memory
 simulator and does not establish that a prediction strategy has an edge.
 
+## Options lifecycle sandbox
+
+Run the option lifecycle and delta-hedging simulator without brokerage credentials or
+network access:
+
+```bash
+trading-bot options-sandbox --scenario all
+trading-bot options-sandbox --scenario all \
+  --format markdown --output var/reports/options-sandbox.md
+trading-bot options-sandbox --scenario delta-hedge --format json
+```
+
+The policy accepts only standard 100-share American equity options. It models
+conservative option and stock slippage, premium and hedge-notional limits,
+exercise-by-exception at $0.01 in the money, do-not-exercise, worthless expiry, and
+simulated risk sellout when exercise resources are insufficient. This is a payoff and
+operations sandbox, not an option strategy or proof of profitable volatility forecasting.
+
+## Memecoin safety sandbox
+
+Run the token and pool safety evaluator without a wallet, RPC connection, or signed
+transaction:
+
+```bash
+trading-bot memecoin-sandbox --scenario all
+trading-bot memecoin-sandbox --scenario all \
+  --format markdown --output var/reports/memecoin-sandbox.md
+trading-bot memecoin-sandbox --scenario sell-simulation --format json
+```
+
+The policy requires verified source metadata, revoked dangerous authorities and token
+extensions, at least $100,000 of pool liquidity, a seven-day pool history, bounded
+holder concentration, costs and price divergence, plus successful buy and sell
+simulations recovering at least 90% of expected value. Passing creates only a capped
+shadow intent. It never creates a wallet instruction and is not evidence of an edge.
+
+## Unified launch readiness
+
+Evaluate the complete roadmap against the current research database:
+
+```bash
+trading-bot --db var/trading.db launch-readiness --format markdown
+trading-bot --db var/trading.db launch-readiness \
+  --require-paper-review --output var/reports/launch-readiness.txt
+```
+
+The report distinguishes engineering completion from trading readiness. A fresh or
+underpowered database reports `NO_GO` even when every deterministic safety suite passes.
+`PAPER_REVIEW` requires current ingestion, qualifying forecast and after-cost candidates,
+clean ledgers, locked paper controls, and every incident and sandbox suite passing. No
+status enables live trading or places an order.
+
 ## Run locally
 
 Python 3.11 or newer is required. The current foundation has no third-party runtime dependencies.
@@ -232,6 +290,9 @@ trading-bot --db var/trading.db snapshot --output var/snapshots/trading.db
 trading-bot paper-drill --scenario all
 trading-bot crypto-sandbox --scenario all
 trading-bot prediction-sandbox --scenario all
+trading-bot options-sandbox --scenario all
+trading-bot memecoin-sandbox --scenario all
+trading-bot --db var/trading.db launch-readiness --format markdown
 ```
 
 The demo creates deterministic delayed market events, replays two decision times, records the complete audit chain, signs one approved shadow intent, and records it without contacting a venue.
@@ -312,13 +373,13 @@ These are competence baselines, not proven edges. Each is compared with a simple
 python -m unittest discover -s tests -v
 ```
 
-The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, altered intent reuse, conflicting prediction settlement, premature disputed-market payout, non-finite sandbox values, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
+The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, altered intent reuse, conflicting prediction settlement, premature disputed-market payout, nonstandard option contracts, unsafe token authorities, non-finite sandbox values, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
 
-## Next milestone
+## Operational path after the roadmap
 
 1. Accumulate at least 30 scored outcome clusters in every observed horizon cohort.
 2. Keep every paper and sandbox strategy gate locked until its family passes the evidence and after-cost gates.
 3. Require fresh passing incident-drill and sandbox reports before every execution-control change.
-4. Build an options lifecycle and delta-hedged payoff sandbox before enabling options allocation.
+4. Use `launch-readiness --require-paper-review` as the fail-closed paper review gate.
 
-Live venue adapters remain out of scope until data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.
+Live venue adapters remain out of scope. Any future live phase requires separate operator design and approval after sustained paper validation; the current system cannot authorize it.

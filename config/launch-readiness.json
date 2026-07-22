@@ -1,0 +1,11 @@
+{
+  "version": "launch-readiness-v1",
+  "roadmap_milestones": 18,
+  "min_independent_outcomes": 30,
+  "min_after_cost_trades": 30,
+  "max_ingestion_age_minutes": 90,
+  "max_consecutive_ingestion_failures": 0,
+  "min_forecast_candidates": 1,
+  "min_economic_candidates": 1,
+  "allow_live_execution": false
+}
