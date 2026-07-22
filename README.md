@@ -2,7 +2,9 @@
 
 Foundation for researching stocks, listed options, futures, perpetual futures, spot crypto, memecoins, and prediction markets without giving research agents direct control of money.
 
-Milestone 13 adds isolated paper incident drills for duplicate submission, ambiguous timeouts, partial fills, remote rejection, stale data, reconciliation mismatch, daily-loss shutdown, emergency cancellation, and snapshot recovery. The drills never load broker credentials or access a network. Live trading remains structurally unavailable.
+Milestone 14 adds a credential-free spot crypto and perpetual sandbox with executable-side fills, fees, leverage, cross margin, funding, liquidation, reduce-only orders, post-only protection, and independent runtime and evidence gates. It never loads venue credentials or accesses a network. Live trading remains structurally unavailable.
+
+Project build: `[##############----] 14/18 (78%)`
 
 ## Implemented
 
@@ -60,6 +62,10 @@ Milestone 13 adds isolated paper incident drills for duplicate submission, ambig
 - Eight deterministic paper incident scenarios that exercise the real adapter, executor, control, reconciliation, and snapshot interfaces using isolated fakes.
 - Text, Markdown, and JSON drill reports with scenario-level verified behaviors.
 - A credential-free manual GitHub workflow that publishes the complete drill report as a run summary and retained artifact.
+- A deterministic spot crypto and perpetual ledger with fees, realized and unrealized P&L, leverage, initial and maintenance margin, and funding settlement.
+- Fail-closed reduce-only, post-only, stale-market, maximum-leverage, minimum-notional, signed-notional, and strategy-eligibility controls.
+- Deterministic cross-margin liquidation and an integrity-checked append-only event trail with restart-safe intent identity checks.
+- Eight credential-free sandbox scenarios and a dedicated cloud workflow that verify execution behavior without contacting a venue.
 
 ## Safety boundary
 
@@ -143,6 +149,29 @@ reconciliation shutdown, daily-loss shutdown, emergency cancellation, and locked
 recovery. The `Paper incident drills` GitHub workflow runs the same credential-free suite on
 demand and retains its report for 30 days.
 
+## Crypto and perpetual sandbox
+
+Run the complete simulator without an exchange account, API key, or network connection:
+
+```bash
+trading-bot crypto-sandbox --scenario all
+trading-bot crypto-sandbox --scenario all \
+  --format markdown --output var/reports/crypto-sandbox.md
+trading-bot crypto-sandbox --scenario liquidation --format json
+```
+
+The policy in `config/crypto-sandbox.json` starts with $100,000 of simulated cash,
+defaults perpetual positions to 3x leverage, caps leverage at 5x, charges 10 bps per
+fill plus 5 bps of slippage, rejects market state older than 60 seconds, and liquidates
+cross-margin perpetual exposure at the configured maintenance threshold. Spot positions
+are unlevered and cannot be short.
+
+The adapter is disabled by default and separately requires a strategy-eligibility flag.
+The included scenarios open those gates only inside an isolated deterministic test. They
+verify spot fills, perpetual margin, reduce-only behavior, funding idempotency, liquidation,
+stale-data rejection, independent gates, and post-only protection. This is an in-memory
+execution simulator, not a venue connection or evidence that a strategy has an edge.
+
 ## Run locally
 
 Python 3.11 or newer is required. The current foundation has no third-party runtime dependencies.
@@ -165,6 +194,7 @@ trading-bot --db var/trading.db shadow-health --plan config/shadow-ingestion.jso
 trading-bot --db var/trading.db daily-scorecard --plan config/shadow-ingestion.json --format markdown
 trading-bot --db var/trading.db snapshot --output var/snapshots/trading.db
 trading-bot paper-drill --scenario all
+trading-bot crypto-sandbox --scenario all
 ```
 
 The demo creates deterministic delayed market events, replays two decision times, records the complete audit chain, signs one approved shadow intent, and records it without contacting a venue.
@@ -245,13 +275,13 @@ These are competence baselines, not proven edges. Each is compared with a simple
 python -m unittest discover -s tests -v
 ```
 
-The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
+The tests deliberately attempt look-ahead evidence, premature outcome scoring, event and audit mutation, hypothesis redefinition, embedded plan credentials, venue symbol confusion, future source clocks, crossed books, privileged HTTP headers, host escape, stale specialist inputs, risk-limit violations, live execution, signature tampering, duplicate execution, altered intent reuse, non-finite sandbox values, ambiguous remote acceptance, cancellation failure, and locked snapshot recovery.
 
 ## Next milestone
 
 1. Accumulate at least 30 scored outcome clusters in every observed horizon cohort.
-2. Keep the Alpaca paper control locked until a family passes both evidence gates.
-3. Require a fresh passing incident-drill report before every paper allocation trial or execution-control change.
-4. Add venue-specific paper or sandbox adapters for perpetuals and prediction markets only after the corresponding families become candidates.
+2. Keep both Alpaca paper and crypto/perpetual sandbox strategy gates locked until a family passes the evidence and after-cost gates.
+3. Require fresh passing paper-drill and sandbox reports before every execution-control change.
+4. Add a credential-free prediction-market settlement sandbox before considering any venue-specific order adapter.
 
 Live venue adapters remain out of scope until data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.

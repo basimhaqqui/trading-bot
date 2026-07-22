@@ -28,6 +28,12 @@ from trading_bot.execution.drills import (
     run_paper_drills,
     scenario_names,
 )
+from trading_bot.execution.crypto_sandbox import (
+    load_crypto_sandbox_config,
+    render_crypto_sandbox_report,
+    run_crypto_sandbox_scenarios,
+    sandbox_scenario_names,
+)
 from trading_bot.execution.operations import (
     PaperControlStore,
     PaperExecutionLedger,
@@ -201,6 +207,22 @@ def _parser() -> argparse.ArgumentParser:
         "--format", choices=("text", "json", "markdown"), default="text"
     )
     paper_drill.add_argument("--output", help="optional drill report path")
+    crypto_sandbox = subparsers.add_parser(
+        "crypto-sandbox",
+        help="run credential-free spot crypto and perpetual execution scenarios",
+    )
+    crypto_sandbox.add_argument(
+        "--scenario", choices=("all", *sandbox_scenario_names()), default="all"
+    )
+    crypto_sandbox.add_argument(
+        "--policy",
+        default="config/crypto-sandbox.json",
+        help="crypto sandbox policy JSON",
+    )
+    crypto_sandbox.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    crypto_sandbox.add_argument("--output", help="optional sandbox report path")
     snapshot = subparsers.add_parser(
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
@@ -867,6 +889,18 @@ def _paper_drill(args: argparse.Namespace) -> int:
     return 0 if report.successful else 1
 
 
+def _crypto_sandbox(args: argparse.Namespace) -> int:
+    config = load_crypto_sandbox_config(args.policy)
+    report = run_crypto_sandbox_scenarios(args.scenario, config=config)
+    rendered = render_crypto_sandbox_report(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    return 0 if report.successful else 1
+
+
 def main() -> int:
     args = _parser().parse_args()
     path = Path(args.db)
@@ -931,6 +965,8 @@ def main() -> int:
             return _paper_cycle(path, args)
         if args.command == "paper-drill":
             return _paper_drill(args)
+        if args.command == "crypto-sandbox":
+            return _crypto_sandbox(args)
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:
