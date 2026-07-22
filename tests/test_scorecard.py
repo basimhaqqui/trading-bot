@@ -131,8 +131,11 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("stock/options", scorecard.alerts[0].message)
         payload = json.loads(render_scorecard(scorecard, "json"))
         self.assertEqual(payload["totals"]["events"], 1)
+        self.assertFalse(payload["paper"]["ready"])
+        self.assertTrue(payload["paper"]["kill_switch_active"])
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Daily shadow scorecard", markdown)
+        self.assertIn("Paper execution", markdown)
         self.assertIn("alpaca-spy-options", markdown)
         self.assertIn("::warning", render_github_alerts(scorecard))
 

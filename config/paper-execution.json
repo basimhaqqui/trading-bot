@@ -1,0 +1,11 @@
+{
+  "version": "alpaca-paper-v1",
+  "max_daily_loss_pct": 0.01,
+  "risk_per_trade_pct": 0.0025,
+  "max_plan_notional_pct": 0.05,
+  "max_quote_age_seconds": 1200,
+  "max_bar_age_seconds": 172800,
+  "limit_buffer_bps": 10,
+  "min_outcomes": 30,
+  "min_economic_trades": 30
+}

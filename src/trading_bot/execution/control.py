@@ -15,11 +15,19 @@ class ExecutionReceipt:
     environment: ExecutionEnvironment
     status: str
     executed_at: datetime
+    venue_order_id: str | None = None
+    client_order_id: str | None = None
+    filled_quantity: float = 0.0
+    average_fill_price: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "executed_at", require_aware(self.executed_at, "executed_at"))
         if not self.intent_id or not self.status:
             raise ValueError("receipt intent_id and status are required")
+        if self.filled_quantity < 0:
+            raise ValueError("filled_quantity cannot be negative")
+        if self.average_fill_price is not None and self.average_fill_price <= 0:
+            raise ValueError("average_fill_price must be positive")
 
 
 class ExecutionAdapter(Protocol):

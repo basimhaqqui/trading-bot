@@ -72,6 +72,10 @@ jobs:
       - name: Collect and research
         run: trading-bot --db var/trading.db shadow-cycle --plan config/shadow-ingestion.json
 
+      - name: Reconcile Alpaca paper account
+        if: ${{ env.ALPACA_MARKET_DATA_KEY_ID != '' && env.ALPACA_MARKET_DATA_SECRET_KEY != '' }}
+        run: trading-bot --db var/trading.db paper-reconcile
+
       - name: Run economic eligibility gate
         run: |
           trading-bot --db var/trading.db economic-report \

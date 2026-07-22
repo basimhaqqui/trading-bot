@@ -17,7 +17,12 @@ from trading_bot.core.serialization import (
     utc_now,
 )
 from trading_bot.execution.control import ExecutionReceipt
-from trading_bot.execution.schemas import ApprovedOrderIntent, OrderIntent, RiskDecision
+from trading_bot.execution.schemas import (
+    ApprovedOrderIntent,
+    ExecutionEnvironment,
+    OrderIntent,
+    RiskDecision,
+)
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
 
@@ -228,6 +233,21 @@ class AuditLedger:
             for row in rows
         )
 
+    def execution_receipts(self) -> tuple[ExecutionReceipt, ...]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM audit_records
+                WHERE record_type = ?
+                ORDER BY occurred_at, record_id
+                """,
+                (AuditRecordType.EXECUTION_RECEIPT.value,),
+            ).fetchall()
+        return tuple(
+            self._execution_receipt_from_payload(json.loads(row["payload_json"]))
+            for row in rows
+        )
+
     @staticmethod
     def _forecast_from_payload(payload: dict[str, object]) -> Forecast:
         return Forecast(
@@ -268,6 +288,24 @@ class AuditLedger:
                 str(key): float(value)
                 for key, value in dict(payload["metrics"]).items()
             },
+        )
+
+    @staticmethod
+    def _execution_receipt_from_payload(payload: dict[str, object]) -> ExecutionReceipt:
+        average = payload.get("average_fill_price")
+        return ExecutionReceipt(
+            intent_id=str(payload["intent_id"]),
+            environment=ExecutionEnvironment(str(payload["environment"])),
+            status=str(payload["status"]),
+            executed_at=parse_datetime(str(payload["executed_at"])),
+            venue_order_id=(
+                str(payload["venue_order_id"]) if payload.get("venue_order_id") else None
+            ),
+            client_order_id=(
+                str(payload["client_order_id"]) if payload.get("client_order_id") else None
+            ),
+            filled_quantity=float(payload.get("filled_quantity", 0.0)),
+            average_fill_price=float(average) if average is not None else None,
         )
 
     def verify_integrity(self) -> int:
