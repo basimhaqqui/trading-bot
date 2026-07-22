@@ -643,9 +643,9 @@ def render_options_sandbox_report(
             "|---|---:|---|",
         ]
         for item in report.scenarios:
+            checks = "; ".join(item.checks).replace("|", "\\|")
             lines.append(
-                f"| {item.label} | {item.status.value.upper()} | "
-                f"{'; '.join(item.checks).replace('|', '\\|')} |"
+                f"| {item.label} | {item.status.value.upper()} | {checks} |"
             )
         return "\n".join(lines)
     if output_format != "text":
