@@ -1,0 +1,45 @@
+name: Prediction settlement sandbox
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/prediction-sandbox.yml"
+      - "config/prediction-sandbox.json"
+      - "src/trading_bot/execution/prediction_sandbox.py"
+      - "src/trading_bot/execution/__init__.py"
+      - "src/trading_bot/cli.py"
+      - "tests/test_prediction_sandbox.py"
+
+permissions:
+  contents: read
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install -e .
+
+      - name: Run isolated prediction settlement scenarios
+        run: |
+          trading-bot prediction-sandbox \
+            --scenario all \
+            --format markdown \
+            --output var/reports/prediction-sandbox.md
+          cat var/reports/prediction-sandbox.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sandbox report
+        uses: actions/upload-artifact@v7
+        with:
+          name: prediction-settlement-sandbox
+          path: var/reports/prediction-sandbox.md
+          if-no-files-found: error
+          retention-days: 30
