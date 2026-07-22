@@ -111,6 +111,25 @@ class IngestionHealthTests(unittest.TestCase):
         self.assertEqual(report.jobs[0].consecutive_failures, 2)
         self.assertIn("2 consecutive failure(s)", report.jobs[0].reasons[0])
 
+    def test_missing_optional_credentials_are_visible_without_failing_health(self):
+        plan = ShadowIngestionPlan(
+            "optional-market-data",
+            (
+                ObservationJob(
+                    "alpaca-options",
+                    "alpaca",
+                    "chain",
+                    symbol="SPY",
+                    activation_profile="alpaca_market_data",
+                ),
+            ),
+        )
+        report = ingestion_health(self.path, plan, as_of=self.now, environment={})
+        self.assertTrue(report.healthy)
+        self.assertEqual(report.jobs[0].status, "waiting_credentials")
+        self.assertIn("ALPACA_MARKET_DATA_KEY_ID", report.jobs[0].reasons[0])
+        self.assertIn("waiting_credentials", render_health(report, "markdown"))
+
 
 if __name__ == "__main__":
     unittest.main()

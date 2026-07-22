@@ -5,6 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Mapping
 
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 from trading_bot.ingestion.plan import ShadowIngestionPlan
@@ -43,6 +44,7 @@ def ingestion_health(
     as_of: datetime,
     max_age: timedelta = timedelta(minutes=90),
     max_consecutive_failures: int = 0,
+    environment: Mapping[str, str] | None = None,
 ) -> IngestionHealthReport:
     as_of = require_aware(as_of, "as_of")
     if max_age <= timedelta(0):
@@ -55,6 +57,27 @@ def ingestion_health(
         connection.row_factory = sqlite3.Row
         for job in plan.jobs:
             if not job.enabled:
+                continue
+            missing_environment = job.missing_activation_environment(environment)
+            if missing_environment:
+                jobs.append(
+                    JobHealth(
+                        job.job_id,
+                        job.venue,
+                        job.dataset,
+                        True,
+                        "waiting_credentials",
+                        None,
+                        None,
+                        0,
+                        0,
+                        False,
+                        (
+                            f"activation profile {job.activation_profile} is waiting for "
+                            f"{', '.join(missing_environment)}",
+                        ),
+                    )
+                )
                 continue
             rows = connection.execute(
                 """
@@ -149,7 +172,7 @@ def render_health(report: IngestionHealthReport, output_format: str = "text") ->
         ]
         for job in report.jobs:
             age = "n/a" if job.age_minutes is None else f"{job.age_minutes:.1f}m"
-            status = job.status if job.healthy else f"{job.status}: {'; '.join(job.reasons)}"
+            status = job.status if not job.reasons else f"{job.status}: {'; '.join(job.reasons)}"
             status = status.replace("|", "\\|")
             lines.append(
                 f"| `{job.job_id}` | {job.venue}/{job.dataset} | {status} | {age} | "

@@ -38,7 +38,7 @@
       "stock_feed": "iex",
       "lookback_days": 45,
       "limit": 100,
-      "enabled": false
+      "activation_profile": "alpaca_market_data"
     },
     {
       "job_id": "alpaca-aapl-options",
@@ -47,7 +47,7 @@
       "symbol": "AAPL",
       "feed": "indicative",
       "limit": 100,
-      "enabled": false
+      "activation_profile": "alpaca_market_data"
     }
   ]
 }

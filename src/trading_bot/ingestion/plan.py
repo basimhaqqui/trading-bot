@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,6 +21,12 @@ SENSITIVE_FRAGMENTS = (
     "api_key",
     "token",
 )
+ACTIVATION_PROFILES = {
+    "alpaca_market_data": (
+        "ALPACA_MARKET_DATA_KEY_ID",
+        "ALPACA_MARKET_DATA_SECRET_KEY",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -36,6 +43,7 @@ class ObservationJob:
     lookback_days: int = 45
     granularity: str = "ONE_HOUR"
     enabled: bool = True
+    activation_profile: str | None = None
 
     def __post_init__(self) -> None:
         if not self.job_id or not self.job_id.replace("-", "").replace("_", "").isalnum():
@@ -86,6 +94,25 @@ class ObservationJob:
             self.venue == "coinbase" and self.dataset == "candles"
         ):
             raise ValueError("granularity is only valid for Coinbase candle jobs")
+        if self.activation_profile not in {None, *ACTIVATION_PROFILES}:
+            raise ValueError("unsupported activation profile")
+        if self.activation_profile == "alpaca_market_data" and self.venue != "alpaca":
+            raise ValueError("alpaca_market_data activation is only valid for Alpaca jobs")
+
+    def missing_activation_environment(
+        self, environment: Mapping[str, str] | None = None
+    ) -> tuple[str, ...]:
+        if self.activation_profile is None:
+            return ()
+        values = os.environ if environment is None else environment
+        return tuple(
+            name
+            for name in ACTIVATION_PROFILES[self.activation_profile]
+            if not values.get(name, "").strip()
+        )
+
+    def is_active(self, environment: Mapping[str, str] | None = None) -> bool:
+        return self.enabled and not self.missing_activation_environment(environment)
 
 
 @dataclass(frozen=True)
@@ -131,6 +158,7 @@ def load_plan(path: str | Path) -> ShadowIngestionPlan:
         "lookback_days",
         "granularity",
         "enabled",
+        "activation_profile",
     }
     jobs: list[ObservationJob] = []
     for raw_job in raw_jobs:

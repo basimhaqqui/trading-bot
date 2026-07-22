@@ -80,6 +80,82 @@
       "symbol": "DOGE-USD",
       "granularity": "ONE_HOUR",
       "limit": 30
+    },
+    {
+      "job_id": "alpaca-spy-bars",
+      "venue": "alpaca",
+      "dataset": "bars",
+      "symbol": "SPY",
+      "stock_feed": "iex",
+      "lookback_days": 90,
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-spy-options",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "SPY",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-qqq-bars",
+      "venue": "alpaca",
+      "dataset": "bars",
+      "symbol": "QQQ",
+      "stock_feed": "iex",
+      "lookback_days": 90,
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-qqq-options",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "QQQ",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-aapl-bars",
+      "venue": "alpaca",
+      "dataset": "bars",
+      "symbol": "AAPL",
+      "stock_feed": "iex",
+      "lookback_days": 90,
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-aapl-options",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "AAPL",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-nvda-bars",
+      "venue": "alpaca",
+      "dataset": "bars",
+      "symbol": "NVDA",
+      "stock_feed": "iex",
+      "lookback_days": 90,
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-nvda-options",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "NVDA",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data"
     }
   ]
 }

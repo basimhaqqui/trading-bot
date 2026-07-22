@@ -89,6 +89,7 @@ trading-bot --db var/trading.db shadow-research
 trading-bot --db var/trading.db shadow-report
 trading-bot --db var/trading.db economic-report --costs config/economic-costs.json
 trading-bot --db var/trading.db shadow-health --plan config/shadow-ingestion.json
+trading-bot --db var/trading.db daily-scorecard --plan config/shadow-ingestion.json --format markdown
 trading-bot --db var/trading.db snapshot --output var/snapshots/trading.db
 ```
 
@@ -115,6 +116,12 @@ export ALPACA_MARKET_DATA_SECRET_KEY="..."
 trading-bot collect alpaca chain --symbol AAPL --feed indicative --limit 100
 trading-bot collect alpaca bars --symbol AAPL --stock-feed iex --lookback-days 45
 ```
+
+For GitHub Actions, store the same values as repository secrets named
+`ALPACA_MARKET_DATA_KEY_ID` and `ALPACA_MARKET_DATA_SECRET_KEY`. The checked-in
+SPY, QQQ, AAPL, and NVDA stock/options jobs automatically activate only when
+both secrets are present. Secret values never enter the observation plan,
+database, logs, artifacts, or scorecard.
 
 Use `--cursor` to continue a one-off manual collection. Scheduled shadow jobs manage pagination automatically. Every returned event is stored with collection time as its availability boundary. Venue text, including news and settlement rules, remains untrusted data.
 
@@ -143,9 +150,9 @@ An aggregate cannot become a candidate while any observed horizon cohort has few
 
 The checked-in `config/economic-costs.json` uses a conservative 120 bps Coinbase retail taker round trip before additional spread, slippage, and latency; prediction fees use Kalshi's July 7, 2026 general schedule; perpetual forecasts use their point-in-time spot/perpetual execution bound. Every surviving trade is rerun at twice the complete assumed cost. Results are normalized research returns, not an allocation or portfolio-sizing recommendation.
 
-The Alpaca jobs remain disabled in the example plan until read-only market-data credentials are available. They need both option-chain snapshots and underlying stock bars.
+Alpaca jobs use the `alpaca_market_data` activation profile. Without both read-only environment values they appear as `waiting_credentials`, remain health-neutral, and never construct a network collector. With both values present they become required health-gated jobs and collect paired option-chain snapshots and underlying stock bars.
 
-The deployment-ready workflow is installed at `.github/workflows/shadow-ingestion.yml` and runs at minutes 7 and 37 of every hour once this project is in a GitHub repository. It restores the most recent cache, serializes overlapping runs, validates the plan, collects and researches, and publishes a health table. Approximately once every 48 runs, plus every manual run, it creates a verified SQLite snapshot and retains it as a `shadow-database` artifact for 30 days. GitHub marks the workflow failed when any enabled job is missing, more than 90 minutes stale, or has a latest failed run.
+The deployment-ready workflow is installed at `.github/workflows/shadow-ingestion.yml` and runs at minutes 7 and 37 of every hour once this project is in a GitHub repository. It restores the most recent cache, serializes overlapping runs, validates the plan, collects and researches, and publishes a combined operational scorecard. The scorecard reports market coverage, ingestion health, forecast evidence, cost-adjusted eligibility, and execution-audit counts. GitHub annotations flag failures, credentials waiting, and newly qualified candidates. Approximately once every 48 runs, plus every manual run, it retains the Markdown and JSON scorecards for 90 days and creates a verified SQLite snapshot retained for 30 days. GitHub marks the workflow failed when any active job is missing, more than 90 minutes stale, or has a latest failed run.
 
 For recovery, manually dispatch the workflow and enter the workflow run ID that owns the desired `shadow-database` artifact in `restore_run_id`. The downloaded snapshot is integrity-checked before collection continues. The cache is continuity storage; the immutable run artifacts are the recovery path. For longer-lived or higher-volume research, move the same append-only model to managed durable storage before relying on it operationally.
 
@@ -169,7 +176,7 @@ The tests deliberately attempt look-ahead evidence, premature outcome scoring, e
 ## Next milestone
 
 1. Accumulate at least 30 scored outcome clusters in every observed horizon cohort.
-2. Configure read-only Alpaca market-data credentials and enable option/underlying collection.
+2. Add the two read-only Alpaca repository secrets to activate option/underlying collection.
 3. Build a paper portfolio allocator only for baselines that survive both forecast and economic gates out of sample.
 
 Live venue adapters remain out of scope until their data, eligibility, margin, settlement, and recovery behavior have been validated in replay and paper environments.
