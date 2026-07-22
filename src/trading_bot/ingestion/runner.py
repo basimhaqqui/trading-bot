@@ -209,7 +209,7 @@ class ShadowIngestionRunner:
             return tuple(
                 self._run_job(plan.name, job, collection_override)
                 for job in plan.jobs
-                if job.enabled
+                if job.is_active()
             )
 
     def _run_job(

@@ -22,6 +22,9 @@ jobs:
   observe:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      ALPACA_MARKET_DATA_KEY_ID: ${{ secrets.ALPACA_MARKET_DATA_KEY_ID }}
+      ALPACA_MARKET_DATA_SECRET_KEY: ${{ secrets.ALPACA_MARKET_DATA_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v6
 
@@ -74,13 +77,25 @@ jobs:
           trading-bot --db var/trading.db economic-report \
             --costs config/economic-costs.json
 
-      - name: Publish health summary
+      - name: Enforce ingestion health
         if: always()
         run: |
           trading-bot --db var/trading.db shadow-health \
             --plan config/shadow-ingestion.json \
             --max-age-minutes 90 \
-            --format markdown >> "$GITHUB_STEP_SUMMARY"
+            --format text
+
+      - name: Publish operational scorecard
+        if: ${{ always() && hashFiles('var/trading.db') != '' }}
+        run: |
+          trading-bot --db var/trading.db daily-scorecard \
+            --plan config/shadow-ingestion.json \
+            --costs config/economic-costs.json \
+            --format markdown \
+            --output var/reports/daily-scorecard.md \
+            --json-output var/reports/daily-scorecard.json \
+            --emit-github-alerts
+          cat var/reports/daily-scorecard.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Select recovery checkpoint
         id: recovery
@@ -109,6 +124,15 @@ jobs:
           path: var/snapshot/trading.db
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload daily scorecard
+        if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/reports/daily-scorecard.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-scorecard
+          path: var/reports
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Save next-cycle state
         if: ${{ always() && hashFiles('var/trading.db') != '' }}

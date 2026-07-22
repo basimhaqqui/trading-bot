@@ -39,6 +39,12 @@ from trading_bot.evaluation.reporting import (
     build_walk_forward_report,
 )
 from trading_bot.evaluation.shadow import ShadowResearchResult, ShadowResearchRunner
+from trading_bot.evaluation.scorecard import (
+    ScorecardStatus,
+    build_daily_scorecard,
+    render_github_alerts,
+    render_scorecard,
+)
 from trading_bot.ingestion.plan import load_plan
 from trading_bot.ingestion.health import ingestion_health, render_health
 from trading_bot.ingestion.runner import (
@@ -105,6 +111,25 @@ def _parser() -> argparse.ArgumentParser:
     )
     economic_report.add_argument("--min-outcomes", type=int, default=30)
     economic_report.add_argument("--min-trades", type=int, default=30)
+    scorecard = subparsers.add_parser(
+        "daily-scorecard",
+        help="combine ingestion, market coverage, forecast, and economic evidence",
+    )
+    scorecard.add_argument("--plan", required=True, help="validated ingestion plan JSON")
+    scorecard.add_argument(
+        "--costs", default="config/economic-costs.json", help="cost registry JSON"
+    )
+    scorecard.add_argument("--min-outcomes", type=int, default=30)
+    scorecard.add_argument("--min-trades", type=int, default=30)
+    scorecard.add_argument("--max-age-minutes", type=int, default=90)
+    scorecard.add_argument("--max-consecutive-failures", type=int, default=0)
+    scorecard.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    scorecard.add_argument("--output", help="optional rendered scorecard path")
+    scorecard.add_argument("--json-output", help="optional machine-readable scorecard path")
+    scorecard.add_argument("--emit-github-alerts", action="store_true")
+    scorecard.add_argument("--fail-on-critical", action="store_true")
     snapshot = subparsers.add_parser(
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
@@ -331,7 +356,12 @@ def _shadow_cycle(path: Path, plan_path: Path, *, validate_only: bool = False) -
     plan = load_plan(plan_path)
     if validate_only:
         for job in plan.jobs:
-            state = "enabled" if job.enabled else "disabled"
+            if not job.enabled:
+                state = "disabled"
+            elif job.missing_activation_environment():
+                state = f"waiting for {job.activation_profile}"
+            else:
+                state = "enabled"
             print(f"{job.job_id}: {job.venue}/{job.dataset} {state}")
         return 0
     store, _, audit = _initialize(path)
@@ -535,6 +565,37 @@ def _economic_report(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def _daily_scorecard(path: Path, args: argparse.Namespace) -> int:
+    _initialize(path)
+    scorecard = build_daily_scorecard(
+        path,
+        load_plan(args.plan),
+        load_cost_registry(args.costs),
+        as_of=utc_now(),
+        min_outcomes=args.min_outcomes,
+        min_trades=args.min_trades,
+        max_age=timedelta(minutes=args.max_age_minutes),
+        max_consecutive_failures=args.max_consecutive_failures,
+    )
+    rendered = render_scorecard(scorecard, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    if args.json_output:
+        json_output = Path(args.json_output)
+        json_output.parent.mkdir(parents=True, exist_ok=True)
+        json_output.write_text(render_scorecard(scorecard, "json") + "\n", encoding="utf-8")
+    if args.emit_github_alerts:
+        alerts = render_github_alerts(scorecard)
+        if alerts:
+            print(alerts)
+    if args.fail_on_critical and scorecard.status is ScorecardStatus.CRITICAL:
+        return 1
+    return 0
+
+
 def main() -> int:
     args = _parser().parse_args()
     path = Path(args.db)
@@ -585,6 +646,8 @@ def main() -> int:
             return _snapshot(path, Path(args.output))
         if args.command == "economic-report":
             return _economic_report(path, args)
+        if args.command == "daily-scorecard":
+            return _daily_scorecard(path, args)
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:

@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.store import PointInTimeStore
@@ -254,6 +255,53 @@ class IngestionTests(unittest.TestCase):
         collect_job(collector, bars_job, self.now, "alpaca-bars-page-2")
         self.assertEqual(collector.page_token, "alpaca-page-2")
         self.assertEqual(collector.bar_page_token, "alpaca-bars-page-2")
+
+    def test_alpaca_activation_requires_both_read_only_environment_values(self):
+        job = ObservationJob(
+            "options",
+            "alpaca",
+            "chain",
+            symbol="AAPL",
+            activation_profile="alpaca_market_data",
+        )
+        self.assertFalse(job.is_active({}))
+        self.assertEqual(
+            job.missing_activation_environment(
+                {"ALPACA_MARKET_DATA_KEY_ID": "present"}
+            ),
+            ("ALPACA_MARKET_DATA_SECRET_KEY",),
+        )
+        self.assertTrue(
+            job.is_active(
+                {
+                    "ALPACA_MARKET_DATA_KEY_ID": "present",
+                    "ALPACA_MARKET_DATA_SECRET_KEY": "present",
+                }
+            )
+        )
+
+    def test_runner_skips_credential_gated_jobs_without_constructing_collector(self):
+        plan = ShadowIngestionPlan(
+            "credential-gated",
+            (
+                ObservationJob(
+                    "options",
+                    "alpaca",
+                    "chain",
+                    symbol="AAPL",
+                    activation_profile="alpaca_market_data",
+                ),
+            ),
+        )
+        runner = ShadowIngestionRunner(
+            self.store,
+            self.ledger,
+            collector_factory=lambda venue, dataset: self.fail(
+                "inactive collector must not be constructed"
+            ),
+        )
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(runner.run_plan(plan, collected_at=self.now), ())
 
     def test_kalshi_jobs_receive_resumed_cursor(self):
         collector = FakeKalshiCollector()
