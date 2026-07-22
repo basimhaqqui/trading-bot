@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware, sha256_digest, utc_now
@@ -112,6 +112,23 @@ class ReconciliationResult:
     @property
     def clean(self) -> bool:
         return not self.missing_remote_client_order_ids and not self.unexpected_remote_client_order_ids
+
+
+@dataclass(frozen=True)
+class EmergencyStopResult:
+    control: PaperControlStatus
+    cancellation_requests: int
+
+
+def activate_paper_emergency_stop(
+    controls: PaperControlStore,
+    *,
+    reason: str,
+    cancel_open_orders: Callable[[], tuple[object, ...]] | None = None,
+) -> EmergencyStopResult:
+    status = controls.activate_kill_switch(reason=reason)
+    cancellation_requests = len(cancel_open_orders()) if cancel_open_orders else 0
+    return EmergencyStopResult(status, cancellation_requests)
 
 
 class PaperControlStore:
