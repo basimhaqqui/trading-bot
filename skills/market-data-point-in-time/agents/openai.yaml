@@ -1,0 +1,4 @@
+interface:
+  display_name: "Point-in-Time Market Data"
+  short_description: "Build replay-safe immutable market datasets"
+  default_prompt: "Use $market-data-point-in-time to ingest and validate replay-safe market data."

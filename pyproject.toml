@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-market-research-system"
+version = "0.12.0"
+description = "Point-in-time research, replay, risk, and execution controls for multi-market agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+trading-bot = "trading_bot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

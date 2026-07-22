@@ -1,0 +1,118 @@
+name: Shadow market observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      restore_run_id:
+        description: "Optional workflow run ID containing a shadow-database artifact"
+        required: false
+        type: string
+  schedule:
+    - cron: "7,37 * * * *"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: shadow-market-observation
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Restore latest working state
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.restore_run_id == '' }}
+        uses: actions/cache/restore@v5
+        with:
+          path: var/trading.db
+          key: shadow-db-${{ github.run_id }}
+          restore-keys: shadow-db-
+
+      - name: Download recovery snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.restore_run_id != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: shadow-database
+          path: var/recovery
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.restore_run_id }}
+
+      - name: Restore recovery snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.restore_run_id != '' }}
+        run: |
+          mkdir -p var
+          cp var/recovery/trading.db var/trading.db
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Verify recovered state
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.restore_run_id != '' }}
+        run: trading-bot --db var/trading.db doctor
+
+      - name: Validate observation plan
+        run: trading-bot shadow-cycle --plan config/shadow-ingestion.json --validate-only
+
+      - name: Register research baselines
+        run: trading-bot --db var/trading.db research-init
+
+      - name: Collect and research
+        run: trading-bot --db var/trading.db shadow-cycle --plan config/shadow-ingestion.json
+
+      - name: Run economic eligibility gate
+        run: |
+          trading-bot --db var/trading.db economic-report \
+            --costs config/economic-costs.json
+
+      - name: Publish health summary
+        if: always()
+        run: |
+          trading-bot --db var/trading.db shadow-health \
+            --plan config/shadow-ingestion.json \
+            --max-age-minutes 90 \
+            --format markdown >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Select recovery checkpoint
+        id: recovery
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || $((RUN_NUMBER % 48)) -eq 0 ]]; then
+            echo "create=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "create=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create verified recovery snapshot
+        if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/trading.db') != '' }}
+        run: |
+          trading-bot --db var/trading.db snapshot \
+            --output var/snapshot/trading.db
+
+      - name: Upload recovery snapshot
+        if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/snapshot/trading.db') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: shadow-database
+          path: var/snapshot/trading.db
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save next-cycle state
+        if: ${{ always() && hashFiles('var/trading.db') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: var/trading.db
+          key: shadow-db-${{ github.run_id }}

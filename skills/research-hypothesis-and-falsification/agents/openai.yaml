@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Falsification"
+  short_description: "Register hypotheses and challenge trading claims"
+  default_prompt: "Use $research-hypothesis-and-falsification to design and audit a trading experiment."

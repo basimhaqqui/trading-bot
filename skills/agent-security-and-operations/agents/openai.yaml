@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Security and Operations"
+  short_description: "Secure agent tools, credentials, and recovery"
+  default_prompt: "Use $agent-security-and-operations to threat-model and harden a trading-agent workflow."

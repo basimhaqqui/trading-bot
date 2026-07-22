@@ -1,0 +1,4 @@
+interface:
+  display_name: "Strategy Validation Red Team"
+  short_description: "Attack backtests, fills, and strategy assumptions"
+  default_prompt: "Use $strategy-validation-red-team to independently challenge a strategy result."

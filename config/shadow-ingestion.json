@@ -1,0 +1,85 @@
+{
+  "name": "public-shadow-observation",
+  "jobs": [
+    {
+      "job_id": "kalshi-open-markets",
+      "venue": "kalshi",
+      "dataset": "markets",
+      "status": "open",
+      "limit": 250
+    },
+    {
+      "job_id": "kalshi-recent-settlements",
+      "venue": "kalshi",
+      "dataset": "markets",
+      "status": "settled",
+      "limit": 250
+    },
+    {
+      "job_id": "kalshi-recent-trades",
+      "venue": "kalshi",
+      "dataset": "trades",
+      "limit": 250
+    },
+    {
+      "job_id": "coinbase-spot-products",
+      "venue": "coinbase",
+      "dataset": "products",
+      "product_type": "SPOT",
+      "limit": 250
+    },
+    {
+      "job_id": "coinbase-future-products",
+      "venue": "coinbase",
+      "dataset": "products",
+      "product_type": "FUTURE",
+      "limit": 250
+    },
+    {
+      "job_id": "coinbase-btc-spot-book",
+      "venue": "coinbase",
+      "dataset": "book",
+      "symbol": "BTC-USD",
+      "limit": 100
+    },
+    {
+      "job_id": "coinbase-btc-perpetual-book",
+      "venue": "coinbase",
+      "dataset": "book",
+      "symbol": "BIP-20DEC30-CDE",
+      "limit": 100
+    },
+    {
+      "job_id": "coinbase-btc-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "BTC-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-eth-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "ETH-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-sol-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "SOL-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-doge-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "DOGE-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    }
+  ]
+}
