@@ -8,7 +8,7 @@ from trading_bot.evaluation.reporting import (
     EvaluationGateConfig,
     build_walk_forward_report,
 )
-from trading_bot.evaluation.scoring import score_binary_forecast
+from trading_bot.evaluation.scoring import score_binary_forecast, score_return_forecast
 
 
 class ReportingTests(unittest.TestCase):
@@ -157,6 +157,42 @@ class ReportingTests(unittest.TestCase):
 
         group = report.groups[0]
         self.assertEqual(group.raw_scores, 30)
+        self.assertEqual(group.independent_outcomes, 1)
+        self.assertEqual(group.status, EdgeStatus.COLLECTING)
+
+    def test_same_hour_crypto_breakouts_are_one_outcome_cluster(self):
+        target_time = self.base + timedelta(hours=1)
+        observations = []
+        for index, instrument in enumerate(("BTC-USD", "SOL-USD", "DOGE-USD")):
+            forecast = Forecast(
+                f"crypto-{index}",
+                "crypto-range-breakout-continuation-baseline",
+                "baseline-v1",
+                f"coinbase:product:{instrument}",
+                ForecastKind.RETURN_DISTRIBUTION,
+                self.base,
+                target_time,
+                {"predicted_return": -0.01, "benchmark_return": 0.0},
+                0.3,
+                {"sample_size": 20.0},
+                (f"crypto-event-{index}",),
+                ("correlated assets invalidate independence",),
+            )
+            score = score_return_forecast(
+                forecast,
+                actual_return=-0.02,
+                target_time=target_time,
+                scored_at=target_time,
+            )
+            observations.append((forecast, score))
+
+        report = build_walk_forward_report(
+            tuple(item[0] for item in observations),
+            tuple(item[1] for item in observations),
+        )
+
+        group = report.groups[0]
+        self.assertEqual(group.raw_scores, 3)
         self.assertEqual(group.independent_outcomes, 1)
         self.assertEqual(group.status, EdgeStatus.COLLECTING)
 

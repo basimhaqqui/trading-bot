@@ -9,7 +9,11 @@ from enum import StrEnum
 from trading_bot.core.schemas import Forecast
 from trading_bot.core.serialization import sha256_digest
 from trading_bot.evaluation.costs import CostBasis, EconomicCostModel, EconomicCostRegistry
-from trading_bot.evaluation.reporting import EdgeStatus, WalkForwardReport
+from trading_bot.evaluation.reporting import (
+    EdgeStatus,
+    WalkForwardReport,
+    outcome_cluster_id,
+)
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
 
@@ -169,7 +173,12 @@ def _latest_independent_scores(
         forecast = forecasts_by_id.get(score.forecast_id)
         if forecast is None or forecast.specialist_id != score.specialist_id:
             continue
-        key = (score.specialist_id, score.kind, forecast.instrument_id, score.target_time)
+        key = (
+            score.specialist_id,
+            score.kind,
+            outcome_cluster_id(forecast),
+            score.target_time,
+        )
         existing = latest.get(key)
         if existing is None or (forecast.generated_at, forecast.forecast_id) > (
             existing[0].generated_at,
