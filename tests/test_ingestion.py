@@ -480,7 +480,7 @@ class IngestionTests(unittest.TestCase):
                 mve_filter="invalid",
             )
 
-    def test_forecast_outcome_job_polls_only_closed_unscored_binary_markets(self):
+    def test_forecast_outcome_job_polls_due_then_future_unscored_binary_markets(self):
         audit = AuditLedger(self.db_path)
         audit.initialize()
         closed = Instrument(
@@ -528,13 +528,18 @@ class IngestionTests(unittest.TestCase):
             audit.append_forecast(
                 Forecast(
                     f"forecast-{instrument.symbol}",
-                    "prediction-market-calibration-baseline",
-                    "baseline-v1",
+                    "prediction-market-calibration-baseline-v3",
+                    "baseline-v3",
                     instrument.instrument_id,
                     ForecastKind.BINARY_PROBABILITY,
                     self.now - timedelta(hours=2),
-                    self.now - timedelta(hours=1),
-                    {"probability": 0.5, "market_probability": 0.5},
+                    close_time,
+                    {
+                        "probability": 0.5,
+                        "market_probability": 0.5,
+                        "event_ticker": instrument.symbol,
+                        "target_time": close_time.isoformat(),
+                    },
                     0.25,
                     {"market_spread": 0.1},
                     (rule.event_id,),
@@ -626,7 +631,10 @@ class IngestionTests(unittest.TestCase):
         record = runner.run_plan(plan, collected_at=self.now)[0]
 
         self.assertEqual(record.status, IngestionRunStatus.SUCCESS)
-        self.assertEqual(collector.market_kwargs["tickers"], ("KXCLOSED-YES",))
+        self.assertEqual(
+            collector.market_kwargs["tickers"],
+            ("KXCLOSED-YES", "KXACTIVE-YES"),
+        )
         self.assertIsNone(collector.market_kwargs["status"])
         self.assertEqual(collector.market_kwargs["mve_filter"], "exclude")
         self.assertIsNone(collector.market_kwargs["cursor"])
