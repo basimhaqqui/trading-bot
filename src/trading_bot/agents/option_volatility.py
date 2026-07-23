@@ -83,6 +83,7 @@ class OptionVolatilitySpecialist:
         confidence_cap = 0.25 if feed == "indicative" else 0.7
         confidence = min(confidence_cap, 0.2 + len(observations) * 0.035)
         confidence *= max(0.2, 1.0 - min(0.8, spread_bps / 2_000))
+        target_time = context.decision_time + self.config.forecast_horizon
         values: dict[str, float | str | bool] = {
             "current_implied_volatility": current_iv,
             "expected_implied_volatility": expected_iv,
@@ -92,6 +93,7 @@ class OptionVolatilitySpecialist:
             "spread_bps": spread_bps,
             "feed": feed,
             "state": state,
+            "outcome_cluster": f"option-session:{target_time.date().isoformat()}",
         }
         evidence = [event.event_id for event, _ in observations]
         underlying_realized = self._underlying_realized_volatility(context)
@@ -109,7 +111,7 @@ class OptionVolatilitySpecialist:
             instrument_id=context.instrument.instrument_id,
             kind=ForecastKind.VOLATILITY,
             generated_at=context.decision_time,
-            valid_until=context.decision_time + self.config.forecast_horizon,
+            valid_until=target_time,
             values=values,
             confidence=confidence,
             uncertainty={
