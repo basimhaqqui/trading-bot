@@ -14,7 +14,7 @@ from trading_bot.core.schemas import (
     MarketEventType,
 )
 from trading_bot.core.store import PointInTimeStore
-from trading_bot.evaluation.shadow import ShadowResearchRunner
+from trading_bot.evaluation.shadow import ShadowResearchConfig, ShadowResearchRunner
 
 
 class ShadowResearchTests(unittest.TestCase):
@@ -252,6 +252,111 @@ class ShadowResearchTests(unittest.TestCase):
             as_of=settlement_time + timedelta(minutes=5)
         )
         self.assertEqual(scored.appended, 1)
+
+    def test_prediction_history_cap_balances_independent_events(self):
+        self.add_prediction_history()
+        occurrence = self.now - timedelta(hours=2)
+        for index in range(10):
+            market = Instrument(
+                f"kalshi:prediction:CROWDED-{index}",
+                "kalshi",
+                f"CROWDED-{index}",
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(market)
+            self.store.append_event(
+                self.event(
+                    f"crowded-book-{index}",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    market,
+                    (
+                        {
+                            "yes_bids": [["0.45", "10"]],
+                            "no_bids": [["0.53", "10"]],
+                        }
+                        if index == 0
+                        else {
+                            "yes_bids": [["0.15", "10"]],
+                            "no_bids": [["0.83", "10"]],
+                        }
+                    ),
+                    event_time=self.now - timedelta(hours=4),
+                )
+            )
+            self.store.append_event(
+                self.event(
+                    f"crowded-settlement-{index}",
+                    MarketEventType.SETTLEMENT,
+                    market,
+                    {
+                        "result": "no",
+                        "event_ticker": "CROWDED-EVENT",
+                        "occurrence_datetime": occurrence.isoformat(),
+                    },
+                    event_time=self.now - timedelta(minutes=30),
+                )
+            )
+
+        target = Instrument(
+            "kalshi:prediction:BALANCED-TARGET",
+            "kalshi",
+            "BALANCED-TARGET",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(target)
+        self.store.append_event(
+            self.event(
+                "balanced-target-rule",
+                MarketEventType.CONTRACT_RULE,
+                target,
+                {
+                    "rules_primary": "Named public source.",
+                    "event_ticker": "BALANCED-TARGET-EVENT",
+                    "occurrence_datetime": (
+                        self.now + timedelta(hours=7)
+                    ).isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=2),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "balanced-target-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                target,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        runner = ShadowResearchRunner(
+            self.store,
+            self.audit,
+            ShadowResearchConfig(max_prediction_history=5),
+        )
+
+        candidates = runner._prediction_candidates(self.now)
+        self.assertEqual(len(candidates), 1)
+        history_ids = candidates[0].related_instrument_ids
+        self.assertEqual(len(history_ids), 5)
+        self.assertEqual(
+            sum(
+                instrument_id.startswith("kalshi:prediction:CROWDED-")
+                for instrument_id in history_ids
+            ),
+            1,
+        )
+        self.assertIn("kalshi:prediction:CROWDED-0", history_ids)
+
+        generated = runner.generate_forecasts(as_of=self.now)
+        self.assertEqual(generated.appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(
+            forecast.specialist_id,
+            "prediction-market-calibration-baseline-v4",
+        )
+        self.assertEqual(forecast.values["calibration_cohort_size"], 5.0)
 
     def test_prediction_forecast_scores_early_public_settlement(self):
         self.add_prediction_history()

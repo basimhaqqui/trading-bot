@@ -18,6 +18,8 @@ from trading_bot.agents.prediction import (
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     prediction_forecast_target_time,
     prediction_occurrence_time,
+    prediction_settlement_event_key,
+    prediction_settlement_occurrence_time,
 )
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.schemas import (
@@ -375,12 +377,14 @@ class ShadowResearchRunner:
                 settlements_by_instrument.setdefault(
                     settlement.instrument_id, []
                 ).append(settlement)
+        books_by_instrument: dict[str, list[MarketEvent]] = {}
         latest_books: dict[str, MarketEvent] = {}
         for book in self.store.events_available_at(
             as_of, event_type=MarketEventType.BOOK_SNAPSHOT
         ):
             if book.instrument_id not in instrument_ids:
                 continue
+            books_by_instrument.setdefault(book.instrument_id, []).append(book)
             current = latest_books.get(book.instrument_id)
             if current is None or (
                 book.available_at,
@@ -409,8 +413,8 @@ class ShadowResearchRunner:
                 current.event_id,
             ):
                 latest_rules[event.instrument_id] = event
-        settled: list[tuple[datetime, str]] = []
-        open_by_event: dict[str, tuple[datetime, Instrument, float]] = {}
+        settled_by_event: dict[str, list[MarketEvent]] = {}
+        open_by_event: dict[str, tuple[datetime, Instrument, float, float]] = {}
         for instrument in instruments:
             settlements = settlements_by_instrument.get(instrument.instrument_id, [])
             valid_settlements = [
@@ -419,12 +423,12 @@ class ShadowResearchRunner:
                 if str(item.payload.get("result", "")).lower() in {"yes", "no"}
             ]
             if valid_settlements:
-                settled.append(
-                    (
-                        min(item.available_at for item in valid_settlements),
-                        instrument.instrument_id,
-                    )
+                settlement = min(
+                    valid_settlements,
+                    key=lambda item: (item.available_at, item.event_id),
                 )
+                event_key = prediction_settlement_event_key(settlement)
+                settled_by_event.setdefault(event_key, []).append(settlement)
                 continue
             book = latest_books.get(instrument.instrument_id)
             rule = latest_rules.get(instrument.instrument_id)
@@ -452,7 +456,12 @@ class ShadowResearchRunner:
             executable = prediction_book(book)
             if executable is None or executable[3] > specialist.config.max_book_spread:
                 continue
-            candidate = (decision_time, instrument, executable[3])
+            candidate = (
+                decision_time,
+                instrument,
+                executable[3],
+                executable[2],
+            )
             existing = open_by_event.get(event_key)
             if existing is None or (
                 candidate[2],
@@ -465,23 +474,23 @@ class ShadowResearchRunner:
             ):
                 open_by_event[event_key] = candidate
 
-        settled.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        settled = settled[: self.config.max_prediction_history]
         open_candidates = [
-            (decision_time, instrument)
-            for decision_time, instrument, _ in open_by_event.values()
+            (decision_time, instrument, probability)
+            for decision_time, instrument, _, probability in open_by_event.values()
         ]
         open_candidates.sort(
             key=lambda item: (item[0], item[1].instrument_id), reverse=True
         )
         candidates: list[_Candidate] = []
-        for decision_time, instrument in open_candidates[
+        for decision_time, instrument, probability in open_candidates[
             : self.config.max_prediction_forecasts
         ]:
-            history_ids = tuple(
-                instrument_id
-                for available_at, instrument_id in settled
-                if available_at <= decision_time
+            history_ids = self._prediction_history_ids(
+                settled_by_event,
+                books_by_instrument,
+                decision_time=decision_time,
+                target_probability=probability,
+                specialist=specialist,
             )
             candidates.append(
                 _Candidate(
@@ -492,6 +501,76 @@ class ShadowResearchRunner:
                 )
             )
         return candidates
+
+    def _prediction_history_ids(
+        self,
+        settled_by_event: Mapping[str, list[MarketEvent]],
+        books_by_instrument: Mapping[str, list[MarketEvent]],
+        *,
+        decision_time: datetime,
+        target_probability: float,
+        specialist: AdjustedPredictionMarketCalibrationSpecialist,
+    ) -> tuple[str, ...]:
+        selected: list[tuple[datetime, str, str]] = []
+        for event_key, settlements in settled_by_event.items():
+            best: tuple[
+                tuple[float, datetime, str, str],
+                MarketEvent,
+            ] | None = None
+            for settlement in settlements:
+                if settlement.available_at > decision_time:
+                    continue
+                occurrence_time = prediction_settlement_occurrence_time(settlement)
+                if occurrence_time is None:
+                    continue
+                eligible_books: list[
+                    tuple[MarketEvent, tuple[float, float, float, float]]
+                ] = []
+                for book in books_by_instrument.get(settlement.instrument_id, []):
+                    time_to_occurrence = occurrence_time - book.available_at
+                    executable = prediction_book(book)
+                    if (
+                        book.available_at <= decision_time
+                        and book.event_time <= occurrence_time
+                        and specialist.config.min_forecast_horizon
+                        < time_to_occurrence
+                        <= specialist.config.forecast_horizon
+                        and executable is not None
+                        and executable[3] <= specialist.config.max_book_spread
+                    ):
+                        eligible_books.append((book, executable))
+                if not eligible_books:
+                    continue
+                eligible_books.sort(
+                    key=lambda item: (item[0].available_at, item[0].event_id)
+                )
+                historical_book, executable = eligible_books[-1]
+                distance = abs(executable[2] - target_probability)
+                if distance > specialist.config.probability_bucket_radius:
+                    continue
+                rank = (
+                    distance,
+                    historical_book.available_at,
+                    historical_book.event_id,
+                    settlement.instrument_id,
+                )
+                if best is None or rank < best[0]:
+                    best = (rank, settlement)
+            if best is not None:
+                selected.append(
+                    (
+                        best[1].available_at,
+                        event_key,
+                        best[1].instrument_id,
+                    )
+                )
+        selected.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        return tuple(
+            instrument_id
+            for _, _, instrument_id in selected[
+                : self.config.max_prediction_history
+            ]
+        )
 
     def _match_score(
         self, forecast: Forecast, as_of: datetime
