@@ -364,6 +364,10 @@ class SpecialistTests(unittest.TestCase):
         self.assertEqual(
             forecast.values["outcome_cluster"], "2026-07-21T21:00:00Z"
         )
+        self.assertEqual(
+            forecast.valid_until,
+            datetime(2026, 7, 21, 21, tzinfo=timezone.utc),
+        )
         wide_book = self.event(
             "target-wide-book",
             MarketEventType.BOOK_SNAPSHOT,
@@ -382,6 +386,46 @@ class SpecialistTests(unittest.TestCase):
                 )
             )
         )
+
+    def test_prediction_specialist_rejects_unsafe_occurrence_times(self):
+        market = Instrument(
+            "kalshi:prediction:TIMING",
+            "kalshi",
+            "TIMING",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        book = self.event(
+            "timing-book",
+            MarketEventType.BOOK_SNAPSHOT,
+            market,
+            {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+        )
+        invalid_occurrences = (
+            None,
+            "not-a-time",
+            self.now.isoformat(),
+            (self.now - timedelta(minutes=1)).isoformat(),
+            (self.now + timedelta(hours=49)).isoformat(),
+        )
+        specialist = PredictionMarketCalibrationSpecialist()
+        for index, occurrence in enumerate(invalid_occurrences):
+            payload = {"rules_primary": "Named public source."}
+            if occurrence is not None:
+                payload["occurrence_datetime"] = occurrence
+            rule = self.event(
+                f"timing-rule-{index}",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                payload,
+                minutes_ago=2,
+            )
+            with self.subTest(occurrence=occurrence):
+                self.assertIsNone(
+                    specialist.evaluate(
+                        ReplayContext(self.now, market, (rule, book), ())
+                    )
+                )
 
     def test_crypto_breakout_requires_completed_range_break_and_volume(self):
         instrument = Instrument(

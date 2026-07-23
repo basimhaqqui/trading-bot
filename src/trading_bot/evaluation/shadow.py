@@ -10,7 +10,10 @@ from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
 from trading_bot.agents.market_math import finite_float, prediction_book
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
-from trading_bot.agents.prediction import PredictionMarketCalibrationSpecialist
+from trading_bot.agents.prediction import (
+    PredictionMarketCalibrationSpecialist,
+    prediction_occurrence_time,
+)
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.schemas import (
     AssetClass,
@@ -381,11 +384,14 @@ class ShadowResearchRunner:
             decision_time = book.available_at
             if as_of - decision_time > specialist.config.max_book_age:
                 continue
-            event_key = str(
-                rule.payload.get("occurrence_datetime")
-                or rule.payload.get("event_ticker")
-                or instrument.instrument_id
-            )
+            target_time = prediction_occurrence_time(rule)
+            if (
+                target_time is None
+                or target_time <= decision_time
+                or target_time > decision_time + specialist.config.forecast_horizon
+            ):
+                continue
+            event_key = str(rule.payload["occurrence_datetime"])
             if event_key in forecasted_event_keys:
                 continue
             executable = prediction_book(book)
@@ -545,6 +551,11 @@ class ShadowResearchRunner:
     def _match_binary(
         self, forecast: Forecast, as_of: datetime
     ) -> ForecastScore | None:
+        target_time: datetime | None = None
+        if forecast.specialist_id == PredictionMarketCalibrationSpecialist.agent_id:
+            target_time = _payload_time(forecast.values.get("outcome_cluster"))
+            if target_time is None or target_time <= forecast.generated_at:
+                return None
         events = self.store.events_available_at(
             as_of,
             instrument_id=forecast.instrument_id,
@@ -556,6 +567,7 @@ class ShadowResearchRunner:
             if (
                 event.available_at <= forecast.generated_at
                 or event.event_time < forecast.generated_at
+                or (target_time is not None and event.event_time < target_time)
                 or result not in {"yes", "no"}
             ):
                 continue

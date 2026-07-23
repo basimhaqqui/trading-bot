@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.hypotheses import PREDICTION_CALIBRATION_HYPOTHESIS
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
+from trading_bot.core.serialization import parse_datetime
 
 
 @dataclass(frozen=True)
@@ -18,7 +19,7 @@ class PredictionCalibrationConfig:
     shrinkage_observations: float = 20.0
     max_book_age: timedelta = timedelta(minutes=15)
     max_book_spread: float = 0.10
-    forecast_horizon: timedelta = timedelta(hours=1)
+    forecast_horizon: timedelta = timedelta(hours=48)
 
     def __post_init__(self) -> None:
         if not 0 < self.probability_bucket_radius < 0.5:
@@ -27,6 +28,8 @@ class PredictionCalibrationConfig:
             raise ValueError("calibration cohort and shrinkage must be positive")
         if not 0 < self.max_book_spread < 1:
             raise ValueError("maximum book spread must be between zero and one")
+        if self.forecast_horizon <= timedelta(0):
+            raise ValueError("forecast horizon must be positive")
 
 
 class PredictionMarketCalibrationSpecialist:
@@ -60,6 +63,13 @@ class PredictionMarketCalibrationSpecialist:
             return None
         yes_bid, yes_ask, market_probability, spread = executable
         if spread > self.config.max_book_spread:
+            return None
+        target_time = prediction_occurrence_time(rules[-1])
+        if (
+            target_time is None
+            or target_time <= context.decision_time
+            or target_time > context.decision_time + self.config.forecast_horizon
+        ):
             return None
         cohort = self._calibration_cohort(context, market_probability)
         if len(cohort) >= self.config.min_calibration_cohort:
@@ -105,7 +115,7 @@ class PredictionMarketCalibrationSpecialist:
             instrument_id=primary_id,
             kind=ForecastKind.BINARY_PROBABILITY,
             generated_at=context.decision_time,
-            valid_until=context.decision_time + self.config.forecast_horizon,
+            valid_until=target_time,
             values=values,
             confidence=confidence,
             uncertainty={
@@ -196,3 +206,13 @@ def _settlement_event_key(settlement: MarketEvent) -> str:
     if isinstance(event_ticker, str) and event_ticker:
         return f"event:{event_ticker}"
     return f"instrument:{settlement.instrument_id}"
+
+
+def prediction_occurrence_time(rule: MarketEvent) -> datetime | None:
+    value = rule.payload.get("occurrence_datetime")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return parse_datetime(value)
+    except (TypeError, ValueError):
+        return None
