@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -26,6 +27,8 @@ class EvaluationGateConfig:
     min_independent_outcomes: int = 30
     familywise_alpha: float = 0.05
     minimum_win_rate: float = 0.50
+    minimum_unique_instruments: int = 2
+    maximum_instrument_share: float = 0.80
 
     def __post_init__(self) -> None:
         if self.min_independent_outcomes < 2:
@@ -34,6 +37,10 @@ class EvaluationGateConfig:
             raise ValueError("familywise alpha must be between zero and 0.5")
         if not 0 <= self.minimum_win_rate <= 1:
             raise ValueError("minimum win rate must be between zero and one")
+        if self.minimum_unique_instruments < 2:
+            raise ValueError("minimum unique instruments must be at least two")
+        if not 0 < self.maximum_instrument_share < 1:
+            raise ValueError("maximum instrument share must be between zero and one")
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,12 @@ _HORIZON_BUCKETS = (
 _HORIZON_BUCKET_ORDER = {
     label: index for index, (_, label) in enumerate(_HORIZON_BUCKETS)
 }
+_DIVERSITY_GUARDED_SPECIALISTS = frozenset(
+    {
+        "crypto-range-breakout-continuation-baseline",
+        "perpetual-funding-basis-baseline",
+    }
+)
 
 
 def build_walk_forward_report(
@@ -226,13 +239,22 @@ def _apply_cohort_gate(
         item
         for item in relevant
         if item.evaluation.independent_outcomes >= config.min_independent_outcomes
-        and item.evaluation.status is not EdgeStatus.CANDIDATE
+        and item.evaluation.status is EdgeStatus.REJECTED
+    ]
+    pending = [
+        item
+        for item in relevant
+        if item.evaluation.independent_outcomes >= config.min_independent_outcomes
+        and item.evaluation.status is EdgeStatus.COLLECTING
     ]
     cohort_reasons = tuple(
         f"{item.dimension.value}={item.label} needs "
         f"{config.min_independent_outcomes - item.evaluation.independent_outcomes} "
         "more outcome clusters"
         for item in underpowered
+    ) + tuple(
+        f"{item.dimension.value}={item.label} has an unmet diversity gate"
+        for item in pending
     ) + tuple(
         f"{item.dimension.value}={item.label} fails its edge gate" for item in failing
     )
@@ -303,25 +325,55 @@ def _evaluate_group(
     )
 
     reasons: list[str] = []
+    statistical_failure = False
     if len(observations) < config.min_independent_outcomes:
         reasons.append(
             f"needs {config.min_independent_outcomes - len(observations)} more outcome clusters"
         )
     if mean_improvement <= 0:
         reasons.append("mean loss does not beat benchmark")
+        statistical_failure = True
     if lower_bound <= 0:
         reasons.append("family-wise confidence bound is not positive")
+        statistical_failure = True
     if win_rate < config.minimum_win_rate:
         reasons.append("paired win rate is below the gate")
+        statistical_failure = True
     if delayed is not None and mean_improvement <= delayed:
         reasons.append("does not beat delayed-prediction control")
+        statistical_failure = True
     if shuffled is not None and mean_improvement <= shuffled:
         reasons.append("does not beat shuffled-prediction control")
+        statistical_failure = True
+
+    instrument_counts = Counter(
+        item.forecast.instrument_id for item in observations
+    )
+    unique_instruments = len(instrument_counts)
+    largest_instrument_share = max(instrument_counts.values()) / len(observations)
+    diversity_missing = False
+    if specialist_id in _DIVERSITY_GUARDED_SPECIALISTS:
+        if unique_instruments < config.minimum_unique_instruments:
+            reasons.append(
+                f"needs outcomes from at least {config.minimum_unique_instruments} instruments"
+            )
+            diversity_missing = True
+        if largest_instrument_share > config.maximum_instrument_share:
+            reasons.append(
+                f"largest instrument share {largest_instrument_share:.1%} exceeds "
+                f"{config.maximum_instrument_share:.1%} gate"
+            )
+            diversity_missing = True
 
     enough = len(observations) >= config.min_independent_outcomes
-    status = EdgeStatus.CANDIDATE if enough and not reasons else (
-        EdgeStatus.REJECTED if enough else EdgeStatus.COLLECTING
-    )
+    if not enough:
+        status = EdgeStatus.COLLECTING
+    elif statistical_failure:
+        status = EdgeStatus.REJECTED
+    elif diversity_missing:
+        status = EdgeStatus.COLLECTING
+    else:
+        status = EdgeStatus.CANDIDATE
     return SpecialistEvaluation(
         specialist_id,
         kind,
@@ -329,7 +381,7 @@ def _evaluate_group(
         len(unique_forecasts),
         len(raw_observations),
         len(observations),
-        len({item.forecast.instrument_id for item in observations}),
+        unique_instruments,
         mean_loss,
         mean_benchmark,
         loss_ratio,

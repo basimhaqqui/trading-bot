@@ -102,13 +102,16 @@ class EconomicReplayTests(unittest.TestCase):
         for cluster_index, actual in enumerate((0.04, -0.04)):
             target_time = self.base + timedelta(hours=cluster_index + 1)
             for instrument_index in range(2):
+                generated_at = target_time - timedelta(hours=1)
+                if instrument_index == cluster_index:
+                    generated_at += timedelta(minutes=1)
                 forecast = Forecast(
                     f"crypto-{cluster_index}-{instrument_index}",
                     "crypto-range-breakout-continuation-baseline",
                     "baseline-v1",
                     f"coinbase:product:ASSET-{instrument_index}-USD",
                     ForecastKind.RETURN_DISTRIBUTION,
-                    target_time - timedelta(hours=1),
+                    generated_at,
                     target_time,
                     {"predicted_return": actual, "benchmark_return": 0.0},
                     0.4,
