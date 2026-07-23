@@ -102,6 +102,54 @@
       "limit": 30
     },
     {
+      "job_id": "coinbase-xrp-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "XRP-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-ada-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "ADA-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-avax-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "AVAX-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-link-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "LINK-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-ltc-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "LTC-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-bch-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "BCH-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
       "job_id": "alpaca-spy-bars",
       "venue": "alpaca",
       "dataset": "bars",
