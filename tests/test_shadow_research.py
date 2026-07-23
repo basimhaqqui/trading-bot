@@ -358,6 +358,59 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(len(candidates), 40)
         self.assertEqual(events_available_at.call_count, 1)
 
+    def test_option_candidate_waits_for_active_forecast_horizon(self):
+        option = Instrument(
+            "alpaca:option:SPY260918C00600000",
+            "alpaca",
+            "SPY260918C00600000",
+            AssetClass.OPTION,
+            "USD",
+            100,
+            metadata={"underlying_symbol": "SPY"},
+        )
+        self.store.register_instrument(option)
+        quote_ids = []
+        for index in range(3):
+            event_id = f"active-option-quote-{index}"
+            quote_ids.append(event_id)
+            self.store.append_event(
+                self.event(
+                    event_id,
+                    MarketEventType.QUOTE,
+                    option,
+                    {
+                        "bid_price": 4.9,
+                        "ask_price": 5.1,
+                        "implied_volatility": 0.2 + index * 0.01,
+                        "feed": "indicative",
+                    },
+                    event_time=self.now - timedelta(minutes=3 - index),
+                )
+            )
+
+        self.assertEqual(len(self.runner._option_candidates(self.now)), 1)
+        self.audit.append_forecast(
+            Forecast(
+                "active-option-forecast",
+                "options-implied-volatility-state-baseline",
+                "baseline-v1",
+                option.instrument_id,
+                ForecastKind.VOLATILITY,
+                self.now - timedelta(minutes=1),
+                self.now + timedelta(days=1),
+                {
+                    "current_implied_volatility": 0.22,
+                    "expected_implied_volatility": 0.21,
+                },
+                0.25,
+                {"observations": 3.0},
+                tuple(quote_ids),
+                ("test fixture",),
+            )
+        )
+
+        self.assertEqual(self.runner._option_candidates(self.now), [])
+
     def test_prediction_candidate_discovery_uses_three_bulk_event_reads(self):
         self.add_prediction_history()
         for index in range(40):

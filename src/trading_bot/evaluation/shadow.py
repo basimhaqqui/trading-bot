@@ -299,6 +299,15 @@ class ShadowResearchRunner:
 
     def _option_candidates(self, as_of: datetime) -> list[_Candidate]:
         specialist = OptionVolatilitySpecialist()
+        scored_ids = self.audit.scored_forecast_ids()
+        active_instruments = {
+            forecast.instrument_id
+            for forecast in self.audit.forecasts()
+            if forecast.specialist_id == specialist.agent_id
+            and forecast.kind is ForecastKind.VOLATILITY
+            and forecast.forecast_id not in scored_ids
+            and forecast.valid_until > as_of
+        }
         equities = self.store.instruments(asset_class=AssetClass.EQUITY)
         by_symbol = {(item.venue, item.symbol.upper()): item for item in equities}
         options = self.store.instruments(asset_class=AssetClass.OPTION)
@@ -312,6 +321,8 @@ class ShadowResearchRunner:
             quotes_by_instrument.setdefault(quote.instrument_id, []).append(quote)
         candidates: list[_Candidate] = []
         for option in options:
+            if option.instrument_id in active_instruments:
+                continue
             quotes = quotes_by_instrument.get(option.instrument_id, [])
             quotes.sort(
                 key=lambda item: (item.available_at, item.event_time, item.event_id)
