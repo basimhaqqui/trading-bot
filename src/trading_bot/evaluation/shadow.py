@@ -34,6 +34,7 @@ from trading_bot.evaluation.scoring import (
     score_return_forecast,
     score_volatility_forecast,
 )
+from trading_bot.evaluation.outcomes import forecast_outcome_target_time
 from trading_bot.replay import ReplayEngine
 
 
@@ -49,6 +50,11 @@ class ForecastGenerationSummary:
 @dataclass(frozen=True)
 class ForecastScoringSummary:
     unscored: int
+    not_due: int
+    due_unmatched: int
+    quarantined: int
+    next_due_at: datetime | None
+    oldest_due_at: datetime | None
     matched: int
     appended: int
     existing: int
@@ -138,11 +144,27 @@ class ShadowResearchRunner:
         matched = 0
         appended = 0
         existing = 0
+        not_due = 0
+        due_unmatched = 0
+        quarantined = 0
+        next_due_at: datetime | None = None
+        oldest_due_at: datetime | None = None
         errors: list[str] = []
         for forecast in forecasts:
             try:
                 score = self._match_score(forecast, as_of)
                 if score is None:
+                    target_time = forecast_outcome_target_time(forecast)
+                    if target_time is None:
+                        quarantined += 1
+                    elif target_time > as_of:
+                        not_due += 1
+                        if next_due_at is None or target_time < next_due_at:
+                            next_due_at = target_time
+                    else:
+                        due_unmatched += 1
+                        if oldest_due_at is None or target_time < oldest_due_at:
+                            oldest_due_at = target_time
                     continue
                 matched += 1
                 if self.audit.append_forecast_score(score):
@@ -154,7 +176,16 @@ class ShadowResearchRunner:
                     f"{forecast.forecast_id}: {type(exc).__name__}: {exc}"
                 )
         return ForecastScoringSummary(
-            len(forecasts), matched, appended, existing, tuple(errors)
+            len(forecasts),
+            not_due,
+            due_unmatched,
+            quarantined,
+            next_due_at,
+            oldest_due_at,
+            matched,
+            appended,
+            existing,
+            tuple(errors),
         )
 
     def _candidates(self, as_of: datetime) -> tuple[_Candidate, ...]:

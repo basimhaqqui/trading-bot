@@ -208,7 +208,12 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(forecast.values["state"], "cohort_adjusted")
         self.assertEqual(forecast.values["outcome_cluster"], "TARGET-EVENT")
         self.assertEqual(forecast.values["target_time"], forecast.valid_until.isoformat())
-        self.assertEqual(self.runner.score_available(as_of=self.now).matched, 0)
+        waiting = self.runner.score_available(as_of=self.now)
+        self.assertEqual(waiting.matched, 0)
+        self.assertEqual(waiting.not_due, 1)
+        self.assertEqual(waiting.due_unmatched, 0)
+        self.assertEqual(waiting.next_due_at, forecast.valid_until)
+        self.assertIsNone(waiting.oldest_due_at)
 
         late_label_time = self.now + timedelta(minutes=1)
         self.store.append_event(
@@ -225,6 +230,12 @@ class ShadowResearchTests(unittest.TestCase):
             self.runner.score_available(as_of=late_label_time).matched,
             0,
         )
+
+        due = self.runner.score_available(as_of=forecast.valid_until)
+        self.assertEqual(due.not_due, 0)
+        self.assertEqual(due.due_unmatched, 1)
+        self.assertIsNone(due.next_due_at)
+        self.assertEqual(due.oldest_due_at, forecast.valid_until)
 
         settlement_time = self.now + timedelta(days=2)
         self.store.append_event(
@@ -461,8 +472,8 @@ class ShadowResearchTests(unittest.TestCase):
             )
         )
         self.assertEqual(
-            self.runner.score_available(as_of=settlement_time).matched,
-            0,
+            self.runner.score_available(as_of=settlement_time).quarantined,
+            1,
         )
 
     def test_breakout_forecast_scores_only_on_future_completed_bar(self):
