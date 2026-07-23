@@ -542,6 +542,50 @@ class IngestionTests(unittest.TestCase):
                 )
             )
 
+        unsafe = Instrument(
+            "kalshi:prediction:KXUNSAFE-YES",
+            "kalshi",
+            "KXUNSAFE-YES",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(unsafe)
+        unsafe_rule = MarketEvent(
+            "rule-KXUNSAFE-YES",
+            MarketEventType.CONTRACT_RULE,
+            "kalshi",
+            unsafe.instrument_id,
+            self.now - timedelta(hours=2),
+            self.now - timedelta(hours=2),
+            "fixture",
+            {
+                "close_time": (self.now - timedelta(hours=1)).isoformat(),
+                "occurrence_datetime": (self.now - timedelta(hours=3)).isoformat(),
+            },
+            ingested_at=self.now - timedelta(hours=2),
+        )
+        self.store.append_event(unsafe_rule)
+        audit.append_forecast(
+            Forecast(
+                "unsafe-v2-forecast",
+                "prediction-market-calibration-baseline-v2",
+                "baseline-v2",
+                unsafe.instrument_id,
+                ForecastKind.BINARY_PROBABILITY,
+                self.now - timedelta(hours=2),
+                self.now - timedelta(hours=1),
+                {
+                    "probability": 0.9,
+                    "market_probability": 0.9,
+                    "outcome_cluster": (self.now - timedelta(hours=3)).isoformat(),
+                },
+                0.25,
+                {"market_spread": 0.02},
+                (unsafe_rule.event_id,),
+                ("post-occurrence information invalidates the forecast",),
+            )
+        )
+
         settlement = MarketEvent(
             "closed-settlement",
             MarketEventType.SETTLEMENT,
