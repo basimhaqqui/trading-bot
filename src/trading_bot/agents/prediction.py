@@ -155,18 +155,26 @@ class PredictionMarketCalibrationSpecialist:
             result = str(settlement.payload.get("result", "")).lower()
             if result not in {"yes", "no"}:
                 continue
-            eligible = [
-                book
-                for book in books_by_instrument[settlement.instrument_id]
-                if book.available_at <= settlement.event_time
-            ]
+            occurrence_time = _settlement_occurrence_time(settlement)
+            if occurrence_time is None:
+                continue
+            eligible: list[tuple[MarketEvent, tuple[float, float, float, float]]] = []
+            for book in books_by_instrument[settlement.instrument_id]:
+                time_to_occurrence = occurrence_time - book.available_at
+                executable = prediction_book(book)
+                if (
+                    book.event_time <= occurrence_time
+                    and self.config.min_forecast_horizon
+                    < time_to_occurrence
+                    <= self.config.forecast_horizon
+                    and executable is not None
+                    and executable[3] <= self.config.max_book_spread
+                ):
+                    eligible.append((book, executable))
             if not eligible:
                 continue
-            eligible.sort(key=lambda event: (event.available_at, event.event_id))
-            historical_book = eligible[-1]
-            executable = prediction_book(historical_book)
-            if executable is None:
-                continue
+            eligible.sort(key=lambda item: (item[0].available_at, item[0].event_id))
+            historical_book, executable = eligible[-1]
             historical_probability = executable[2]
             if abs(historical_probability - target_probability) <= self.config.probability_bucket_radius:
                 event_key = _settlement_event_key(settlement)
@@ -209,6 +217,20 @@ def _settlement_event_key(settlement: MarketEvent) -> str:
     if isinstance(occurrence, str) and occurrence:
         return f"occurrence:{occurrence}"
     return f"instrument:{settlement.instrument_id}"
+
+
+def _settlement_occurrence_time(settlement: MarketEvent) -> datetime | None:
+    value = settlement.payload.get("occurrence_datetime")
+    if not isinstance(value, str) or not value:
+        raw_market = settlement.payload.get("raw_market")
+        if isinstance(raw_market, dict):
+            value = raw_market.get("occurrence_datetime")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return parse_datetime(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def prediction_occurrence_time(rule: MarketEvent) -> datetime | None:
