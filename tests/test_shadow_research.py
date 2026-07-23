@@ -253,6 +253,63 @@ class ShadowResearchTests(unittest.TestCase):
         )
         self.assertEqual(scored.appended, 1)
 
+    def test_prediction_forecast_scores_early_public_settlement(self):
+        self.add_prediction_history()
+        market = Instrument(
+            "kalshi:prediction:EARLY-TARGET",
+            "kalshi",
+            "EARLY-TARGET",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        occurrence = self.now + timedelta(hours=7)
+        self.store.append_event(
+            self.event(
+                "early-target-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "rules_primary": "Named public source.",
+                    "event_ticker": "EARLY-TARGET-EVENT",
+                    "occurrence_datetime": occurrence.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=2),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "early-target-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        generated = self.runner.run(as_of=self.now)
+        self.assertEqual(generated.generation.appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(forecast.valid_until, occurrence)
+
+        settlement_time = self.now + timedelta(hours=2)
+        self.store.append_event(
+            self.event(
+                "early-target-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {
+                    "result": "no",
+                    "event_ticker": "EARLY-TARGET-EVENT",
+                    "occurrence_datetime": occurrence.isoformat(),
+                },
+                event_time=settlement_time,
+            )
+        )
+        scored = self.runner.score_available(as_of=settlement_time)
+
+        self.assertEqual(scored.appended, 1)
+        self.assertEqual(self.audit.forecast_scores()[0].target_time, settlement_time)
+
     def test_option_forecast_scores_only_at_the_full_horizon(self):
         option = Instrument(
             "alpaca:option:AAPL260918C00200000",
