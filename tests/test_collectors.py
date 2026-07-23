@@ -81,6 +81,73 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(trades.events[0].event_id, "kalshi:trade:trade-1")
         self.assertIn(DiagnosticCode.CROSSED_BOOK, {item.code for item in book.diagnostics})
 
+    def test_kalshi_market_filters_support_binary_universe_and_exact_tickers(self):
+        transport = FakeTransport({"/markets": {"markets": [], "cursor": ""}})
+
+        KalshiCollector(transport).collect_markets(
+            collected_at=self.collected,
+            status=None,
+            limit=2,
+            tickers=("KXONE-YES", "KXTWO-NO"),
+            mve_filter="exclude",
+        )
+
+        self.assertEqual(
+            transport.calls[0][1],
+            {
+                "status": None,
+                "limit": 2,
+                "cursor": None,
+                "tickers": "KXONE-YES,KXTWO-NO",
+                "mve_filter": "exclude",
+                "min_close_ts": None,
+                "max_close_ts": None,
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "unique values"):
+            KalshiCollector(transport).collect_markets(
+                tickers=("KXONE-YES", "KXONE-YES")
+            )
+        with self.assertRaisesRegex(ValueError, "invalid Kalshi ticker"):
+            KalshiCollector(transport).collect_markets(tickers=("KX/BAD",))
+
+    def test_kalshi_close_window_filters_out_nonactive_markets(self):
+        transport = FakeTransport(
+            {
+                "/markets": {
+                    "markets": [
+                        {
+                            "ticker": "KXACTIVE-YES",
+                            "status": "active",
+                            "updated_time": "2026-07-21T19:55:00Z",
+                            "yes_bid_dollars": "0.50",
+                            "no_bid_dollars": "0.48",
+                        },
+                        {
+                            "ticker": "KXINITIALIZED-YES",
+                            "status": "initialized",
+                            "updated_time": "2026-07-21T19:55:00Z",
+                            "yes_bid_dollars": "0.50",
+                            "no_bid_dollars": "0.48",
+                        },
+                    ],
+                    "cursor": "",
+                }
+            }
+        )
+
+        batch = KalshiCollector(transport).collect_markets(
+            collected_at=self.collected,
+            status=None,
+            min_close_ts=100,
+            max_close_ts=200,
+            active_only=True,
+        )
+
+        self.assertEqual([item.symbol for item in batch.instruments], ["KXACTIVE-YES"])
+        self.assertEqual(transport.calls[0][1]["min_close_ts"], 100)
+        self.assertEqual(transport.calls[0][1]["max_close_ts"], 200)
+
     def test_coinbase_maps_spot_and_perpetual_observations(self):
         transport = FakeTransport(
             {
@@ -310,10 +377,12 @@ class CollectorTests(unittest.TestCase):
                     "markets": [
                         {
                             "ticker": "KXSETTLED-YES",
+                            "event_ticker": "KXSETTLED",
                             "market_type": "binary",
                             "status": "finalized",
                             "updated_time": "2026-07-21T18:00:00Z",
                             "settlement_ts": "2026-07-21T19:00:00Z",
+                            "occurrence_datetime": "2026-07-21T18:45:00Z",
                             "result": "yes",
                             "settlement_value_dollars": "1.0000",
                             "rules_primary": "Use the named source.",
@@ -331,6 +400,11 @@ class CollectorTests(unittest.TestCase):
         ]
         self.assertEqual(len(settlements), 1)
         self.assertEqual(settlements[0].payload["result"], "yes")
+        self.assertEqual(settlements[0].payload["event_ticker"], "KXSETTLED")
+        self.assertEqual(
+            settlements[0].payload["occurrence_datetime"],
+            "2026-07-21T18:45:00Z",
+        )
         self.assertEqual(
             settlements[0].event_time,
             datetime(2026, 7, 21, 19, tzinfo=timezone.utc),

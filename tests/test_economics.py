@@ -141,6 +141,10 @@ class EconomicReplayTests(unittest.TestCase):
         self.assertEqual(registry.version, "public-shadow-costs-v1")
         self.assertEqual(len(registry.models), 3)
         self.assertEqual(registry.models[0].fee_bps, 120)
+        self.assertEqual(
+            registry.models[2].specialist_id,
+            "prediction-market-calibration-baseline-v2",
+        )
 
     def test_binary_replay_uses_executable_side_and_rounded_contract_fee(self):
         observations = []

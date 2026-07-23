@@ -4,6 +4,7 @@ from trading_bot.core.schemas import AssetClass, Hypothesis
 
 
 BASELINE_PROPOSED_AT = datetime(2026, 7, 21, tzinfo=timezone.utc)
+PREDICTION_V2_PROPOSED_AT = datetime(2026, 7, 23, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -59,13 +60,14 @@ OPTIONS_VOLATILITY_HYPOTHESIS = Hypothesis(
 
 
 PREDICTION_CALIBRATION_HYPOTHESIS = Hypothesis(
-    hypothesis_id="prediction-market-calibration-baseline-v1",
+    hypothesis_id="prediction-market-calibration-baseline-v2",
     family="prediction-market-calibration",
     market=AssetClass.PREDICTION,
     mechanism=(
-        "Executable market probabilities are the primary prior, but repeated, resolved "
-        "contracts may reveal stable probability-bucket calibration errors after conditioning "
-        "on time horizon, spread, and exact settlement rules."
+        "Executable market probabilities are the primary prior, but resolved, independent "
+        "underlying occurrences may reveal stable probability-bucket calibration errors after "
+        "conditioning on time horizon, spread, and exact settlement rules. Correlated props "
+        "and strikes from one occurrence contribute at most one calibration sample."
     ),
     target="binary settlement probability",
     horizon="until contract resolution",
@@ -74,13 +76,14 @@ PREDICTION_CALIBRATION_HYPOTHESIS = Hypothesis(
         "contract settlement rules",
         "point-in-time books from resolved related markets",
         "resolved outcomes available before forecast time",
+        "a pre-declared maximum executable spread of ten cents",
     ),
     invalidation_conditions=(
         "calibration adjustment does not improve held-out Brier or log loss",
         "improvement disappears by resolution cohort or time-to-event bucket",
         "spread, contract wording, or selection bias explains the apparent adjustment",
     ),
-    proposed_at=BASELINE_PROPOSED_AT,
+    proposed_at=PREDICTION_V2_PROPOSED_AT,
 )
 
 

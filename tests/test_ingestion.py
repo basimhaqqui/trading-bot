@@ -2,11 +2,19 @@ import json
 import sqlite3
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
+from trading_bot.core.audit import AuditLedger
+from trading_bot.core.schemas import (
+    AssetClass,
+    Forecast,
+    ForecastKind,
+    Instrument,
+    MarketEvent,
+    MarketEventType,
+)
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.data.schemas import (
     CollectionBatch,
@@ -14,6 +22,7 @@ from trading_bot.data.schemas import (
     DiagnosticCode,
     DiagnosticSeverity,
 )
+from trading_bot.evaluation.shadow import ShadowResearchRunner
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan, load_plan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
@@ -74,13 +83,16 @@ class PaginatedAlpacaCollector:
 
 
 class FakeKalshiCollector:
-    def __init__(self):
+    def __init__(self, market_batch=None):
         self.market_cursor = None
         self.trade_cursor = None
+        self.market_kwargs = {}
+        self.market_batch = market_batch or CollectionBatch("kalshi")
 
     def collect_markets(self, **kwargs):
         self.market_cursor = kwargs.get("cursor")
-        return CollectionBatch("kalshi")
+        self.market_kwargs = kwargs
+        return self.market_batch
 
     def collect_trades(self, **kwargs):
         self.trade_cursor = kwargs.get("cursor")
@@ -296,14 +308,172 @@ class IngestionTests(unittest.TestCase):
             "alpaca-page-2",
         )
 
-    def test_restart_cursor_mode_is_restricted_to_alpaca_chains(self):
-        with self.assertRaisesRegex(ValueError, "only valid for Alpaca chain"):
+    def test_restart_cursor_mode_is_restricted_to_allowlisted_paginated_jobs(self):
+        with self.assertRaisesRegex(ValueError, "not valid for this observation job"):
             ObservationJob(
                 "products",
                 "coinbase",
                 "products",
                 cursor_mode="restart",
             )
+
+    def test_mve_filter_is_restricted_to_kalshi_market_jobs(self):
+        self.assertEqual(
+            ObservationJob(
+                "binary-markets",
+                "kalshi",
+                "markets",
+                mve_filter="exclude",
+            ).mve_filter,
+            "exclude",
+        )
+        with self.assertRaisesRegex(ValueError, "only valid for Kalshi market"):
+            ObservationJob(
+                "trades",
+                "kalshi",
+                "trades",
+                mve_filter="exclude",
+            )
+
+    def test_close_lookahead_is_bounded_and_restricted_to_open_kalshi_markets(self):
+        job = ObservationJob(
+            "closing-markets",
+            "kalshi",
+            "markets",
+            close_lookahead_hours=48,
+        )
+        self.assertEqual(job.close_lookahead_hours, 48)
+        with self.assertRaisesRegex(ValueError, "between 1 and 168"):
+            ObservationJob(
+                "too-wide",
+                "kalshi",
+                "markets",
+                close_lookahead_hours=169,
+            )
+        with self.assertRaisesRegex(ValueError, "must target open"):
+            ObservationJob(
+                "settled",
+                "kalshi",
+                "markets",
+                status="settled",
+                close_lookahead_hours=48,
+            )
+        with self.assertRaisesRegex(ValueError, "must be only or exclude"):
+            ObservationJob(
+                "markets",
+                "kalshi",
+                "markets",
+                mve_filter="invalid",
+            )
+
+    def test_forecast_outcome_job_polls_only_closed_unscored_binary_markets(self):
+        audit = AuditLedger(self.db_path)
+        audit.initialize()
+        closed = Instrument(
+            "kalshi:prediction:KXCLOSED-YES",
+            "kalshi",
+            "KXCLOSED-YES",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        active = Instrument(
+            "kalshi:prediction:KXACTIVE-YES",
+            "kalshi",
+            "KXACTIVE-YES",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        mve = Instrument(
+            "kalshi:prediction:KXMVE-COMBO",
+            "kalshi",
+            "KXMVE-COMBO",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        for instrument, close_time, mve_ticker in (
+            (closed, self.now - timedelta(hours=1), None),
+            (active, self.now + timedelta(hours=1), None),
+            (mve, self.now - timedelta(hours=1), "KXMVE-COLLECTION"),
+        ):
+            self.store.register_instrument(instrument)
+            rule = MarketEvent(
+                f"rule-{instrument.symbol}",
+                MarketEventType.CONTRACT_RULE,
+                "kalshi",
+                instrument.instrument_id,
+                self.now - timedelta(hours=2),
+                self.now - timedelta(hours=2),
+                "fixture",
+                {
+                    "close_time": close_time.isoformat(),
+                    "mve_collection_ticker": mve_ticker,
+                },
+                ingested_at=self.now - timedelta(hours=2),
+            )
+            self.store.append_event(rule)
+            audit.append_forecast(
+                Forecast(
+                    f"forecast-{instrument.symbol}",
+                    "prediction-market-calibration-baseline",
+                    "baseline-v1",
+                    instrument.instrument_id,
+                    ForecastKind.BINARY_PROBABILITY,
+                    self.now - timedelta(hours=2),
+                    self.now - timedelta(hours=1),
+                    {"probability": 0.5, "market_probability": 0.5},
+                    0.25,
+                    {"market_spread": 0.1},
+                    (rule.event_id,),
+                    ("no edge",),
+                )
+            )
+
+        settlement = MarketEvent(
+            "closed-settlement",
+            MarketEventType.SETTLEMENT,
+            "kalshi",
+            closed.instrument_id,
+            self.now - timedelta(minutes=30),
+            self.now,
+            "fixture",
+            {
+                "result": "yes",
+                "event_ticker": "KXCLOSED",
+                "occurrence_datetime": (self.now - timedelta(minutes=30)).isoformat(),
+            },
+            ingested_at=self.now,
+        )
+        collector = FakeKalshiCollector(
+            CollectionBatch("kalshi", (closed,), (settlement,))
+        )
+        runner = ShadowIngestionRunner(
+            self.store,
+            self.ledger,
+            collector_factory=lambda venue, dataset: collector,
+            audit=audit,
+        )
+        plan = ShadowIngestionPlan(
+            "forecast-outcomes",
+            (
+                ObservationJob(
+                    "forecast-outcomes",
+                    "kalshi",
+                    "forecast_outcomes",
+                    limit=100,
+                    cursor_mode="restart",
+                ),
+            ),
+        )
+
+        record = runner.run_plan(plan, collected_at=self.now)[0]
+
+        self.assertEqual(record.status, IngestionRunStatus.SUCCESS)
+        self.assertEqual(collector.market_kwargs["tickers"], ("KXCLOSED-YES",))
+        self.assertIsNone(collector.market_kwargs["status"])
+        self.assertEqual(collector.market_kwargs["mve_filter"], "exclude")
+        self.assertIsNone(collector.market_kwargs["cursor"])
+        scored = ShadowResearchRunner(self.store, audit).score_available(as_of=self.now)
+        self.assertEqual(scored.appended, 1)
         with self.assertRaisesRegex(ValueError, "must be resume or restart"):
             ObservationJob(
                 "options",
@@ -324,6 +494,24 @@ class IngestionTests(unittest.TestCase):
             by_symbol,
             {symbol: {"resume", "restart"} for symbol in by_symbol},
         )
+
+    def test_checked_in_prediction_plan_excludes_mve_and_tracks_outcomes(self):
+        plan = load_plan("config/shadow-ingestion.json")
+        open_job = next(job for job in plan.jobs if job.job_id == "kalshi-open-markets")
+        outcome_job = next(
+            job for job in plan.jobs if job.job_id == "kalshi-forecast-outcomes"
+        )
+        latest_job = next(
+            job for job in plan.jobs if job.job_id == "kalshi-latest-settlements"
+        )
+
+        self.assertEqual(open_job.mve_filter, "exclude")
+        self.assertEqual(open_job.close_lookahead_hours, 48)
+        self.assertEqual(open_job.cursor_mode, "restart")
+        self.assertEqual(outcome_job.dataset, "forecast_outcomes")
+        self.assertEqual(outcome_job.cursor_mode, "restart")
+        self.assertEqual(latest_job.cursor_mode, "restart")
+        self.assertEqual(latest_job.mve_filter, "exclude")
 
     def test_alpaca_activation_requires_both_read_only_environment_values(self):
         job = ObservationJob(

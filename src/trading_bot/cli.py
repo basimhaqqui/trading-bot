@@ -586,7 +586,7 @@ def _shadow_cycle(path: Path, plan_path: Path, *, validate_only: bool = False) -
         return 0
     store, _, audit = _initialize(path)
     ledger = IngestionRunLedger(path)
-    records = ShadowIngestionRunner(store, ledger).run_plan(plan)
+    records = ShadowIngestionRunner(store, ledger, audit=audit).run_plan(plan)
     for record in records:
         print(
             f"{record.job_id}: {record.status.value} "

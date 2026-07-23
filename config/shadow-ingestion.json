@@ -6,14 +6,34 @@
       "venue": "kalshi",
       "dataset": "markets",
       "status": "open",
-      "limit": 250
+      "limit": 250,
+      "cursor_mode": "restart",
+      "mve_filter": "exclude",
+      "close_lookahead_hours": 48
     },
     {
       "job_id": "kalshi-recent-settlements",
       "venue": "kalshi",
       "dataset": "markets",
       "status": "settled",
-      "limit": 250
+      "limit": 250,
+      "mve_filter": "exclude"
+    },
+    {
+      "job_id": "kalshi-latest-settlements",
+      "venue": "kalshi",
+      "dataset": "markets",
+      "status": "settled",
+      "limit": 250,
+      "cursor_mode": "restart",
+      "mve_filter": "exclude"
+    },
+    {
+      "job_id": "kalshi-forecast-outcomes",
+      "venue": "kalshi",
+      "dataset": "forecast_outcomes",
+      "limit": 100,
+      "cursor_mode": "restart"
     },
     {
       "job_id": "kalshi-recent-trades",
