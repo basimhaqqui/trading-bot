@@ -622,7 +622,6 @@ class ShadowResearchRunner:
             if (
                 event.available_at <= forecast.generated_at
                 or event.event_time < forecast.generated_at
-                or (target_time is not None and event.event_time < target_time)
                 or result not in {"yes", "no"}
             ):
                 continue
