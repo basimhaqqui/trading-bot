@@ -164,6 +164,86 @@
       "limit": 30
     },
     {
+      "job_id": "coinbase-hype-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "HYPE-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-zec-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "ZEC-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-xlm-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "XLM-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-ondo-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "ONDO-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-hbar-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "HBAR-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-near-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "NEAR-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-sui-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "SUI-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-uni-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "UNI-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-tao-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "TAO-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
+      "job_id": "coinbase-pump-hourly-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "PUMP-USD",
+      "granularity": "ONE_HOUR",
+      "limit": 30
+    },
+    {
       "job_id": "alpaca-spy-bars",
       "venue": "alpaca",
       "dataset": "bars",
