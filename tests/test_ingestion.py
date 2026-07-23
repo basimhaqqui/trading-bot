@@ -682,6 +682,16 @@ class IngestionTests(unittest.TestCase):
                 "LINK-USD",
                 "LTC-USD",
                 "BCH-USD",
+                "HYPE-USD",
+                "ZEC-USD",
+                "XLM-USD",
+                "ONDO-USD",
+                "HBAR-USD",
+                "NEAR-USD",
+                "SUI-USD",
+                "UNI-USD",
+                "TAO-USD",
+                "PUMP-USD",
             },
         )
         self.assertTrue(
