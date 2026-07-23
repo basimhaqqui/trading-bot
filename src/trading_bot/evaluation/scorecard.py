@@ -121,6 +121,17 @@ class OutcomeQueueSummary:
 
 
 @dataclass(frozen=True)
+class StrategyOutcomeQueue:
+    specialist_id: str
+    kind: str
+    pending: int
+    not_due: int
+    due_unmatched: int
+    next_due_at: datetime | None
+    oldest_due_at: datetime | None
+
+
+@dataclass(frozen=True)
 class PredictionCalibrationReadiness:
     eligible_independent_events: int
     eligible_open_events: int
@@ -140,6 +151,7 @@ class DailyScorecard:
     economics: tuple[EconomicSummary, ...]
     paper: PaperOperationsSummary
     outcome_queue: OutcomeQueueSummary
+    strategy_outcome_queues: tuple[StrategyOutcomeQueue, ...]
     prediction_calibration: PredictionCalibrationReadiness
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
@@ -265,6 +277,11 @@ def build_daily_scorecard(
         reconciliation_records,
     )
     outcome_queue = _outcome_queue(forecasts, scores, as_of)
+    strategy_outcome_queues = _strategy_outcome_queues(
+        forecasts,
+        scores,
+        as_of,
+    )
     prediction_calibration = _prediction_calibration_readiness(path, as_of)
     alerts = _build_alerts(
         health, strategies, economics, totals, paper, outcome_queue
@@ -278,6 +295,7 @@ def build_daily_scorecard(
         economics,
         paper,
         outcome_queue,
+        strategy_outcome_queues,
         prediction_calibration,
         health,
         alerts,
@@ -325,6 +343,11 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
         lines.append(
             f"{strategy.specialist_id}/{strategy.kind}: {strategy.status.value} "
             f"outcomes={strategy.outcomes}/{strategy.required_outcomes}"
+        )
+    for queue in scorecard.strategy_outcome_queues:
+        lines.append(
+            f"{queue.specialist_id}/{queue.kind} pending: "
+            f"not_due={queue.not_due} due_unmatched={queue.due_unmatched}"
         )
     return "\n".join(lines)
 
@@ -494,6 +517,39 @@ def _outcome_queue(
         min(future) if future else None,
         min(due) if due else None,
     )
+
+
+def _strategy_outcome_queues(
+    forecasts: tuple[Forecast, ...],
+    scores: tuple[ForecastScore, ...],
+    as_of: datetime,
+) -> tuple[StrategyOutcomeQueue, ...]:
+    scored_ids = {score.forecast_id for score in scores}
+    grouped: dict[tuple[str, str], list[datetime]] = {}
+    for forecast in forecasts:
+        if forecast.forecast_id in scored_ids:
+            continue
+        target = forecast_outcome_target_time(forecast)
+        if target is None:
+            continue
+        key = (forecast.specialist_id, forecast.kind.value)
+        grouped.setdefault(key, []).append(target)
+    summaries: list[StrategyOutcomeQueue] = []
+    for (specialist_id, kind), targets in sorted(grouped.items()):
+        future = [target for target in targets if target > as_of]
+        due = [target for target in targets if target <= as_of]
+        summaries.append(
+            StrategyOutcomeQueue(
+                specialist_id,
+                kind,
+                len(targets),
+                len(future),
+                len(due),
+                min(future) if future else None,
+                min(due) if due else None,
+            )
+        )
+    return tuple(summaries)
 
 
 def _prediction_calibration_readiness(
@@ -788,6 +844,33 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 if scorecard.outcome_queue.oldest_due_at is not None
                 else "Oldest due without outcome: —"
             ),
+            "",
+            "### Pending outcomes by strategy",
+            "",
+            "| Specialist | Forecast | Pending | Not due | Due | Next due | Oldest due |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    if not scorecard.strategy_outcome_queues:
+        lines.append("| none | — | 0 | 0 | 0 | — | — |")
+    for queue in scorecard.strategy_outcome_queues:
+        next_due = (
+            f"`{queue.next_due_at.isoformat()}`"
+            if queue.next_due_at is not None
+            else "—"
+        )
+        oldest_due = (
+            f"`{queue.oldest_due_at.isoformat()}`"
+            if queue.oldest_due_at is not None
+            else "—"
+        )
+        lines.append(
+            f"| `{queue.specialist_id}` | {queue.kind} | {queue.pending} | "
+            f"{queue.not_due} | {queue.due_unmatched} | {next_due} | "
+            f"{oldest_due} |"
+        )
+    lines.extend(
+        [
             "",
             "### Prediction calibration readiness",
             "",
