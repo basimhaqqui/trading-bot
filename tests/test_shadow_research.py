@@ -252,6 +252,14 @@ class ShadowResearchTests(unittest.TestCase):
             as_of=settlement_time + timedelta(minutes=5)
         )
         self.assertEqual(scored.appended, 1)
+        self.assertEqual(
+            self.audit.forecast_scores()[0].target_time,
+            forecast.valid_until,
+        )
+        self.assertEqual(
+            self.audit.forecast_scores()[0].scored_at,
+            settlement_time + timedelta(minutes=5),
+        )
 
     def test_prediction_history_cap_balances_independent_events(self):
         self.add_prediction_history()
@@ -413,7 +421,8 @@ class ShadowResearchTests(unittest.TestCase):
         scored = self.runner.score_available(as_of=settlement_time)
 
         self.assertEqual(scored.appended, 1)
-        self.assertEqual(self.audit.forecast_scores()[0].target_time, settlement_time)
+        self.assertEqual(self.audit.forecast_scores()[0].target_time, occurrence)
+        self.assertEqual(self.audit.forecast_scores()[0].scored_at, settlement_time)
 
     def test_option_forecast_scores_only_at_the_full_horizon(self):
         option = Instrument(

@@ -9,6 +9,7 @@ from enum import StrEnum
 from trading_bot.core.schemas import Forecast
 from trading_bot.core.serialization import sha256_digest
 from trading_bot.evaluation.costs import CostBasis, EconomicCostModel, EconomicCostRegistry
+from trading_bot.evaluation.outcomes import evaluation_outcome_target_time
 from trading_bot.evaluation.reporting import (
     EdgeStatus,
     WalkForwardReport,
@@ -173,10 +174,11 @@ def _latest_independent_scores(
         forecast = forecasts_by_id.get(score.forecast_id)
         if forecast is None or forecast.specialist_id != score.specialist_id:
             continue
+        target_time = evaluation_outcome_target_time(forecast, score.target_time)
         key = (
             score.specialist_id,
             score.kind,
-            independent_outcome_key(forecast, score.target_time),
+            independent_outcome_key(forecast, target_time),
         )
         existing = latest.get(key)
         if existing is None or (forecast.generated_at, forecast.forecast_id) > (
@@ -192,7 +194,9 @@ def _latest_independent_scores(
             sorted(
                 values,
                 key=lambda item: (
-                    item[1].target_time,
+                    evaluation_outcome_target_time(
+                        item[0], item[1].target_time
+                    ),
                     item[0].instrument_id,
                     item[0].forecast_id,
                 ),
@@ -275,7 +279,7 @@ def _trade(
         raise ValueError("economic returns and costs must be finite and costs nonnegative")
     return EconomicTrade(
         forecast.forecast_id,
-        score.target_time,
+        evaluation_outcome_target_time(forecast, score.target_time),
         direction,
         gross,
         cost,

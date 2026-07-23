@@ -707,7 +707,7 @@ class ShadowResearchRunner:
             return score_binary_forecast(
                 forecast,
                 outcome=result == "yes",
-                target_time=event.event_time,
+                target_time=target_time or event.event_time,
                 scored_at=as_of,
             )
         return None

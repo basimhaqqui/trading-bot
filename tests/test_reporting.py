@@ -349,6 +349,52 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(outcome_labels, {"<=1h", "1h-8h", "7d-30d"})
         self.assertEqual(report.confidence_tests, 5)
 
+    def test_timing_guarded_prediction_uses_occurrence_not_settlement_horizon(self):
+        generated_at = self.base
+        occurrence = generated_at + timedelta(hours=4)
+        forecast = Forecast(
+            "timing-guarded-prediction",
+            "prediction-market-calibration-baseline-v4",
+            "baseline-v4",
+            "kalshi:prediction:TIMING",
+            ForecastKind.BINARY_PROBABILITY,
+            generated_at,
+            occurrence,
+            {
+                "probability": 0.8,
+                "market_probability": 0.5,
+                "event_ticker": "TIMING-EVENT",
+                "outcome_cluster": "TIMING-EVENT",
+                "target_time": occurrence.isoformat(),
+            },
+            0.5,
+            {"sample_size": 5.0},
+            ("timing-book",),
+            ("post-occurrence information invalidates the forecast",),
+        )
+        score = score_binary_forecast(
+            forecast,
+            outcome=True,
+            target_time=generated_at + timedelta(days=2),
+            scored_at=generated_at + timedelta(days=2, minutes=5),
+        )
+
+        report = build_walk_forward_report(
+            (forecast,),
+            (score,),
+            EvaluationGateConfig(min_independent_outcomes=2),
+        )
+
+        outcome_cohorts = [
+            item
+            for item in report.cohorts
+            if item.dimension is CohortDimension.OUTCOME_HORIZON
+        ]
+        self.assertEqual(
+            [(item.label, item.evaluation.raw_scores) for item in outcome_cohorts],
+            [("1h-8h", 1)],
+        )
+
     def test_one_underpowered_horizon_keeps_aggregate_collecting(self):
         observations = [
             self.observation(
