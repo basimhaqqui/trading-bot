@@ -5,7 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from trading_bot.core.audit import AuditLedger, AuditRecordType
-from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
+from trading_bot.core.schemas import (
+    AssetClass,
+    Forecast,
+    ForecastKind,
+    Instrument,
+    MarketEvent,
+    MarketEventType,
+)
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.shadow import ShadowResearchRunner
 
@@ -138,7 +145,12 @@ class ShadowResearchTests(unittest.TestCase):
                 "target-rule",
                 MarketEventType.CONTRACT_RULE,
                 market,
-                {"rules_primary": "Named public source."},
+                {
+                    "rules_primary": "Named public source.",
+                    "occurrence_datetime": (
+                        self.now + timedelta(hours=47)
+                    ).isoformat(),
+                },
                 event_time=self.now - timedelta(minutes=2),
             )
         )
@@ -307,7 +319,12 @@ class ShadowResearchTests(unittest.TestCase):
                     f"bulk-rule-{index}",
                     MarketEventType.CONTRACT_RULE,
                     market,
-                    {"rules_primary": "Named public source."},
+                    {
+                        "rules_primary": "Named public source.",
+                        "occurrence_datetime": (
+                            self.now + timedelta(hours=1, minutes=index)
+                        ).isoformat(),
+                    },
                     event_time=self.now - timedelta(minutes=2),
                 )
             )
@@ -336,6 +353,72 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(first.appended, 25)
         self.assertEqual(second.appended, 15)
         self.assertEqual(len(self.audit.forecasts()), 40)
+
+    def test_prediction_timing_guard_rejects_post_occurrence_evidence(self):
+        market = Instrument(
+            "kalshi:prediction:PAST",
+            "kalshi",
+            "PAST",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        occurrence = self.now - timedelta(hours=1)
+        rule = self.event(
+            "past-rule",
+            MarketEventType.CONTRACT_RULE,
+            market,
+            {
+                "rules_primary": "Named public source.",
+                "occurrence_datetime": occurrence.isoformat(),
+            },
+            event_time=self.now - timedelta(minutes=2),
+        )
+        self.store.append_event(rule)
+        self.store.append_event(
+            self.event(
+                "past-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.80", "10"]], "no_bids": [["0.18", "10"]]},
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        self.assertEqual(self.runner._prediction_candidates(self.now), [])
+
+        leaked = Forecast(
+            "leaked-v2",
+            "prediction-market-calibration-baseline-v2",
+            "baseline-v2",
+            market.instrument_id,
+            ForecastKind.BINARY_PROBABILITY,
+            self.now,
+            self.now + timedelta(hours=1),
+            {
+                "probability": 0.8,
+                "market_probability": 0.8,
+                "outcome_cluster": occurrence.isoformat(),
+            },
+            0.5,
+            {"market_spread": 0.02},
+            (rule.event_id,),
+            ("post-occurrence information invalidates the forecast",),
+        )
+        self.audit.append_forecast(leaked)
+        settlement_time = self.now + timedelta(minutes=5)
+        self.store.append_event(
+            self.event(
+                "past-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {"result": "yes"},
+                event_time=settlement_time,
+            )
+        )
+        self.assertEqual(
+            self.runner.score_available(as_of=settlement_time).matched,
+            0,
+        )
 
     def test_breakout_forecast_scores_only_on_future_completed_bar(self):
         instrument = Instrument(
