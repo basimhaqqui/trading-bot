@@ -19,7 +19,8 @@ class PredictionCalibrationConfig:
     shrinkage_observations: float = 20.0
     max_book_age: timedelta = timedelta(minutes=15)
     max_book_spread: float = 0.10
-    forecast_horizon: timedelta = timedelta(hours=48)
+    min_forecast_horizon: timedelta = timedelta(hours=1)
+    forecast_horizon: timedelta = timedelta(hours=8)
 
     def __post_init__(self) -> None:
         if not 0 < self.probability_bucket_radius < 0.5:
@@ -28,13 +29,13 @@ class PredictionCalibrationConfig:
             raise ValueError("calibration cohort and shrinkage must be positive")
         if not 0 < self.max_book_spread < 1:
             raise ValueError("maximum book spread must be between zero and one")
-        if self.forecast_horizon <= timedelta(0):
-            raise ValueError("forecast horizon must be positive")
+        if not timedelta(0) < self.min_forecast_horizon < self.forecast_horizon:
+            raise ValueError("forecast horizon must have positive ordered bounds")
 
 
 class PredictionMarketCalibrationSpecialist:
-    agent_id = "prediction-market-calibration-baseline-v2"
-    model_version = "baseline-v2"
+    agent_id = "prediction-market-calibration-baseline-v3"
+    model_version = "baseline-v3"
     supported_asset_classes = frozenset({AssetClass.PREDICTION})
     hypothesis = PREDICTION_CALIBRATION_HYPOTHESIS
 
@@ -65,10 +66,14 @@ class PredictionMarketCalibrationSpecialist:
         if spread > self.config.max_book_spread:
             return None
         target_time = prediction_occurrence_time(rules[-1])
+        time_to_occurrence = (
+            target_time - context.decision_time if target_time is not None else None
+        )
         if (
             target_time is None
-            or target_time <= context.decision_time
-            or target_time > context.decision_time + self.config.forecast_horizon
+            or time_to_occurrence is None
+            or time_to_occurrence <= self.config.min_forecast_horizon
+            or time_to_occurrence > self.config.forecast_horizon
         ):
             return None
         cohort = self._calibration_cohort(context, market_probability)
@@ -216,3 +221,11 @@ def prediction_occurrence_time(rule: MarketEvent) -> datetime | None:
         return parse_datetime(value)
     except (TypeError, ValueError):
         return None
+
+
+TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
+    {
+        "prediction-market-calibration-baseline-v2",
+        PredictionMarketCalibrationSpecialist.agent_id,
+    }
+)

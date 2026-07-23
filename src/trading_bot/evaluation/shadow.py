@@ -12,6 +12,7 @@ from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     PredictionMarketCalibrationSpecialist,
+    TIMING_GUARDED_PREDICTION_SPECIALISTS,
     prediction_occurrence_time,
 )
 from trading_bot.core.audit import AuditLedger
@@ -385,10 +386,14 @@ class ShadowResearchRunner:
             if as_of - decision_time > specialist.config.max_book_age:
                 continue
             target_time = prediction_occurrence_time(rule)
+            time_to_occurrence = (
+                target_time - decision_time if target_time is not None else None
+            )
             if (
                 target_time is None
-                or target_time <= decision_time
-                or target_time > decision_time + specialist.config.forecast_horizon
+                or time_to_occurrence is None
+                or time_to_occurrence <= specialist.config.min_forecast_horizon
+                or time_to_occurrence > specialist.config.forecast_horizon
             ):
                 continue
             event_key = str(rule.payload["occurrence_datetime"])
@@ -552,7 +557,7 @@ class ShadowResearchRunner:
         self, forecast: Forecast, as_of: datetime
     ) -> ForecastScore | None:
         target_time: datetime | None = None
-        if forecast.specialist_id == PredictionMarketCalibrationSpecialist.agent_id:
+        if forecast.specialist_id in TIMING_GUARDED_PREDICTION_SPECIALISTS:
             target_time = _payload_time(forecast.values.get("outcome_cluster"))
             if target_time is None or target_time <= forecast.generated_at:
                 return None
