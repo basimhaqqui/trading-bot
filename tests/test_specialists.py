@@ -260,7 +260,11 @@ class SpecialistTests(unittest.TestCase):
                 "target-rules",
                 MarketEventType.CONTRACT_RULE,
                 primary,
-                {"rules_primary": "Settlement from the named source."},
+                {
+                    "rules_primary": "Settlement from the named source.",
+                    "event_ticker": "TARGET-EVENT",
+                    "occurrence_datetime": "2026-07-21T21:00:00Z",
+                },
                 minutes_ago=60,
             ),
             self.event(
@@ -291,7 +295,11 @@ class SpecialistTests(unittest.TestCase):
                 f"settlement-{index}",
                 MarketEventType.SETTLEMENT,
                 instrument,
-                {"result": result},
+                {
+                    "result": result,
+                    "event_ticker": f"HIST-EVENT-{index}",
+                    "occurrence_datetime": f"2026-07-{10 + index:02d}T20:00:00Z",
+                },
                 minutes_ago=60,
             )
             events.extend((book, settlement))
@@ -301,10 +309,44 @@ class SpecialistTests(unittest.TestCase):
                         "settlement-0-repeat-poll",
                         MarketEventType.SETTLEMENT,
                         instrument,
-                        {"result": result},
+                        {
+                            "result": result,
+                            "event_ticker": "HIST-EVENT-0",
+                            "occurrence_datetime": "2026-07-10T20:00:00Z",
+                        },
                         minutes_ago=30,
                     )
                 )
+        duplicate_event_instrument = Instrument(
+            "kalshi:prediction:HIST-OTHER-STRIKE",
+            "kalshi",
+            "HIST-OTHER-STRIKE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        related.append(duplicate_event_instrument)
+        events.extend(
+            (
+                self.event(
+                    "hist-book-other-strike",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    duplicate_event_instrument,
+                    {"yes_bids": [["0.55", "10"]], "no_bids": [["0.40", "10"]]},
+                    minutes_ago=120,
+                ),
+                self.event(
+                    "settlement-other-strike",
+                    MarketEventType.SETTLEMENT,
+                    duplicate_event_instrument,
+                    {
+                        "result": "no",
+                        "event_ticker": "HIST-EVENT-0-OTHER",
+                        "occurrence_datetime": "2026-07-10T20:00:00Z",
+                    },
+                    minutes_ago=60,
+                ),
+            )
+        )
         forecast = PredictionMarketCalibrationSpecialist().evaluate(
             ReplayContext(self.now, primary, tuple(events), tuple(related))
         )
@@ -314,6 +356,32 @@ class SpecialistTests(unittest.TestCase):
         self.assertGreater(forecast.values["probability"], 0.575)
         self.assertEqual(forecast.values["calibration_cohort_size"], 5.0)
         self.assertEqual(forecast.values["state"], "cohort_adjusted")
+        self.assertEqual(
+            forecast.specialist_id, "prediction-market-calibration-baseline-v2"
+        )
+        self.assertEqual(forecast.model_version, "baseline-v2")
+        self.assertEqual(forecast.values["event_ticker"], "TARGET-EVENT")
+        self.assertEqual(
+            forecast.values["outcome_cluster"], "2026-07-21T21:00:00Z"
+        )
+        wide_book = self.event(
+            "target-wide-book",
+            MarketEventType.BOOK_SNAPSHOT,
+            primary,
+            {"yes_bids": [["0.10", "10"]], "no_bids": [["0.10", "10"]]},
+            minutes_ago=0,
+        )
+        self.assertIsNone(
+            PredictionMarketCalibrationSpecialist().evaluate(
+                ReplayContext(
+                    self.now,
+                    primary,
+                    tuple(event for event in events if event.event_id != "target-book")
+                    + (wide_book,),
+                    tuple(related),
+                )
+            )
+        )
 
     def test_crypto_breakout_requires_completed_range_break_and_volume(self):
         instrument = Instrument(

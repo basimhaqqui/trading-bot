@@ -26,6 +26,7 @@ class ReportingTests(unittest.TestCase):
         target_time=None,
         generated_at=None,
         forecast_horizon=None,
+        event_ticker=None,
     ):
         generated_at = generated_at or self.base + timedelta(days=index)
         target_time = target_time or generated_at + timedelta(hours=1)
@@ -38,7 +39,11 @@ class ReportingTests(unittest.TestCase):
             ForecastKind.BINARY_PROBABILITY,
             generated_at,
             generated_at + forecast_horizon,
-            {"probability": predicted, "market_probability": benchmark},
+            {
+                "probability": predicted,
+                "market_probability": benchmark,
+                **({"event_ticker": event_ticker} if event_ticker else {}),
+            },
             0.5,
             {"sample_size": 1.0},
             (f"event-{index}",),
@@ -129,6 +134,31 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(group.raw_scores, 2)
         self.assertEqual(group.independent_outcomes, 1)
         self.assertAlmostEqual(group.mean_loss, 0.01)
+
+    def test_prediction_strikes_from_one_event_are_one_outcome_cluster(self):
+        observations = [
+            self.observation(
+                index,
+                predicted=1.0,
+                benchmark=0.5,
+                actual=1,
+                instrument_id=f"same-event-strike-{index}",
+                event_ticker="SAME-EVENT",
+                target_time=self.base + timedelta(days=1),
+                generated_at=self.base + timedelta(minutes=index),
+            )
+            for index in range(30)
+        ]
+
+        report = build_walk_forward_report(
+            tuple(item[0] for item in observations),
+            tuple(item[1] for item in observations),
+        )
+
+        group = report.groups[0]
+        self.assertEqual(group.raw_scores, 30)
+        self.assertEqual(group.independent_outcomes, 1)
+        self.assertEqual(group.status, EdgeStatus.COLLECTING)
 
     def test_fixed_horizon_cohorts_are_included_in_familywise_tests(self):
         horizons = (timedelta(minutes=30), timedelta(hours=4), timedelta(days=10))

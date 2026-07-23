@@ -7,12 +7,20 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Iterator, Protocol
 
-from trading_bot.core.serialization import canonical_json, require_aware, sha256_digest, utc_now
+from trading_bot.core.audit import AuditLedger
+from trading_bot.core.schemas import AssetClass, ForecastKind, MarketEvent, MarketEventType
+from trading_bot.core.serialization import (
+    canonical_json,
+    parse_datetime,
+    require_aware,
+    sha256_digest,
+    utc_now,
+)
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.data.collectors import (
     AlpacaOptionsCollector,
@@ -190,10 +198,12 @@ class ShadowIngestionRunner:
         store: PointInTimeStore,
         ledger: IngestionRunLedger,
         collector_factory: CollectorFactory | None = None,
+        audit: AuditLedger | None = None,
     ) -> None:
         self.store = store
         self.ledger = ledger
         self.collector_factory = collector_factory or default_collector_factory
+        self.audit = audit
 
     def run_plan(
         self,
@@ -225,7 +235,25 @@ class ShadowIngestionRunner:
                 else self.ledger.resume_cursor(plan_name, job.job_id)
             )
             collector = self.collector_factory(job.venue, job.dataset)
-            batch = collect_job(collector, job, collected_at, request_cursor)
+            tickers: tuple[str, ...] = ()
+            if job.venue == "kalshi" and job.dataset == "forecast_outcomes":
+                tickers = self._pending_prediction_tickers(
+                    collected_at or started_at, job.limit
+                )
+                if not tickers:
+                    batch = CollectionBatch(
+                        "kalshi", metadata={"pending_forecast_tickers": 0}
+                    )
+                else:
+                    batch = collect_job(
+                        collector,
+                        job,
+                        collected_at,
+                        request_cursor,
+                        tickers=tickers,
+                    )
+            else:
+                batch = collect_job(collector, job, collected_at, request_cursor)
             if batch.cursor is not None and (
                 not isinstance(batch.cursor, str) or len(batch.cursor) > MAX_CURSOR_LENGTH
             ):
@@ -273,6 +301,74 @@ class ShadowIngestionRunner:
         self.ledger.append(record)
         return record
 
+    def _pending_prediction_tickers(
+        self, as_of: datetime, limit: int
+    ) -> tuple[str, ...]:
+        if self.audit is None:
+            raise RuntimeError("forecast outcome jobs require an audit ledger")
+        scored_ids = self.audit.scored_forecast_ids()
+        forecasts = sorted(
+            (
+                forecast
+                for forecast in self.audit.forecasts()
+                if forecast.kind is ForecastKind.BINARY_PROBABILITY
+                and forecast.forecast_id not in scored_ids
+            ),
+            key=lambda item: (item.generated_at, item.forecast_id),
+        )
+        instruments = {
+            item.instrument_id: item
+            for item in self.store.instruments(asset_class=AssetClass.PREDICTION)
+        }
+        latest_rules: dict[str, MarketEvent] = {}
+        valid_settlements: set[str] = set()
+        for event in self.store.events_available_at(
+            as_of, event_type=MarketEventType.CONTRACT_RULE
+        ):
+            if event.instrument_id not in instruments:
+                continue
+            current = latest_rules.get(event.instrument_id)
+            if current is None or (
+                event.available_at,
+                event.event_time,
+                event.event_id,
+            ) > (
+                current.available_at,
+                current.event_time,
+                current.event_id,
+            ):
+                latest_rules[event.instrument_id] = event
+        for event in self.store.events_available_at(
+            as_of, event_type=MarketEventType.SETTLEMENT
+        ):
+            if str(event.payload.get("result", "")).lower() in {"yes", "no"}:
+                valid_settlements.add(event.instrument_id)
+
+        selected: list[str] = []
+        selected_instruments: set[str] = set()
+        for forecast in forecasts:
+            if (
+                forecast.instrument_id in selected_instruments
+                or forecast.instrument_id in valid_settlements
+            ):
+                continue
+            instrument = instruments.get(forecast.instrument_id)
+            rule = latest_rules.get(forecast.instrument_id)
+            if instrument is None or instrument.venue != "kalshi" or rule is None:
+                continue
+            if rule.payload.get("mve_collection_ticker") or instrument.symbol.startswith(
+                "KXMVE"
+            ):
+                continue
+            poll_time = _market_outcome_poll_time(rule)
+            if poll_time is None or poll_time > as_of:
+                continue
+            selected.append(instrument.symbol)
+            selected_instruments.add(instrument.instrument_id)
+            if len(selected) >= min(limit, 100):
+                break
+        return tuple(selected)
+
 
 def default_collector_factory(venue: str, dataset: str) -> object:
     if venue == "kalshi":
@@ -293,14 +389,41 @@ def collect_job(
     job: ObservationJob,
     collected_at: datetime | None,
     cursor: str | None = None,
+    *,
+    tickers: tuple[str, ...] = (),
 ) -> CollectionBatch:
     if job.venue == "kalshi":
         if job.dataset == "markets":
+            window_start = collected_at or utc_now()
+            min_close_ts = None
+            max_close_ts = None
+            status: str | None = job.status
+            active_only = False
+            if job.close_lookahead_hours is not None:
+                min_close_ts = int(window_start.timestamp())
+                max_close_ts = int(
+                    (window_start + timedelta(hours=job.close_lookahead_hours)).timestamp()
+                )
+                status = None
+                active_only = True
             return collector.collect_markets(  # type: ignore[attr-defined,no-any-return]
                 collected_at=collected_at,
-                status=job.status,
+                status=status,
                 limit=job.limit,
                 cursor=cursor,
+                mve_filter=job.mve_filter,
+                min_close_ts=min_close_ts,
+                max_close_ts=max_close_ts,
+                active_only=active_only,
+            )
+        if job.dataset == "forecast_outcomes":
+            return collector.collect_markets(  # type: ignore[attr-defined,no-any-return]
+                collected_at=collected_at,
+                status=None,
+                limit=min(job.limit, 100),
+                cursor=cursor,
+                tickers=tickers,
+                mve_filter="exclude",
             )
         if job.dataset == "trades":
             return collector.collect_trades(  # type: ignore[attr-defined,no-any-return]
@@ -351,6 +474,23 @@ def collect_job(
                 page_token=cursor,
             )
     raise TypeError(f"collector does not implement {job.venue}/{job.dataset}")
+
+
+def _market_outcome_poll_time(rule: MarketEvent) -> datetime | None:
+    for field in (
+        "expected_expiration_time",
+        "occurrence_datetime",
+        "close_time",
+        "expiration_time",
+    ):
+        value = rule.payload.get(field)
+        if not isinstance(value, str) or not value:
+            continue
+        try:
+            return parse_datetime(value)
+        except ValueError:
+            continue
+    return None
 
 
 @contextmanager

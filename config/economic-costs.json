@@ -25,7 +25,7 @@
     },
     {
       "model_id": "kalshi-general-contract-fee-v1",
-      "specialist_id": "prediction-market-calibration-baseline",
+      "specialist_id": "prediction-market-calibration-baseline-v2",
       "kind": "binary",
       "basis": "binary_contract",
       "source_url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",

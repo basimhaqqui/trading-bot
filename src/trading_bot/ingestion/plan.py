@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 
 ALLOWED_DATASETS = {
-    "kalshi": {"markets", "trades", "book"},
+    "kalshi": {"markets", "forecast_outcomes", "trades", "book"},
     "coinbase": {"products", "book", "candles"},
     "alpaca": {"chain", "bars"},
 }
@@ -46,6 +46,8 @@ class ObservationJob:
     enabled: bool = True
     activation_profile: str | None = None
     cursor_mode: str = "resume"
+    mve_filter: str | None = None
+    close_lookahead_hours: int | None = None
 
     def __post_init__(self) -> None:
         if not self.job_id or not self.job_id.replace("-", "").replace("_", "").isalnum():
@@ -74,7 +76,7 @@ class ObservationJob:
             self.venue == "coinbase" and self.dataset == "products"
         ):
             raise ValueError("product_type is only valid for Coinbase product jobs")
-        if self.dataset in {"markets", "products"} and self.symbol is not None:
+        if self.dataset in {"markets", "forecast_outcomes", "products"} and self.symbol is not None:
             raise ValueError(f"{self.dataset} jobs do not accept a symbol")
         if self.stock_feed not in {"iex", "sip", "delayed_sip"}:
             raise ValueError("stock_feed must be iex, sip, or delayed_sip")
@@ -102,10 +104,30 @@ class ObservationJob:
             raise ValueError("alpaca_market_data activation is only valid for Alpaca jobs")
         if self.cursor_mode not in CURSOR_MODES:
             raise ValueError("cursor_mode must be resume or restart")
-        if self.cursor_mode == "restart" and not (
-            self.venue == "alpaca" and self.dataset == "chain"
+        restartable = {
+            ("alpaca", "chain"),
+            ("kalshi", "markets"),
+            ("kalshi", "forecast_outcomes"),
+        }
+        if self.cursor_mode == "restart" and (self.venue, self.dataset) not in restartable:
+            raise ValueError("restart cursor mode is not valid for this observation job")
+        if self.mve_filter not in {None, "only", "exclude"}:
+            raise ValueError("mve_filter must be only or exclude")
+        if self.mve_filter is not None and not (
+            self.venue == "kalshi" and self.dataset == "markets"
         ):
-            raise ValueError("restart cursor mode is only valid for Alpaca chain jobs")
+            raise ValueError("mve_filter is only valid for Kalshi market jobs")
+        if self.close_lookahead_hours is not None:
+            if isinstance(self.close_lookahead_hours, bool) or not (
+                1 <= self.close_lookahead_hours <= 168
+            ):
+                raise ValueError("close_lookahead_hours must be between 1 and 168")
+            if not (self.venue == "kalshi" and self.dataset == "markets"):
+                raise ValueError(
+                    "close_lookahead_hours is only valid for Kalshi market jobs"
+                )
+            if self.status != "open":
+                raise ValueError("close lookahead jobs must target open markets")
 
     def missing_activation_environment(
         self, environment: Mapping[str, str] | None = None
@@ -168,6 +190,8 @@ def load_plan(path: str | Path) -> ShadowIngestionPlan:
         "enabled",
         "activation_profile",
         "cursor_mode",
+        "mve_filter",
+        "close_lookahead_hours",
     }
     jobs: list[ObservationJob] = []
     for raw_job in raw_jobs:

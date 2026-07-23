@@ -331,6 +331,12 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(len(candidates), 25)
         self.assertEqual(events_available_at.call_count, 3)
 
+        first = self.runner.generate_forecasts(as_of=self.now)
+        second = self.runner.generate_forecasts(as_of=self.now)
+        self.assertEqual(first.appended, 25)
+        self.assertEqual(second.appended, 15)
+        self.assertEqual(len(self.audit.forecasts()), 40)
+
     def test_breakout_forecast_scores_only_on_future_completed_bar(self):
         instrument = Instrument(
             "coinbase:product:BTC-USD",

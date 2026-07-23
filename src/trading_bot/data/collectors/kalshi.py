@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -32,17 +33,47 @@ class KalshiCollector:
         self,
         *,
         collected_at: datetime | None = None,
-        status: str = "open",
+        status: str | None = "open",
         limit: int = 100,
         cursor: str | None = None,
+        tickers: tuple[str, ...] = (),
+        mve_filter: str | None = None,
+        min_close_ts: int | None = None,
+        max_close_ts: int | None = None,
+        active_only: bool = False,
     ) -> CollectionBatch:
         override = require_aware(collected_at, "collected_at") if collected_at else None
-        if status not in {"unopened", "open", "paused", "closed", "settled"}:
+        if status not in {None, "unopened", "open", "paused", "closed", "settled"}:
             raise ValueError("unsupported Kalshi status filter")
         if not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
+        if len(tickers) > 100 or len(set(tickers)) != len(tickers):
+            raise ValueError("Kalshi ticker filters must contain at most 100 unique values")
+        if any(not re.fullmatch(r"[A-Z0-9._-]{1,200}", ticker) for ticker in tickers):
+            raise ValueError("invalid Kalshi ticker filter")
+        if mve_filter not in {None, "only", "exclude"}:
+            raise ValueError("mve_filter must be only or exclude")
+        if (min_close_ts is None) != (max_close_ts is None):
+            raise ValueError("both close timestamp filters are required together")
+        if min_close_ts is not None and (
+            isinstance(min_close_ts, bool)
+            or isinstance(max_close_ts, bool)
+            or max_close_ts <= min_close_ts
+        ):
+            raise ValueError("close timestamp filters are invalid")
+        if not isinstance(active_only, bool):
+            raise ValueError("active_only must be boolean")
         response = self.transport.get_json(
-            "/markets", query={"status": status, "limit": limit, "cursor": cursor}
+            "/markets",
+            query={
+                "status": status,
+                "limit": limit,
+                "cursor": cursor,
+                "tickers": ",".join(tickers) if tickers else None,
+                "mve_filter": mve_filter,
+                "min_close_ts": min_close_ts,
+                "max_close_ts": max_close_ts,
+            },
         )
         collected_at = override or utc_now()
         markets = require_list(response.get("markets"), "markets")
@@ -51,6 +82,8 @@ class KalshiCollector:
         diagnostics: list[DataQualityDiagnostic] = []
         for raw in markets:
             market = require_object(raw, "market")
+            if active_only and str(market.get("status", "")).lower() != "active":
+                continue
             ticker = require_string(market.get("ticker"), "market.ticker")
             instrument = self._instrument(ticker, market)
             instruments.append(instrument)
@@ -101,7 +134,14 @@ class KalshiCollector:
             tuple(events),
             tuple(diagnostics),
             next_cursor or None,
-            {"status": status},
+            {
+                "status": status,
+                "ticker_filter_count": len(tickers),
+                "mve_filter": mve_filter,
+                "active_only": active_only,
+                "min_close_ts": min_close_ts,
+                "max_close_ts": max_close_ts,
+            },
         )
 
     def collect_orderbook(
@@ -247,6 +287,8 @@ class KalshiCollector:
         )
         payload = {
             "result": result,
+            "event_ticker": market.get("event_ticker"),
+            "occurrence_datetime": market.get("occurrence_datetime"),
             "settlement_value_dollars": market.get("settlement_value_dollars"),
             "settlement_ts": settlement_ts,
             "status": market.get("status"),

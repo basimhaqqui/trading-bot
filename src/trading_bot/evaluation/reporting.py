@@ -348,7 +348,7 @@ def _latest_independent_outcomes(
 ) -> list[_Observation]:
     latest: dict[tuple[str, datetime], _Observation] = {}
     for item in observations:
-        key = (item.forecast.instrument_id, item.score.target_time)
+        key = (_outcome_cluster_id(item.forecast), item.score.target_time)
         existing = latest.get(key)
         if existing is None or (
             item.forecast.generated_at,
@@ -366,6 +366,16 @@ def _latest_independent_outcomes(
             item.forecast.forecast_id,
         ),
     )
+
+
+def _outcome_cluster_id(forecast: Forecast) -> str:
+    if forecast.kind is ForecastKind.BINARY_PROBABILITY:
+        cluster = forecast.values.get("outcome_cluster")
+        if not isinstance(cluster, str) or not cluster:
+            cluster = forecast.values.get("event_ticker")
+        if isinstance(cluster, str) and cluster:
+            return f"prediction-event:{cluster}"
+    return f"instrument:{forecast.instrument_id}"
 
 
 def _lower_confidence_bound(values: list[float], critical_value: float) -> float:

@@ -7,7 +7,7 @@ from typing import Mapping
 
 from trading_bot.agents.base import Specialist
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
-from trading_bot.agents.market_math import finite_float
+from trading_bot.agents.market_math import finite_float, prediction_book
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import PredictionMarketCalibrationSpecialist
@@ -305,6 +305,16 @@ class ShadowResearchRunner:
         specialist = PredictionMarketCalibrationSpecialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
+        forecasted_event_keys = {
+            str(
+                forecast.values.get("outcome_cluster")
+                or forecast.values.get("event_ticker")
+                or forecast.instrument_id
+            )
+            for forecast in self.audit.forecasts()
+            if forecast.kind is ForecastKind.BINARY_PROBABILITY
+            and forecast.specialist_id == specialist.agent_id
+        }
         settlements_by_instrument: dict[str, list[MarketEvent]] = {}
         for settlement in self.store.events_available_at(
             as_of, event_type=MarketEventType.SETTLEMENT
@@ -330,15 +340,25 @@ class ShadowResearchRunner:
                 current.event_id,
             ):
                 latest_books[book.instrument_id] = book
-        instruments_with_rules = {
-            event.instrument_id
-            for event in self.store.events_available_at(
-                as_of, event_type=MarketEventType.CONTRACT_RULE
-            )
-            if event.instrument_id in instrument_ids
-        }
+        latest_rules: dict[str, MarketEvent] = {}
+        for event in self.store.events_available_at(
+            as_of, event_type=MarketEventType.CONTRACT_RULE
+        ):
+            if event.instrument_id not in instrument_ids:
+                continue
+            current = latest_rules.get(event.instrument_id)
+            if current is None or (
+                event.available_at,
+                event.event_time,
+                event.event_id,
+            ) > (
+                current.available_at,
+                current.event_time,
+                current.event_id,
+            ):
+                latest_rules[event.instrument_id] = event
         settled: list[tuple[datetime, str]] = []
-        open_candidates: list[tuple[datetime, Instrument]] = []
+        open_by_event: dict[str, tuple[datetime, Instrument, float]] = {}
         for instrument in instruments:
             settlements = settlements_by_instrument.get(instrument.instrument_id, [])
             valid_settlements = [
@@ -355,15 +375,41 @@ class ShadowResearchRunner:
                 )
                 continue
             book = latest_books.get(instrument.instrument_id)
-            if book is None or instrument.instrument_id not in instruments_with_rules:
+            rule = latest_rules.get(instrument.instrument_id)
+            if book is None or rule is None:
                 continue
             decision_time = book.available_at
             if as_of - decision_time > specialist.config.max_book_age:
                 continue
-            open_candidates.append((decision_time, instrument))
+            event_key = str(
+                rule.payload.get("occurrence_datetime")
+                or rule.payload.get("event_ticker")
+                or instrument.instrument_id
+            )
+            if event_key in forecasted_event_keys:
+                continue
+            executable = prediction_book(book)
+            if executable is None or executable[3] > specialist.config.max_book_spread:
+                continue
+            candidate = (decision_time, instrument, executable[3])
+            existing = open_by_event.get(event_key)
+            if existing is None or (
+                candidate[2],
+                -candidate[0].timestamp(),
+                candidate[1].instrument_id,
+            ) < (
+                existing[2],
+                -existing[0].timestamp(),
+                existing[1].instrument_id,
+            ):
+                open_by_event[event_key] = candidate
 
         settled.sort(key=lambda item: (item[0], item[1]), reverse=True)
         settled = settled[: self.config.max_prediction_history]
+        open_candidates = [
+            (decision_time, instrument)
+            for decision_time, instrument, _ in open_by_event.values()
+        ]
         open_candidates.sort(
             key=lambda item: (item[0], item[1].instrument_id), reverse=True
         )
