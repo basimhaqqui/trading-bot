@@ -523,6 +523,7 @@ def _prediction_calibration_readiness(
             )
             SELECT
                 settlements.instrument_id,
+                settlements.available_at,
                 settlements.payload_json,
                 books.event_id,
                 books.event_time,
@@ -606,10 +607,13 @@ def _prediction_calibration_readiness(
             ).fetchall()
         }
 
-    candidates_by_event: dict[str, list[float]] = {}
-    latest_by_instrument: dict[str, tuple[datetime, str, str, float]] = {}
+    candidates_by_event: dict[str, list[tuple[float, datetime]]] = {}
+    latest_by_instrument: dict[
+        str, tuple[datetime, str, str, float, datetime]
+    ] = {}
     for (
         instrument_id,
+        settlement_available_at,
         settlement_json,
         book_event_id,
         book_event_time,
@@ -628,6 +632,7 @@ def _prediction_calibration_readiness(
             occurrence = parse_datetime(occurrence_value)
             event_time = parse_datetime(book_event_time)
             available_at = parse_datetime(book_available_at)
+            label_available_at = parse_datetime(settlement_available_at)
         except (TypeError, ValueError):
             continue
         time_to_occurrence = occurrence - available_at
@@ -650,13 +655,17 @@ def _prediction_calibration_readiness(
             book_event_id,
             event_key,
             executable[2],
+            label_available_at,
         )
 
-    for _, _, event_key, probability in latest_by_instrument.values():
-        candidates_by_event.setdefault(event_key, []).append(probability)
+    for _, _, event_key, probability, label_available_at in latest_by_instrument.values():
+        candidates_by_event.setdefault(event_key, []).append(
+            (probability, label_available_at)
+        )
 
     open_by_event: dict[str, tuple[float, float, str]] = {}
     open_probability_by_event: dict[str, float] = {}
+    open_decision_by_event: dict[str, datetime] = {}
     for instrument_id, book_available_at, book_json, rule_json in open_rows:
         try:
             decision_time = parse_datetime(book_available_at)
@@ -693,18 +702,20 @@ def _prediction_calibration_readiness(
         if existing is None or candidate < existing:
             open_by_event[event_key] = candidate
             open_probability_by_event[event_key] = executable[2]
+            open_decision_by_event[event_key] = decision_time
 
-    target_probabilities = list(open_probability_by_event.values())
     strongest_bucket = max(
         (
             sum(
                 any(
-                    abs(probability - target) <= probability_bucket_radius + 1e-12
-                    for probability in event_probabilities
+                    label_available_at <= open_decision_by_event[target_event]
+                    and abs(probability - target_probability)
+                    <= probability_bucket_radius + 1e-12
+                    for probability, label_available_at in event_probabilities
                 )
                 for event_probabilities in candidates_by_event.values()
             )
-            for target in target_probabilities
+            for target_event, target_probability in open_probability_by_event.items()
         ),
         default=0,
     )
