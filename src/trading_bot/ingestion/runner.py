@@ -12,8 +12,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Iterator, Protocol
 
+from trading_bot.agents.prediction import TIMING_GUARDED_PREDICTION_SPECIALISTS
 from trading_bot.core.audit import AuditLedger
-from trading_bot.core.schemas import AssetClass, ForecastKind, MarketEvent, MarketEventType
+from trading_bot.core.schemas import (
+    AssetClass,
+    Forecast,
+    ForecastKind,
+    MarketEvent,
+    MarketEventType,
+)
 from trading_bot.core.serialization import (
     canonical_json,
     parse_datetime,
@@ -367,6 +374,8 @@ class ShadowIngestionRunner:
         selected: list[str] = []
         selected_instruments: set[str] = set()
         for forecast in forecasts:
+            if not _prediction_forecast_timing_is_valid(forecast):
+                continue
             if (
                 forecast.instrument_id in selected_instruments
                 or forecast.instrument_id in valid_settlements
@@ -558,6 +567,19 @@ def _market_outcome_poll_time(rule: MarketEvent) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def _prediction_forecast_timing_is_valid(forecast: Forecast) -> bool:
+    if forecast.specialist_id not in TIMING_GUARDED_PREDICTION_SPECIALISTS:
+        return True
+    raw_target = forecast.values.get("outcome_cluster")
+    if not isinstance(raw_target, str):
+        return False
+    try:
+        target_time = parse_datetime(raw_target)
+    except (TypeError, ValueError):
+        return False
+    return target_time > forecast.generated_at
 
 
 @contextmanager
