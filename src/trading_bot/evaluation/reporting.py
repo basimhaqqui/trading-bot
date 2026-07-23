@@ -346,9 +346,9 @@ def _evaluate_group(
 def _latest_independent_outcomes(
     observations: list[_Observation],
 ) -> list[_Observation]:
-    latest: dict[tuple[str, datetime], _Observation] = {}
+    latest: dict[str, _Observation] = {}
     for item in observations:
-        key = (outcome_cluster_id(item.forecast), item.score.target_time)
+        key = independent_outcome_key(item.forecast, item.score.target_time)
         existing = latest.get(key)
         if existing is None or (
             item.forecast.generated_at,
@@ -369,16 +369,27 @@ def _latest_independent_outcomes(
 
 
 def outcome_cluster_id(forecast: Forecast) -> str:
-    cluster = forecast.values.get("outcome_cluster")
-    if isinstance(cluster, str) and cluster:
-        return f"{forecast.kind.value}:{cluster}"
     if forecast.kind is ForecastKind.BINARY_PROBABILITY:
         event_ticker = forecast.values.get("event_ticker")
         if isinstance(event_ticker, str) and event_ticker:
             return f"prediction-event:{event_ticker}"
+    cluster = forecast.values.get("outcome_cluster")
+    if isinstance(cluster, str) and cluster:
+        return f"{forecast.kind.value}:{cluster}"
     if forecast.specialist_id == "crypto-range-breakout-continuation-baseline":
         return f"crypto-market:{forecast.valid_until.isoformat()}"
     return f"instrument:{forecast.instrument_id}"
+
+
+def independent_outcome_key(forecast: Forecast, target_time: datetime) -> str:
+    cluster = forecast.values.get("outcome_cluster")
+    if (
+        forecast.kind is ForecastKind.BINARY_PROBABILITY
+        or (isinstance(cluster, str) and cluster)
+        or forecast.specialist_id == "crypto-range-breakout-continuation-baseline"
+    ):
+        return outcome_cluster_id(forecast)
+    return f"{outcome_cluster_id(forecast)}:{target_time.isoformat()}"
 
 
 def _lower_confidence_bound(values: list[float], critical_value: float) -> float:

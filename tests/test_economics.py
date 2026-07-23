@@ -201,35 +201,37 @@ class EconomicReplayTests(unittest.TestCase):
     def test_binary_replay_uses_executable_side_and_rounded_contract_fee(self):
         observations = []
         for index in range(4):
-            generated_at = self.base + timedelta(hours=index)
             outcome = index % 2 == 0
             probability = 0.9 if outcome else 0.1
-            forecast = Forecast(
-                f"binary-{index}",
-                "binary-specialist",
-                "v1",
-                f"market-{index}",
-                ForecastKind.BINARY_PROBABILITY,
-                generated_at,
-                generated_at + timedelta(hours=1),
-                {
-                    "probability": probability,
-                    "market_probability": 0.5,
-                    "yes_bid": 0.49,
-                    "yes_ask": 0.51,
-                },
-                0.5,
-                {"sample_size": 1.0},
-                (f"event-{index}",),
-                ("fails economic validation",),
-            )
-            score = score_binary_forecast(
-                forecast,
-                outcome=outcome,
-                target_time=forecast.valid_until,
-                scored_at=forecast.valid_until,
-            )
-            observations.append((forecast, score))
+            for strike in range(2):
+                generated_at = self.base + timedelta(hours=index, seconds=strike)
+                forecast = Forecast(
+                    f"binary-{index}-{strike}",
+                    "binary-specialist",
+                    "v1",
+                    f"market-{index}-{strike}",
+                    ForecastKind.BINARY_PROBABILITY,
+                    generated_at,
+                    generated_at + timedelta(hours=1),
+                    {
+                        "probability": probability,
+                        "market_probability": 0.5,
+                        "yes_bid": 0.49,
+                        "yes_ask": 0.51,
+                        "event_ticker": f"EVENT-{index}",
+                    },
+                    0.5,
+                    {"sample_size": 1.0},
+                    (f"event-{index}-{strike}",),
+                    ("fails economic validation",),
+                )
+                score = score_binary_forecast(
+                    forecast,
+                    outcome=outcome,
+                    target_time=forecast.valid_until + timedelta(seconds=strike),
+                    scored_at=forecast.valid_until + timedelta(seconds=strike),
+                )
+                observations.append((forecast, score))
         registry = EconomicCostRegistry(
             "binary-costs-v1",
             (
@@ -247,6 +249,8 @@ class EconomicReplayTests(unittest.TestCase):
         )
         evaluation = self.report(observations, registry).evaluations[0]
         self.assertEqual(evaluation.status, EconomicStatus.CANDIDATE)
+        self.assertEqual(evaluation.eligible_forecasts, 4)
+        self.assertEqual(evaluation.trades, 4)
         self.assertAlmostEqual(evaluation.mean_gross_return, 0.5)
         self.assertAlmostEqual(evaluation.mean_assumed_cost, 0.03)
         self.assertAlmostEqual(evaluation.mean_net_return, 0.47)

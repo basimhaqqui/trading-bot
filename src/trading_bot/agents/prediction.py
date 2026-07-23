@@ -76,6 +76,9 @@ class PredictionMarketCalibrationSpecialist:
             or time_to_occurrence > self.config.forecast_horizon
         ):
             return None
+        event_ticker = rules[-1].payload.get("event_ticker")
+        if not isinstance(event_ticker, str) or not event_ticker:
+            return None
         cohort = self._calibration_cohort(context, market_probability)
         if len(cohort) >= self.config.min_calibration_cohort:
             empirical = sum(outcome for _, _, outcome in cohort) / len(cohort)
@@ -102,15 +105,10 @@ class PredictionMarketCalibrationSpecialist:
             "cohort_empirical_frequency": empirical,
             "calibration_weight": weight,
             "state": state,
+            "event_ticker": event_ticker,
+            "outcome_cluster": event_ticker,
+            "target_time": target_time.isoformat(),
         }
-        event_ticker = rules[-1].payload.get("event_ticker")
-        if isinstance(event_ticker, str) and event_ticker:
-            values["event_ticker"] = event_ticker
-        outcome_cluster = rules[-1].payload.get("occurrence_datetime")
-        if not isinstance(outcome_cluster, str) or not outcome_cluster:
-            outcome_cluster = event_ticker
-        if isinstance(outcome_cluster, str) and outcome_cluster:
-            values["outcome_cluster"] = outcome_cluster
         return Forecast(
             forecast_id=str(
                 uuid.uuid5(uuid.NAMESPACE_URL, f"{self.agent_id}:{primary_id}:{context.decision_time}")
@@ -206,15 +204,27 @@ def _settlement_event_key(settlement: MarketEvent) -> str:
             occurrence = raw_market.get("occurrence_datetime")
             if not isinstance(event_ticker, str) or not event_ticker:
                 event_ticker = raw_market.get("event_ticker")
-    if isinstance(occurrence, str) and occurrence:
-        return f"occurrence:{occurrence}"
     if isinstance(event_ticker, str) and event_ticker:
         return f"event:{event_ticker}"
+    if isinstance(occurrence, str) and occurrence:
+        return f"occurrence:{occurrence}"
     return f"instrument:{settlement.instrument_id}"
 
 
 def prediction_occurrence_time(rule: MarketEvent) -> datetime | None:
     value = rule.payload.get("occurrence_datetime")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return parse_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def prediction_forecast_target_time(forecast: Forecast) -> datetime | None:
+    value = forecast.values.get("target_time")
+    if not isinstance(value, str) or not value:
+        value = forecast.values.get("outcome_cluster")
     if not isinstance(value, str) or not value:
         return None
     try:

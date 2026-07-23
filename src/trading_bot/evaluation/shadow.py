@@ -13,6 +13,7 @@ from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     PredictionMarketCalibrationSpecialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
+    prediction_forecast_target_time,
     prediction_occurrence_time,
 )
 from trading_bot.core.audit import AuditLedger
@@ -311,8 +312,8 @@ class ShadowResearchRunner:
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_event_keys = {
             str(
-                forecast.values.get("outcome_cluster")
-                or forecast.values.get("event_ticker")
+                forecast.values.get("event_ticker")
+                or forecast.values.get("outcome_cluster")
                 or forecast.instrument_id
             )
             for forecast in self.audit.forecasts()
@@ -396,7 +397,9 @@ class ShadowResearchRunner:
                 or time_to_occurrence > specialist.config.forecast_horizon
             ):
                 continue
-            event_key = str(rule.payload["occurrence_datetime"])
+            event_key = rule.payload.get("event_ticker")
+            if not isinstance(event_key, str) or not event_key:
+                continue
             if event_key in forecasted_event_keys:
                 continue
             executable = prediction_book(book)
@@ -558,7 +561,7 @@ class ShadowResearchRunner:
     ) -> ForecastScore | None:
         target_time: datetime | None = None
         if forecast.specialist_id in TIMING_GUARDED_PREDICTION_SPECIALISTS:
-            target_time = _payload_time(forecast.values.get("outcome_cluster"))
+            target_time = prediction_forecast_target_time(forecast)
             if target_time is None or target_time <= forecast.generated_at:
                 return None
         events = self.store.events_available_at(

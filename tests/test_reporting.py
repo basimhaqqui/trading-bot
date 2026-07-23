@@ -144,7 +144,7 @@ class ReportingTests(unittest.TestCase):
                 actual=1,
                 instrument_id=f"same-event-strike-{index}",
                 event_ticker="SAME-EVENT",
-                target_time=self.base + timedelta(days=1),
+                target_time=self.base + timedelta(days=1, seconds=index),
                 generated_at=self.base + timedelta(minutes=index),
             )
             for index in range(30)

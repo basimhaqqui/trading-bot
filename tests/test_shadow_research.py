@@ -147,6 +147,7 @@ class ShadowResearchTests(unittest.TestCase):
                 market,
                 {
                     "rules_primary": "Named public source.",
+                    "event_ticker": "TARGET-EVENT",
                     "occurrence_datetime": (
                         self.now + timedelta(hours=7)
                     ).isoformat(),
@@ -165,6 +166,9 @@ class ShadowResearchTests(unittest.TestCase):
         )
         generated = self.runner.run(as_of=self.now)
         self.assertEqual(generated.generation.appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(forecast.values["outcome_cluster"], "TARGET-EVENT")
+        self.assertEqual(forecast.values["target_time"], forecast.valid_until.isoformat())
         self.assertEqual(self.runner.score_available(as_of=self.now).matched, 0)
 
         late_label_time = self.now + timedelta(minutes=1)
@@ -321,6 +325,7 @@ class ShadowResearchTests(unittest.TestCase):
                     market,
                     {
                         "rules_primary": "Named public source.",
+                        "event_ticker": f"BULK-EVENT-{index}",
                         "occurrence_datetime": (
                             self.now + timedelta(hours=2, minutes=index)
                         ).isoformat(),
