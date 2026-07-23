@@ -5,7 +5,14 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from trading_bot.core.audit import AuditLedger
-from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
+from trading_bot.core.schemas import (
+    AssetClass,
+    Forecast,
+    ForecastKind,
+    Instrument,
+    MarketEvent,
+    MarketEventType,
+)
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.costs import (
     CostBasis,
@@ -153,6 +160,78 @@ class DailyScorecardTests(unittest.TestCase):
         )
         self.assertEqual(scorecard.status, ScorecardStatus.CRITICAL)
         self.assertIn("::error", render_github_alerts(scorecard))
+
+    def test_scorecard_separates_future_and_due_unscored_forecasts(self):
+        self.append_public_run()
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+        for forecast_id, specialist_id, valid_until in (
+            (
+                "due",
+                "prediction-market-calibration-baseline-v3",
+                self.now - timedelta(minutes=30),
+            ),
+            (
+                "future",
+                "prediction-market-calibration-baseline-v3",
+                self.now + timedelta(hours=2),
+            ),
+            (
+                "legacy",
+                "prediction-market-calibration-baseline",
+                self.now - timedelta(minutes=45),
+            ),
+        ):
+            values = {"probability": 0.6, "market_probability": 0.5}
+            if specialist_id.endswith("-v3"):
+                values["target_time"] = valid_until.isoformat()
+            self.audit.append_forecast(
+                Forecast(
+                    forecast_id,
+                    specialist_id,
+                    "baseline-v3" if specialist_id.endswith("-v3") else "baseline-v1",
+                    "test-instrument",
+                    ForecastKind.BINARY_PROBABILITY,
+                    self.now - timedelta(hours=1),
+                    valid_until,
+                    values,
+                    0.25,
+                    {},
+                    ("fixture-event",),
+                    ("test fixture",),
+                )
+            )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(scorecard.outcome_queue.unscored, 3)
+        self.assertEqual(scorecard.outcome_queue.not_due, 1)
+        self.assertEqual(scorecard.outcome_queue.due_unmatched, 1)
+        self.assertEqual(scorecard.outcome_queue.quarantined, 1)
+        self.assertEqual(
+            scorecard.outcome_queue.next_due_at, self.now + timedelta(hours=2)
+        )
+        self.assertEqual(
+            scorecard.outcome_queue.oldest_due_at,
+            self.now - timedelta(minutes=30),
+        )
+        self.assertTrue(
+            any(
+                alert.code == "outcomes_awaiting_settlement"
+                for alert in scorecard.alerts
+            )
+        )
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("### Outcome queue", markdown)
+        self.assertIn("due without outcome: **1**", markdown)
 
 
 if __name__ == "__main__":

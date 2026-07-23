@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Mapping
 
 from trading_bot.core.audit import AuditLedger, AuditRecordType
-from trading_bot.core.schemas import AssetClass
+from trading_bot.core.schemas import AssetClass, Forecast
 from trading_bot.core.serialization import canonical_json, require_aware
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.costs import EconomicCostRegistry
@@ -18,11 +18,13 @@ from trading_bot.evaluation.economics import (
     EconomicStatus,
     build_economic_report,
 )
+from trading_bot.evaluation.outcomes import forecast_outcome_target_time
 from trading_bot.evaluation.reporting import (
     EdgeStatus,
     EvaluationGateConfig,
     build_walk_forward_report,
 )
+from trading_bot.evaluation.scoring import ForecastScore
 from trading_bot.ingestion.health import IngestionHealthReport, ingestion_health
 from trading_bot.ingestion.plan import ShadowIngestionPlan
 from trading_bot.execution.operations import PaperControlStore, PaperExecutionLedger
@@ -107,6 +109,16 @@ class PaperOperationsSummary:
 
 
 @dataclass(frozen=True)
+class OutcomeQueueSummary:
+    unscored: int
+    not_due: int
+    due_unmatched: int
+    quarantined: int
+    next_due_at: datetime | None
+    oldest_due_at: datetime | None
+
+
+@dataclass(frozen=True)
 class DailyScorecard:
     generated_at: datetime
     status: ScorecardStatus
@@ -115,6 +127,7 @@ class DailyScorecard:
     strategies: tuple[StrategySummary, ...]
     economics: tuple[EconomicSummary, ...]
     paper: PaperOperationsSummary
+    outcome_queue: OutcomeQueueSummary
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -238,7 +251,10 @@ def build_daily_scorecard(
         control.reason,
         reconciliation_records,
     )
-    alerts = _build_alerts(health, strategies, economics, totals, paper)
+    outcome_queue = _outcome_queue(forecasts, scores, as_of)
+    alerts = _build_alerts(
+        health, strategies, economics, totals, paper, outcome_queue
+    )
     return DailyScorecard(
         as_of,
         _scorecard_status(alerts),
@@ -247,6 +263,7 @@ def build_daily_scorecard(
         strategies,
         economics,
         paper,
+        outcome_queue,
         health,
         alerts,
     )
@@ -271,6 +288,12 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"kill_switch={str(scorecard.paper.kill_switch_active).lower()} "
             f"ready={str(scorecard.paper.ready).lower()} "
             f"reconciliation_records={scorecard.paper.reconciliation_records}"
+        ),
+        (
+            f"outcome_queue: unscored={scorecard.outcome_queue.unscored} "
+            f"not_due={scorecard.outcome_queue.not_due} "
+            f"due_unmatched={scorecard.outcome_queue.due_unmatched} "
+            f"quarantined={scorecard.outcome_queue.quarantined}"
         ),
     ]
     for alert in scorecard.alerts:
@@ -327,6 +350,7 @@ def _build_alerts(
     economics: tuple[EconomicSummary, ...],
     totals: SystemTotals,
     paper: PaperOperationsSummary,
+    outcome_queue: OutcomeQueueSummary,
 ) -> tuple[OperationalAlert, ...]:
     alerts: list[OperationalAlert] = []
     unhealthy = [job.job_id for job in health.jobs if not job.healthy]
@@ -389,6 +413,19 @@ def _build_alerts(
                 f"{totals.execution_receipts} controlled execution receipt(s) exist; live adapters remain disabled",
             )
         )
+    if outcome_queue.due_unmatched:
+        oldest = (
+            outcome_queue.oldest_due_at.isoformat()
+            if outcome_queue.oldest_due_at is not None
+            else "unknown"
+        )
+        alerts.append(
+            OperationalAlert(
+                "outcomes_awaiting_settlement",
+                AlertSeverity.INFO,
+                f"{outcome_queue.due_unmatched} due forecast(s) await a public outcome; oldest target {oldest}",
+            )
+        )
     if not alerts:
         alerts.append(
             OperationalAlert(
@@ -409,6 +446,31 @@ def _scorecard_status(alerts: tuple[OperationalAlert, ...]) -> ScorecardStatus:
     if AlertSeverity.WARNING in severities:
         return ScorecardStatus.ATTENTION
     return ScorecardStatus.COLLECTING
+
+
+def _outcome_queue(
+    forecasts: tuple[Forecast, ...],
+    scores: tuple[ForecastScore, ...],
+    as_of: datetime,
+) -> OutcomeQueueSummary:
+    scored_ids = {score.forecast_id for score in scores}
+    unscored = [
+        forecast for forecast in forecasts if forecast.forecast_id not in scored_ids
+    ]
+    targets = [
+        (forecast, forecast_outcome_target_time(forecast)) for forecast in unscored
+    ]
+    future = [target for _, target in targets if target is not None and target > as_of]
+    due = [target for _, target in targets if target is not None and target <= as_of]
+    quarantined = sum(target is None for _, target in targets)
+    return OutcomeQueueSummary(
+        len(unscored),
+        len(future),
+        len(due),
+        quarantined,
+        min(future) if future else None,
+        min(due) if due else None,
+    )
 
 
 def _render_markdown(scorecard: DailyScorecard) -> str:
@@ -447,6 +509,29 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
         )
     lines.extend(
         [
+            "",
+            "### Outcome queue",
+            "",
+            (
+                f"Unscored: **{scorecard.outcome_queue.unscored:,}** · "
+                f"not due: **{scorecard.outcome_queue.not_due:,}** · "
+                f"due without outcome: **{scorecard.outcome_queue.due_unmatched:,}** · "
+                f"quarantined legacy/invalid: **{scorecard.outcome_queue.quarantined:,}**"
+            ),
+            "",
+            (
+                "Next due: "
+                f"`{scorecard.outcome_queue.next_due_at.isoformat()}`"
+                if scorecard.outcome_queue.next_due_at is not None
+                else "Next due: —"
+            ),
+            "",
+            (
+                "Oldest due without outcome: "
+                f"`{scorecard.outcome_queue.oldest_due_at.isoformat()}`"
+                if scorecard.outcome_queue.oldest_due_at is not None
+                else "Oldest due without outcome: —"
+            ),
             "",
             "### Strategy evidence",
             "",

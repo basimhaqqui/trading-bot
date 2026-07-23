@@ -630,9 +630,15 @@ def _print_shadow_research(result: ShadowResearchResult) -> None:
     )
     print(
         "shadow scores: "
-        f"unscored={scoring.unscored} matched={scoring.matched} "
+        f"unscored={scoring.unscored} not_due={scoring.not_due} "
+        f"due_unmatched={scoring.due_unmatched} quarantined={scoring.quarantined} "
+        f"matched={scoring.matched} "
         f"new={scoring.appended} existing={scoring.existing}"
     )
+    if scoring.next_due_at is not None:
+        print(f"  next_due_at={scoring.next_due_at.isoformat()}")
+    if scoring.oldest_due_at is not None:
+        print(f"  oldest_due_at={scoring.oldest_due_at.isoformat()}")
     for error in (*scoring.errors, *generation.errors):
         print(f"  research error: {error}")
 
