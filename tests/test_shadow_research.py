@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
@@ -251,6 +252,84 @@ class ShadowResearchTests(unittest.TestCase):
         )
         scored = self.runner.score_available(as_of=target_time)
         self.assertEqual(scored.appended, 1)
+
+    def test_option_candidate_discovery_uses_one_bulk_quote_read(self):
+        for index in range(40):
+            option = Instrument(
+                f"alpaca:option:AAPL{index:08d}",
+                "alpaca",
+                f"AAPL{index:08d}",
+                AssetClass.OPTION,
+                "USD",
+                100,
+                metadata={"underlying_symbol": "AAPL"},
+            )
+            self.store.register_instrument(option)
+            for quote_index in range(3):
+                self.store.append_event(
+                    self.event(
+                        f"bulk-option-quote-{index}-{quote_index}",
+                        MarketEventType.QUOTE,
+                        option,
+                        {
+                            "bid_price": 4.9,
+                            "ask_price": 5.1,
+                            "implied_volatility": 0.2 + quote_index * 0.01,
+                            "feed": "indicative",
+                        },
+                        event_time=self.now
+                        - timedelta(minutes=3 - quote_index),
+                    )
+                )
+
+        with patch.object(
+            self.store,
+            "events_available_at",
+            wraps=self.store.events_available_at,
+        ) as events_available_at:
+            candidates = self.runner._option_candidates(self.now)
+
+        self.assertEqual(len(candidates), 40)
+        self.assertEqual(events_available_at.call_count, 1)
+
+    def test_prediction_candidate_discovery_uses_three_bulk_event_reads(self):
+        for index in range(40):
+            market = Instrument(
+                f"kalshi:prediction:BULK-{index}",
+                "kalshi",
+                f"BULK-{index}",
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(market)
+            self.store.append_event(
+                self.event(
+                    f"bulk-rule-{index}",
+                    MarketEventType.CONTRACT_RULE,
+                    market,
+                    {"rules_primary": "Named public source."},
+                    event_time=self.now - timedelta(minutes=2),
+                )
+            )
+            self.store.append_event(
+                self.event(
+                    f"bulk-book-{index}",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    market,
+                    {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                    event_time=self.now - timedelta(minutes=1),
+                )
+            )
+
+        with patch.object(
+            self.store,
+            "events_available_at",
+            wraps=self.store.events_available_at,
+        ) as events_available_at:
+            candidates = self.runner._prediction_candidates(self.now)
+
+        self.assertEqual(len(candidates), 25)
+        self.assertEqual(events_available_at.call_count, 3)
 
     def test_breakout_forecast_scores_only_on_future_completed_bar(self):
         instrument = Instrument(

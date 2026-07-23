@@ -54,12 +54,9 @@ class ReplayEngine:
             count += 1
 
             visible_events = self.store.events_available_at(
-                decision_time, instrument_id=instrument_id
+                decision_time,
+                instrument_ids=(instrument_id, *related_ids),
             )
-            for related_id in related_ids:
-                visible_events.extend(
-                    self.store.events_available_at(decision_time, instrument_id=related_id)
-                )
             visible_events.sort(
                 key=lambda event: (
                     event.event_time,

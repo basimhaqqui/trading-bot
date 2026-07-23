@@ -101,6 +101,16 @@
       "activation_profile": "alpaca_market_data"
     },
     {
+      "job_id": "alpaca-spy-options-cohort",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "SPY",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data",
+      "cursor_mode": "restart"
+    },
+    {
       "job_id": "alpaca-qqq-bars",
       "venue": "alpaca",
       "dataset": "bars",
@@ -118,6 +128,16 @@
       "feed": "indicative",
       "limit": 100,
       "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-qqq-options-cohort",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "QQQ",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data",
+      "cursor_mode": "restart"
     },
     {
       "job_id": "alpaca-aapl-bars",
@@ -139,6 +159,16 @@
       "activation_profile": "alpaca_market_data"
     },
     {
+      "job_id": "alpaca-aapl-options-cohort",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "AAPL",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data",
+      "cursor_mode": "restart"
+    },
+    {
       "job_id": "alpaca-nvda-bars",
       "venue": "alpaca",
       "dataset": "bars",
@@ -156,6 +186,16 @@
       "feed": "indicative",
       "limit": 100,
       "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-nvda-options-cohort",
+      "venue": "alpaca",
+      "dataset": "chain",
+      "symbol": "NVDA",
+      "feed": "indicative",
+      "limit": 100,
+      "activation_profile": "alpaca_market_data",
+      "cursor_mode": "restart"
     }
   ]
 }

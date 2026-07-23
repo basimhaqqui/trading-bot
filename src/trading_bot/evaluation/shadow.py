@@ -7,6 +7,7 @@ from typing import Mapping
 
 from trading_bot.agents.base import Specialist
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
+from trading_bot.agents.market_math import finite_float
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import PredictionMarketCalibrationSpecialist
@@ -264,16 +265,32 @@ class ShadowResearchRunner:
         specialist = OptionVolatilitySpecialist()
         equities = self.store.instruments(asset_class=AssetClass.EQUITY)
         by_symbol = {(item.venue, item.symbol.upper()): item for item in equities}
-        candidates: list[_Candidate] = []
-        for option in self.store.instruments(asset_class=AssetClass.OPTION):
-            quotes = self.store.events_available_at(
-                as_of,
-                instrument_id=option.instrument_id,
-                event_type=MarketEventType.QUOTE,
-            )
-            if not quotes:
+        options = self.store.instruments(asset_class=AssetClass.OPTION)
+        option_ids = {item.instrument_id for item in options}
+        quotes_by_instrument: dict[str, list[MarketEvent]] = {}
+        for quote in self.store.events_available_at(
+            as_of, event_type=MarketEventType.QUOTE
+        ):
+            if quote.instrument_id not in option_ids:
                 continue
-            decision_time = max(item.available_at for item in quotes)
+            quotes_by_instrument.setdefault(quote.instrument_id, []).append(quote)
+        candidates: list[_Candidate] = []
+        for option in options:
+            quotes = quotes_by_instrument.get(option.instrument_id, [])
+            quotes.sort(
+                key=lambda item: (item.available_at, item.event_time, item.event_id)
+            )
+            recent = quotes[-specialist.config.lookback :]
+            valid_observations = [
+                quote
+                for quote in recent
+                if (value := finite_float(quote.payload.get("implied_volatility")))
+                is not None
+                and 0 < value <= 10
+            ]
+            if len(valid_observations) < specialist.config.min_observations:
+                continue
+            decision_time = quotes[-1].available_at
             if as_of - decision_time > specialist.config.max_quote_age:
                 continue
             underlying = str(option.metadata.get("underlying_symbol") or "").upper()
@@ -287,14 +304,43 @@ class ShadowResearchRunner:
     def _prediction_candidates(self, as_of: datetime) -> list[_Candidate]:
         specialist = PredictionMarketCalibrationSpecialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
+        instrument_ids = {item.instrument_id for item in instruments}
+        settlements_by_instrument: dict[str, list[MarketEvent]] = {}
+        for settlement in self.store.events_available_at(
+            as_of, event_type=MarketEventType.SETTLEMENT
+        ):
+            if settlement.instrument_id in instrument_ids:
+                settlements_by_instrument.setdefault(
+                    settlement.instrument_id, []
+                ).append(settlement)
+        latest_books: dict[str, MarketEvent] = {}
+        for book in self.store.events_available_at(
+            as_of, event_type=MarketEventType.BOOK_SNAPSHOT
+        ):
+            if book.instrument_id not in instrument_ids:
+                continue
+            current = latest_books.get(book.instrument_id)
+            if current is None or (
+                book.available_at,
+                book.event_time,
+                book.event_id,
+            ) > (
+                current.available_at,
+                current.event_time,
+                current.event_id,
+            ):
+                latest_books[book.instrument_id] = book
+        instruments_with_rules = {
+            event.instrument_id
+            for event in self.store.events_available_at(
+                as_of, event_type=MarketEventType.CONTRACT_RULE
+            )
+            if event.instrument_id in instrument_ids
+        }
         settled: list[tuple[datetime, str]] = []
         open_candidates: list[tuple[datetime, Instrument]] = []
         for instrument in instruments:
-            settlements = self.store.events_available_at(
-                as_of,
-                instrument_id=instrument.instrument_id,
-                event_type=MarketEventType.SETTLEMENT,
-            )
+            settlements = settlements_by_instrument.get(instrument.instrument_id, [])
             valid_settlements = [
                 item
                 for item in settlements
@@ -308,19 +354,10 @@ class ShadowResearchRunner:
                     )
                 )
                 continue
-            books = self.store.events_available_at(
-                as_of,
-                instrument_id=instrument.instrument_id,
-                event_type=MarketEventType.BOOK_SNAPSHOT,
-            )
-            rules = self.store.events_available_at(
-                as_of,
-                instrument_id=instrument.instrument_id,
-                event_type=MarketEventType.CONTRACT_RULE,
-            )
-            if not books or not rules:
+            book = latest_books.get(instrument.instrument_id)
+            if book is None or instrument.instrument_id not in instruments_with_rules:
                 continue
-            decision_time = max(item.available_at for item in books)
+            decision_time = book.available_at
             if as_of - decision_time > specialist.config.max_book_age:
                 continue
             open_candidates.append((decision_time, instrument))

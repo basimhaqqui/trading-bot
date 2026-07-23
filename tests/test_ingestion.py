@@ -64,6 +64,15 @@ class FakeAlpacaCollector:
         return CollectionBatch("alpaca")
 
 
+class PaginatedAlpacaCollector:
+    def __init__(self):
+        self.page_tokens = []
+
+    def collect_chain(self, symbol, **kwargs):
+        self.page_tokens.append(kwargs.get("page_token"))
+        return CollectionBatch("alpaca", cursor="alpaca-page-2")
+
+
 class FakeKalshiCollector:
     def __init__(self):
         self.market_cursor = None
@@ -255,6 +264,66 @@ class IngestionTests(unittest.TestCase):
         collect_job(collector, bars_job, self.now, "alpaca-bars-page-2")
         self.assertEqual(collector.page_token, "alpaca-page-2")
         self.assertEqual(collector.bar_page_token, "alpaca-bars-page-2")
+
+    def test_restart_cursor_mode_repeats_first_chain_page_and_keeps_audit_cursor(self):
+        collector = PaginatedAlpacaCollector()
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+        plan = ShadowIngestionPlan(
+            "fixture-plan",
+            (
+                ObservationJob(
+                    "options-cohort",
+                    "alpaca",
+                    "chain",
+                    symbol="AAPL",
+                    cursor_mode="restart",
+                ),
+            ),
+        )
+
+        first = runner.run_plan(plan, collected_at=self.now)[0]
+        second = runner.run_plan(plan, collected_at=self.now)[0]
+
+        self.assertEqual(collector.page_tokens, [None, None])
+        self.assertIsNone(first.request_cursor)
+        self.assertIsNone(second.request_cursor)
+        self.assertEqual(first.next_cursor, "alpaca-page-2")
+        self.assertEqual(second.next_cursor, "alpaca-page-2")
+        self.assertEqual(
+            self.ledger.resume_cursor("fixture-plan", "options-cohort"),
+            "alpaca-page-2",
+        )
+
+    def test_restart_cursor_mode_is_restricted_to_alpaca_chains(self):
+        with self.assertRaisesRegex(ValueError, "only valid for Alpaca chain"):
+            ObservationJob(
+                "products",
+                "coinbase",
+                "products",
+                cursor_mode="restart",
+            )
+        with self.assertRaisesRegex(ValueError, "must be resume or restart"):
+            ObservationJob(
+                "options",
+                "alpaca",
+                "chain",
+                symbol="AAPL",
+                cursor_mode="invalid",
+            )
+
+    def test_checked_in_option_plan_pairs_breadth_and_repeat_cohorts(self):
+        plan = load_plan("config/shadow-ingestion.json")
+        option_jobs = [job for job in plan.jobs if job.dataset == "chain"]
+        by_symbol = {
+            symbol: {job.cursor_mode for job in option_jobs if job.symbol == symbol}
+            for symbol in ("SPY", "QQQ", "AAPL", "NVDA")
+        }
+        self.assertEqual(
+            by_symbol,
+            {symbol: {"resume", "restart"} for symbol in by_symbol},
+        )
 
     def test_alpaca_activation_requires_both_read_only_environment_values(self):
         job = ObservationJob(

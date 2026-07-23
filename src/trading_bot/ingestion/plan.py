@@ -27,6 +27,7 @@ ACTIVATION_PROFILES = {
         "ALPACA_MARKET_DATA_SECRET_KEY",
     ),
 }
+CURSOR_MODES = {"resume", "restart"}
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class ObservationJob:
     granularity: str = "ONE_HOUR"
     enabled: bool = True
     activation_profile: str | None = None
+    cursor_mode: str = "resume"
 
     def __post_init__(self) -> None:
         if not self.job_id or not self.job_id.replace("-", "").replace("_", "").isalnum():
@@ -98,6 +100,12 @@ class ObservationJob:
             raise ValueError("unsupported activation profile")
         if self.activation_profile == "alpaca_market_data" and self.venue != "alpaca":
             raise ValueError("alpaca_market_data activation is only valid for Alpaca jobs")
+        if self.cursor_mode not in CURSOR_MODES:
+            raise ValueError("cursor_mode must be resume or restart")
+        if self.cursor_mode == "restart" and not (
+            self.venue == "alpaca" and self.dataset == "chain"
+        ):
+            raise ValueError("restart cursor mode is only valid for Alpaca chain jobs")
 
     def missing_activation_environment(
         self, environment: Mapping[str, str] | None = None
@@ -159,6 +167,7 @@ def load_plan(path: str | Path) -> ShadowIngestionPlan:
         "granularity",
         "enabled",
         "activation_profile",
+        "cursor_mode",
     }
     jobs: list[ObservationJob] = []
     for raw_job in raw_jobs:

@@ -42,6 +42,41 @@ class PointInTimeStoreTests(unittest.TestCase):
         self.assertEqual(before, [])
         self.assertEqual([item.event_id for item in after], ["event-1"])
 
+    def test_events_can_be_read_for_a_bounded_instrument_set(self):
+        other = Instrument(
+            "demo:ETH-USD", "demo", "ETH-USD", AssetClass.CRYPTO, "USD"
+        )
+        self.store.register_instrument(other)
+        self.store.append_event(self.event)
+        other_event = MarketEvent(
+            "event-2",
+            MarketEventType.TRADE,
+            "demo",
+            other.instrument_id,
+            self.event_time,
+            self.available_at,
+            "test",
+            {"price": 200.0},
+            sequence=1,
+            ingested_at=self.available_at,
+        )
+        self.store.append_event(other_event)
+
+        selected = self.store.events_available_at(
+            self.available_at, instrument_ids=(other.instrument_id,)
+        )
+
+        self.assertEqual([item.event_id for item in selected], ["event-2"])
+        self.assertEqual(
+            self.store.events_available_at(self.available_at, instrument_ids=()), []
+        )
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            self.store.events_available_at(
+                self.available_at,
+                instrument_id=self.instrument.instrument_id,
+                instrument_ids=(other.instrument_id,),
+            )
+
     def test_identical_event_is_idempotent(self):
         self.assertTrue(self.store.append_event(self.event))
         self.assertFalse(self.store.append_event(self.event))
