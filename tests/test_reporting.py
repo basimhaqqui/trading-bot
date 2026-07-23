@@ -200,6 +200,90 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(group.independent_outcomes, 1)
         self.assertEqual(group.status, EdgeStatus.COLLECTING)
 
+    def test_crypto_candidate_requires_instrument_diversity(self):
+        observations = []
+        for index in range(40):
+            generated_at = self.base + timedelta(days=index)
+            target_time = generated_at + timedelta(hours=1)
+            predicted = 0.01 if index % 2 else -0.01
+            forecast = Forecast(
+                f"concentrated-crypto-{index}",
+                "crypto-range-breakout-continuation-baseline",
+                "baseline-v1",
+                "coinbase:product:BTC-USD",
+                ForecastKind.RETURN_DISTRIBUTION,
+                generated_at,
+                target_time,
+                {"predicted_return": predicted, "benchmark_return": 0.0},
+                0.3,
+                {"sample_size": 20.0},
+                (f"concentrated-event-{index}",),
+                ("one asset invalidates the result",),
+            )
+            score = score_return_forecast(
+                forecast,
+                actual_return=predicted,
+                target_time=target_time,
+                scored_at=target_time,
+            )
+            observations.append((forecast, score))
+
+        report = build_walk_forward_report(
+            tuple(item[0] for item in observations),
+            tuple(item[1] for item in observations),
+        )
+
+        group = report.groups[0]
+        self.assertEqual(group.independent_outcomes, 40)
+        self.assertEqual(group.unique_instruments, 1)
+        self.assertEqual(group.status, EdgeStatus.COLLECTING)
+        self.assertIn(
+            "needs outcomes from at least 2 instruments",
+            group.reasons,
+        )
+        self.assertIn(
+            "largest instrument share 100.0% exceeds 80.0% gate",
+            group.reasons,
+        )
+
+    def test_crypto_candidate_accepts_predeclared_concentration_boundary(self):
+        observations = []
+        for index in range(40):
+            generated_at = self.base + timedelta(days=index)
+            target_time = generated_at + timedelta(hours=1)
+            predicted = 0.01 if index % 2 else -0.01
+            instrument = "BTC-USD" if index < 32 else "ETH-USD"
+            forecast = Forecast(
+                f"diverse-crypto-{index}",
+                "crypto-range-breakout-continuation-baseline",
+                "baseline-v1",
+                f"coinbase:product:{instrument}",
+                ForecastKind.RETURN_DISTRIBUTION,
+                generated_at,
+                target_time,
+                {"predicted_return": predicted, "benchmark_return": 0.0},
+                0.3,
+                {"sample_size": 20.0},
+                (f"diverse-event-{index}",),
+                ("one asset invalidates the result",),
+            )
+            score = score_return_forecast(
+                forecast,
+                actual_return=predicted,
+                target_time=target_time,
+                scored_at=target_time,
+            )
+            observations.append((forecast, score))
+
+        report = build_walk_forward_report(
+            tuple(item[0] for item in observations),
+            tuple(item[1] for item in observations),
+        )
+
+        group = report.groups[0]
+        self.assertEqual(group.unique_instruments, 2)
+        self.assertEqual(group.status, EdgeStatus.CANDIDATE)
+
     def test_same_session_option_contracts_are_one_outcome_cluster(self):
         target_time = self.base + timedelta(days=1)
         observations = []
