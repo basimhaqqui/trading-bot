@@ -7,6 +7,11 @@ on:
         description: "Optional workflow run ID containing a shadow-database artifact"
         required: false
         type: string
+      create_recovery_checkpoint:
+        description: "Upload a recovery snapshot and scorecard artifact"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "7,37 * * * *"
 
@@ -105,10 +110,10 @@ jobs:
         id: recovery
         if: always()
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          CREATE_RECOVERY_CHECKPOINT: ${{ inputs.create_recovery_checkpoint || false }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" || $((RUN_NUMBER % 48)) -eq 0 ]]; then
+          if [[ "$CREATE_RECOVERY_CHECKPOINT" == "true" || $((RUN_NUMBER % 48)) -eq 0 ]]; then
             echo "create=true" >> "$GITHUB_OUTPUT"
           else
             echo "create=false" >> "$GITHUB_OUTPUT"
@@ -127,7 +132,7 @@ jobs:
           name: shadow-database
           path: var/snapshot/trading.db
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - name: Upload daily scorecard
         if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/reports/daily-scorecard.json') != '' }}
