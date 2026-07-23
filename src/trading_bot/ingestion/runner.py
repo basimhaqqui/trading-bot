@@ -12,10 +12,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Iterator, Protocol
 
-from trading_bot.agents.prediction import (
-    TIMING_GUARDED_PREDICTION_SPECIALISTS,
-    prediction_forecast_target_time,
-)
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.schemas import (
     AssetClass,
@@ -26,7 +22,6 @@ from trading_bot.core.schemas import (
 )
 from trading_bot.core.serialization import (
     canonical_json,
-    parse_datetime,
     require_aware,
     sha256_digest,
     utc_now,
@@ -39,6 +34,7 @@ from trading_bot.data.collectors import (
     KalshiCollector,
 )
 from trading_bot.data.schemas import CollectionBatch, DataQualityDiagnostic, DiagnosticSeverity
+from trading_bot.evaluation.outcomes import forecast_outcome_target_time
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
 
 
@@ -337,14 +333,23 @@ class ShadowIngestionRunner:
         if self.audit is None:
             raise RuntimeError("forecast outcome jobs require an audit ledger")
         scored_ids = self.audit.scored_forecast_ids()
-        forecasts = sorted(
-            (
-                forecast
-                for forecast in self.audit.forecasts()
-                if forecast.kind is ForecastKind.BINARY_PROBABILITY
-                and forecast.forecast_id not in scored_ids
-            ),
-            key=lambda item: (item.generated_at, item.forecast_id),
+        forecasts_with_targets = []
+        for forecast in self.audit.forecasts():
+            if (
+                forecast.kind is not ForecastKind.BINARY_PROBABILITY
+                or forecast.forecast_id in scored_ids
+            ):
+                continue
+            target_time = forecast_outcome_target_time(forecast)
+            if target_time is not None:
+                forecasts_with_targets.append((forecast, target_time))
+        forecasts_with_targets.sort(
+            key=lambda item: (
+                item[1] > as_of,
+                item[1],
+                item[0].generated_at,
+                item[0].forecast_id,
+            )
         )
         instruments = {
             item.instrument_id: item
@@ -376,9 +381,7 @@ class ShadowIngestionRunner:
 
         selected: list[str] = []
         selected_instruments: set[str] = set()
-        for forecast in forecasts:
-            if not _prediction_forecast_timing_is_valid(forecast):
-                continue
+        for forecast, _ in forecasts_with_targets:
             if (
                 forecast.instrument_id in selected_instruments
                 or forecast.instrument_id in valid_settlements
@@ -391,9 +394,6 @@ class ShadowIngestionRunner:
             if rule.payload.get("mve_collection_ticker") or instrument.symbol.startswith(
                 "KXMVE"
             ):
-                continue
-            poll_time = _market_outcome_poll_time(rule)
-            if poll_time is None or poll_time > as_of:
                 continue
             selected.append(instrument.symbol)
             selected_instruments.add(instrument.instrument_id)
@@ -553,32 +553,6 @@ def collect_job(
                 page_token=cursor,
             )
     raise TypeError(f"collector does not implement {job.venue}/{job.dataset}")
-
-
-def _market_outcome_poll_time(rule: MarketEvent) -> datetime | None:
-    for field in (
-        "expected_expiration_time",
-        "occurrence_datetime",
-        "close_time",
-        "expiration_time",
-    ):
-        value = rule.payload.get(field)
-        if not isinstance(value, str) or not value:
-            continue
-        try:
-            return parse_datetime(value)
-        except ValueError:
-            continue
-    return None
-
-
-def _prediction_forecast_timing_is_valid(forecast: Forecast) -> bool:
-    if forecast.specialist_id not in TIMING_GUARDED_PREDICTION_SPECIALISTS:
-        return True
-    target_time = prediction_forecast_target_time(forecast)
-    if target_time is None:
-        return False
-    return target_time > forecast.generated_at
 
 
 @contextmanager
