@@ -159,7 +159,7 @@ class PredictionMarketCalibrationSpecialist:
             result = str(settlement.payload.get("result", "")).lower()
             if result not in {"yes", "no"}:
                 continue
-            occurrence_time = _settlement_occurrence_time(settlement)
+            occurrence_time = prediction_settlement_occurrence_time(settlement)
             if occurrence_time is None:
                 continue
             eligible: list[tuple[MarketEvent, tuple[float, float, float, float]]] = []
@@ -181,7 +181,7 @@ class PredictionMarketCalibrationSpecialist:
             historical_book, executable = eligible[-1]
             historical_probability = executable[2]
             if abs(historical_probability - target_probability) <= self.config.probability_bucket_radius:
-                event_key = _settlement_event_key(settlement)
+                event_key = prediction_settlement_event_key(settlement)
                 candidate = (
                     historical_book,
                     settlement,
@@ -225,7 +225,7 @@ class AdjustedPredictionMarketCalibrationSpecialist(
         return forecast
 
 
-def _settlement_event_key(settlement: MarketEvent) -> str:
+def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = settlement.payload.get("event_ticker")
     if not isinstance(occurrence, str) or not occurrence:
@@ -241,7 +241,9 @@ def _settlement_event_key(settlement: MarketEvent) -> str:
     return f"instrument:{settlement.instrument_id}"
 
 
-def _settlement_occurrence_time(settlement: MarketEvent) -> datetime | None:
+def prediction_settlement_occurrence_time(
+    settlement: MarketEvent,
+) -> datetime | None:
     value = settlement.payload.get("occurrence_datetime")
     if not isinstance(value, str) or not value:
         raw_market = settlement.payload.get("raw_market")
