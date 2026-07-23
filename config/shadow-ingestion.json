@@ -128,7 +128,10 @@
       "feed": "indicative",
       "limit": 100,
       "activation_profile": "alpaca_market_data",
-      "cursor_mode": "restart"
+      "cursor_mode": "restart",
+      "expiration_lookahead_days": 14,
+      "strike_band_pct": 0.1,
+      "updated_since_minutes": 120
     },
     {
       "job_id": "alpaca-qqq-bars",
@@ -157,7 +160,10 @@
       "feed": "indicative",
       "limit": 100,
       "activation_profile": "alpaca_market_data",
-      "cursor_mode": "restart"
+      "cursor_mode": "restart",
+      "expiration_lookahead_days": 14,
+      "strike_band_pct": 0.1,
+      "updated_since_minutes": 120
     },
     {
       "job_id": "alpaca-aapl-bars",
@@ -186,7 +192,10 @@
       "feed": "indicative",
       "limit": 100,
       "activation_profile": "alpaca_market_data",
-      "cursor_mode": "restart"
+      "cursor_mode": "restart",
+      "expiration_lookahead_days": 14,
+      "strike_band_pct": 0.1,
+      "updated_since_minutes": 120
     },
     {
       "job_id": "alpaca-nvda-bars",
@@ -215,7 +224,10 @@
       "feed": "indicative",
       "limit": 100,
       "activation_profile": "alpaca_market_data",
-      "cursor_mode": "restart"
+      "cursor_mode": "restart",
+      "expiration_lookahead_days": 14,
+      "strike_band_pct": 0.1,
+      "updated_since_minutes": 120
     }
   ]
 }

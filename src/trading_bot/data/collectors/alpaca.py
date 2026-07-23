@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Mapping
 from urllib.parse import quote
 
@@ -57,6 +58,11 @@ class AlpacaOptionsCollector:
         page_token: str | None = None,
         contract_type: str | None = None,
         expiration_date: str | None = None,
+        expiration_date_gte: str | None = None,
+        expiration_date_lte: str | None = None,
+        strike_price_gte: float | None = None,
+        strike_price_lte: float | None = None,
+        updated_since: datetime | None = None,
     ) -> CollectionBatch:
         override = require_aware(collected_at, "collected_at") if collected_at else None
         if not re.fullmatch(r"[A-Z0-9.]{1,12}", underlying_symbol):
@@ -67,6 +73,35 @@ class AlpacaOptionsCollector:
             raise ValueError("type must be call or put")
         if not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
+        for field_name, value in (
+            ("expiration_date", expiration_date),
+            ("expiration_date_gte", expiration_date_gte),
+            ("expiration_date_lte", expiration_date_lte),
+        ):
+            if value is None:
+                continue
+            try:
+                parsed = date.fromisoformat(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field_name} must be an ISO date") from exc
+            if parsed.isoformat() != value:
+                raise ValueError(f"{field_name} must be an ISO date")
+        for field_name, value in (
+            ("strike_price_gte", strike_price_gte),
+            ("strike_price_lte", strike_price_lte),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not math.isfinite(value) or value <= 0
+            ):
+                raise ValueError(f"{field_name} must be a positive finite number")
+        if (
+            strike_price_gte is not None
+            and strike_price_lte is not None
+            and strike_price_lte < strike_price_gte
+        ):
+            raise ValueError("strike price bounds are reversed")
+        if updated_since is not None:
+            updated_since = require_aware(updated_since, "updated_since")
         response = self.transport.get_json(
             f"/snapshots/{quote(underlying_symbol, safe='')}",
             query={
@@ -75,6 +110,11 @@ class AlpacaOptionsCollector:
                 "page_token": page_token,
                 "type": contract_type,
                 "expiration_date": expiration_date,
+                "expiration_date_gte": expiration_date_gte,
+                "expiration_date_lte": expiration_date_lte,
+                "strike_price_gte": strike_price_gte,
+                "strike_price_lte": strike_price_lte,
+                "updated_since": updated_since.isoformat() if updated_since else None,
             },
         )
         collected_at = override or utc_now()
@@ -116,7 +156,15 @@ class AlpacaOptionsCollector:
             tuple(events),
             tuple(diagnostics),
             next_page_token or None,
-            {"feed": feed, "underlying_symbol": underlying_symbol},
+            {
+                "feed": feed,
+                "underlying_symbol": underlying_symbol,
+                "expiration_date_gte": expiration_date_gte,
+                "expiration_date_lte": expiration_date_lte,
+                "strike_price_gte": strike_price_gte,
+                "strike_price_lte": strike_price_lte,
+                "updated_since": updated_since.isoformat() if updated_since else None,
+            },
         )
 
     def _quote_event(
