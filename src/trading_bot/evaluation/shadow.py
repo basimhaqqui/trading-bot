@@ -11,7 +11,7 @@ from trading_bot.agents.market_math import finite_float, prediction_book
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
-    PredictionMarketCalibrationSpecialist,
+    AdjustedPredictionMarketCalibrationSpecialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     prediction_forecast_target_time,
     prediction_occurrence_time,
@@ -307,7 +307,7 @@ class ShadowResearchRunner:
         return candidates
 
     def _prediction_candidates(self, as_of: datetime) -> list[_Candidate]:
-        specialist = PredictionMarketCalibrationSpecialist()
+        specialist = AdjustedPredictionMarketCalibrationSpecialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_event_keys = {

@@ -5,6 +5,7 @@ from trading_bot.core.schemas import AssetClass, Hypothesis
 
 BASELINE_PROPOSED_AT = datetime(2026, 7, 21, tzinfo=timezone.utc)
 PREDICTION_V3_PROPOSED_AT = datetime(2026, 7, 23, tzinfo=timezone.utc)
+PREDICTION_V4_PROPOSED_AT = datetime(2026, 7, 23, 1, 35, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -88,6 +89,39 @@ PREDICTION_CALIBRATION_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-calibration-baseline-v4",
+    family="prediction-market-calibration",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "Executable market probabilities are adjusted only when at least five resolved, "
+        "independent Kalshi events in the same fixed ten-cent probability bucket reveal a "
+        "calibration difference. The empirical rate is shrunk toward the current market "
+        "probability with twenty prior observations, and benchmark-identical forecasts are "
+        "not emitted."
+    ),
+    target="binary settlement probability",
+    horizon="one to eight hours until the underlying occurrence",
+    information_set=(
+        "current yes and no executable bids",
+        "contract settlement rules and stable event ticker",
+        "point-in-time books observed one to eight hours before resolved occurrences",
+        "resolved outcomes available before forecast time",
+        "a fixed ten-cent probability bucket radius",
+        "a fixed minimum of five independent resolved events",
+        "a fixed shrinkage prior of twenty observations",
+        "a fixed maximum executable spread of ten cents",
+    ),
+    invalidation_conditions=(
+        "the adjusted forecast does not improve held-out Brier or log loss",
+        "improvement disappears by resolution cohort or time-to-event bucket",
+        "spread, contract wording, or selection bias explains the apparent adjustment",
+        "the adjustment does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_V4_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -119,5 +153,6 @@ BASELINE_HYPOTHESES = (
     PERPETUAL_FUNDING_HYPOTHESIS,
     OPTIONS_VOLATILITY_HYPOTHESIS,
     PREDICTION_CALIBRATION_HYPOTHESIS,
+    PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
 )
