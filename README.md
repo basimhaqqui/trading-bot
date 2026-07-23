@@ -325,7 +325,7 @@ SPY, QQQ, AAPL, and NVDA stock/options jobs automatically activate only when
 both secrets are present. Secret values never enter the observation plan,
 database, logs, artifacts, or scorecard.
 
-Use `--cursor` to continue a one-off manual collection. Scheduled shadow jobs manage pagination automatically. Every returned event is stored with collection time as its availability boundary. Venue text, including news and settlement rules, remains untrusted data.
+Use `--cursor` to continue a one-off manual collection. Scheduled shadow jobs manage pagination automatically. The options plan pairs each broad, cursor-resuming chain crawl with a bounded first-page cohort collected every cycle. This preserves universe discovery while accumulating repeated observations for the same contracts; it does not reduce the option specialist's three-observation requirement. Every returned event is stored with collection time as its availability boundary. Venue text, including news and settlement rules, remains untrusted data.
 
 ## Shadow observation cycle
 
@@ -338,7 +338,7 @@ trading-bot --db var/trading.db shadow-cycle --plan config/shadow-ingestion.json
 trading-bot --db var/trading.db readiness
 ```
 
-The command runs exactly one cycle and exits, so an external scheduler controls frequency. After collection it scores any newly observable outcomes and emits fresh forecasts from eligible data. For paginated jobs, each successful or degraded run records both the requested cursor and the venue's next cursor. The next cycle advances to that page; a failed page is retried, and a terminal response with no next cursor restarts the crawl on page one. Cursor checkpoints are recovered from the immutable run ledger rather than hidden mutable state and are capped at 4,096 characters.
+The command runs exactly one cycle and exits, so an external scheduler controls frequency. After collection it scores any newly observable outcomes and emits fresh forecasts from eligible data. For paginated jobs, each successful or degraded run records both the requested cursor and the venue's next cursor. Resume-mode jobs advance to that page; a failed page is retried, and a terminal response with no next cursor restarts the crawl on page one. The bounded Alpaca option cohort jobs use explicit restart mode, so they request page one each cycle while still recording the returned next cursor for audit. Cursor checkpoints are recovered from the immutable run ledger rather than hidden mutable state and are capped at 4,096 characters.
 
 Plans cannot contain credentials, job types are allowlisted, concurrent cycles are rejected, failures are isolated per job, and every result is recorded append-only. Rerunning against the same information set is idempotent.
 

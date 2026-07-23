@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.demo import DemoRegimeSpecialist
@@ -85,6 +86,25 @@ class ReplayTests(unittest.TestCase):
                 instrument_id=self.instrument.instrument_id,
                 decision_times=(self.base + timedelta(days=1),),
             )
+
+    def test_related_instruments_are_loaded_in_one_point_in_time_read(self):
+        related = Instrument(
+            "demo:QQQ", "demo", "QQQ", AssetClass.EQUITY, "USD"
+        )
+        self.store.register_instrument(related)
+        with patch.object(
+            self.store,
+            "events_available_at",
+            wraps=self.store.events_available_at,
+        ) as events_available_at:
+            ReplayEngine(self.store).run(
+                DemoRegimeSpecialist(),
+                instrument_id=self.instrument.instrument_id,
+                related_instrument_ids=(related.instrument_id,),
+                decision_times=(self.base + timedelta(days=2),),
+            )
+
+        self.assertEqual(events_available_at.call_count, 1)
 
 
 if __name__ == "__main__":

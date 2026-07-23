@@ -219,7 +219,11 @@ class ShadowIngestionRunner:
         started_at = utc_now()
         request_cursor: str | None = None
         try:
-            request_cursor = self.ledger.resume_cursor(plan_name, job.job_id)
+            request_cursor = (
+                None
+                if job.cursor_mode == "restart"
+                else self.ledger.resume_cursor(plan_name, job.job_id)
+            )
             collector = self.collector_factory(job.venue, job.dataset)
             batch = collect_job(collector, job, collected_at, request_cursor)
             if batch.cursor is not None and (

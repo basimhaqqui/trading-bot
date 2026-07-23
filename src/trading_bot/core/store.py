@@ -5,7 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
@@ -240,14 +240,24 @@ class PointInTimeStore:
         as_of: datetime,
         *,
         instrument_id: str | None = None,
+        instrument_ids: Iterable[str] | None = None,
         event_type: MarketEventType | None = None,
     ) -> list[MarketEvent]:
         as_of = require_aware(as_of, "as_of")
+        selected_ids = tuple(dict.fromkeys(instrument_ids or ()))
+        if instrument_id is not None and instrument_ids is not None:
+            raise ValueError("instrument_id and instrument_ids are mutually exclusive")
+        if instrument_ids is not None and not selected_ids:
+            return []
         clauses = ["available_at <= ?"]
         parameters: list[str] = [as_of.isoformat()]
         if instrument_id:
             clauses.append("instrument_id = ?")
             parameters.append(instrument_id)
+        elif selected_ids:
+            placeholders = ", ".join("?" for _ in selected_ids)
+            clauses.append(f"instrument_id IN ({placeholders})")
+            parameters.extend(selected_ids)
         if event_type:
             clauses.append("event_type = ?")
             parameters.append(event_type.value)
