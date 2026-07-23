@@ -691,6 +691,25 @@ class IngestionTests(unittest.TestCase):
             )
         )
 
+    def test_checked_in_perpetual_plan_pairs_btc_and_eth_books(self):
+        plan = load_plan("config/shadow-ingestion.json")
+        book_jobs = [
+            job
+            for job in plan.jobs
+            if job.venue == "coinbase" and job.dataset == "book"
+        ]
+
+        self.assertEqual(
+            {job.symbol for job in book_jobs},
+            {
+                "BTC-USD",
+                "BIP-20DEC30-CDE",
+                "ETH-USD",
+                "ETP-20DEC30-CDE",
+            },
+        )
+        self.assertTrue(all(job.limit == 100 for job in book_jobs))
+
     def test_checked_in_prediction_plan_excludes_mve_and_tracks_outcomes(self):
         plan = load_plan("config/shadow-ingestion.json")
         open_job = next(job for job in plan.jobs if job.job_id == "kalshi-open-markets")

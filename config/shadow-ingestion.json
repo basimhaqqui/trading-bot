@@ -70,6 +70,20 @@
       "limit": 100
     },
     {
+      "job_id": "coinbase-eth-spot-book",
+      "venue": "coinbase",
+      "dataset": "book",
+      "symbol": "ETH-USD",
+      "limit": 100
+    },
+    {
+      "job_id": "coinbase-eth-perpetual-book",
+      "venue": "coinbase",
+      "dataset": "book",
+      "symbol": "ETP-20DEC30-CDE",
+      "limit": 100
+    },
+    {
       "job_id": "coinbase-btc-hourly-candles",
       "venue": "coinbase",
       "dataset": "candles",
