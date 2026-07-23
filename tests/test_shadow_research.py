@@ -411,6 +411,36 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner._option_candidates(self.now), [])
 
+    def test_option_candidate_rejects_stale_source_with_fresh_receipt(self):
+        option = Instrument(
+            "alpaca:option:SPY260918C00600000",
+            "alpaca",
+            "SPY260918C00600000",
+            AssetClass.OPTION,
+            "USD",
+            100,
+            metadata={"underlying_symbol": "SPY"},
+        )
+        self.store.register_instrument(option)
+        for index in range(3):
+            self.store.append_event(
+                self.event(
+                    f"stale-source-option-{index}",
+                    MarketEventType.QUOTE,
+                    option,
+                    {
+                        "bid_price": 4.9,
+                        "ask_price": 5.1,
+                        "implied_volatility": 0.2 + index * 0.01,
+                        "feed": "indicative",
+                    },
+                    event_time=self.now - timedelta(hours=5, minutes=index),
+                    available_at=self.now - timedelta(minutes=1),
+                )
+            )
+
+        self.assertEqual(self.runner._option_candidates(self.now), [])
+
     def test_prediction_candidate_discovery_uses_three_bulk_event_reads(self):
         self.add_prediction_history()
         for index in range(40):

@@ -8,7 +8,10 @@ from typing import Mapping
 from trading_bot.agents.base import Specialist
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
 from trading_bot.agents.market_math import finite_float, prediction_book
-from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
+from trading_bot.agents.option_volatility import (
+    OptionVolatilitySpecialist,
+    option_quote_is_fresh,
+)
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
@@ -338,7 +341,9 @@ class ShadowResearchRunner:
             if len(valid_observations) < specialist.config.min_observations:
                 continue
             decision_time = quotes[-1].available_at
-            if as_of - decision_time > specialist.config.max_quote_age:
+            if not option_quote_is_fresh(
+                quotes[-1], as_of, specialist.config.max_quote_age
+            ):
                 continue
             underlying = str(option.metadata.get("underlying_symbol") or "").upper()
             equity = by_symbol.get((option.venue, underlying))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import statistics
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from math import log, sqrt
 
 from trading_bot.agents.base import ReplayContext
@@ -61,7 +61,9 @@ class OptionVolatilitySpecialist:
         if len(observations) < self.config.min_observations:
             return None
         latest_event = observations[-1][0]
-        if context.decision_time - latest_event.available_at > self.config.max_quote_age:
+        if not option_quote_is_fresh(
+            latest_event, context.decision_time, self.config.max_quote_age
+        ):
             return None
         quote = executable_quote(latest_event)
         if quote is None:
@@ -144,3 +146,13 @@ class OptionVolatilitySpecialist:
         if len(returns) < self.config.min_underlying_returns:
             return None
         return statistics.stdev(returns) * sqrt(252), [event for event, _ in ordered]
+
+
+def option_quote_is_fresh(
+    event: MarketEvent, decision_time: datetime, max_age: timedelta
+) -> bool:
+    source_age = decision_time - event.event_time
+    receipt_age = decision_time - event.available_at
+    return all(
+        timedelta(0) <= age <= max_age for age in (source_age, receipt_age)
+    )
