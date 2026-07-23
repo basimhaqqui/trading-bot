@@ -306,7 +306,14 @@ class CollectorTests(unittest.TestCase):
             }
         )
         batch = AlpacaOptionsCollector("key", "secret", transport).collect_chain(
-            "AAPL", collected_at=self.collected, feed="indicative"
+            "AAPL",
+            collected_at=self.collected,
+            feed="indicative",
+            expiration_date_gte="2026-07-21",
+            expiration_date_lte="2026-08-04",
+            strike_price_gte=180.0,
+            strike_price_lte=220.0,
+            updated_since=self.collected - timedelta(hours=2),
         )
         instrument = batch.instruments[0]
         self.assertEqual(instrument.asset_class, AssetClass.OPTION)
@@ -317,6 +324,34 @@ class CollectorTests(unittest.TestCase):
         self.assertIn(
             DiagnosticCode.INDICATIVE_FEED, {item.code for item in batch.diagnostics}
         )
+        self.assertEqual(
+            transport.calls[0][1],
+            {
+                "feed": "indicative",
+                "limit": 100,
+                "page_token": None,
+                "type": None,
+                "expiration_date": None,
+                "expiration_date_gte": "2026-07-21",
+                "expiration_date_lte": "2026-08-04",
+                "strike_price_gte": 180.0,
+                "strike_price_lte": 220.0,
+                "updated_since": "2026-07-21T18:00:00+00:00",
+            },
+        )
+
+    def test_alpaca_option_chain_rejects_unsafe_filter_bounds(self):
+        collector = AlpacaOptionsCollector(
+            "key", "secret", FakeTransport({"/snapshots/AAPL": {"snapshots": {}}})
+        )
+        with self.assertRaisesRegex(ValueError, "ISO date"):
+            collector.collect_chain("AAPL", expiration_date_gte="07/21/2026")
+        with self.assertRaisesRegex(ValueError, "positive finite"):
+            collector.collect_chain("AAPL", strike_price_gte=float("nan"))
+        with self.assertRaisesRegex(ValueError, "bounds are reversed"):
+            collector.collect_chain(
+                "AAPL", strike_price_gte=220.0, strike_price_lte=180.0
+            )
 
     def test_source_clock_ahead_is_visible_and_never_creates_future_information(self):
         transport = FakeTransport(

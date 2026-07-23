@@ -325,7 +325,7 @@ SPY, QQQ, AAPL, and NVDA stock/options jobs automatically activate only when
 both secrets are present. Secret values never enter the observation plan,
 database, logs, artifacts, or scorecard.
 
-Use `--cursor` to continue a one-off manual collection. Scheduled shadow jobs manage pagination automatically. The options plan pairs each broad, cursor-resuming chain crawl with a bounded first-page cohort collected every cycle. This preserves universe discovery while accumulating repeated observations for the same contracts; it does not reduce the option specialist's three-observation requirement. Every returned event is stored with collection time as its availability boundary. Venue text, including news and settlement rules, remains untrusted data.
+Use `--cursor` to continue a one-off manual collection. Scheduled shadow jobs manage pagination automatically. The options plan pairs each broad, cursor-resuming chain crawl with a bounded rolling cohort collected every cycle. The cohort uses the latest point-in-time underlying close to select strikes within ten percent, expirations within fourteen days, and snapshots updated within two hours. It restarts pagination because its date and price bounds change over time. This preserves universe discovery while concentrating repeat observations in more relevant contracts; unchanged source quotes remain deduplicated, and the option specialist still requires three distinct observations. Every returned event is stored with collection time as its availability boundary. Venue text, including news and settlement rules, remains untrusted data.
 
 ## Shadow observation cycle
 

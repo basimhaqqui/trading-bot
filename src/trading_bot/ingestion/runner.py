@@ -236,6 +236,20 @@ class ShadowIngestionRunner:
             )
             collector = self.collector_factory(job.venue, job.dataset)
             tickers: tuple[str, ...] = ()
+            option_reference_price: float | None = None
+            if (
+                job.venue == "alpaca"
+                and job.dataset == "chain"
+                and job.symbol
+                and job.strike_band_pct is not None
+            ):
+                option_reference_price = self._latest_equity_close(
+                    job.symbol, collected_at or started_at
+                )
+                if option_reference_price is None:
+                    raise RuntimeError(
+                        f"no point-in-time underlying close for filtered option cohort: {job.symbol}"
+                    )
             if job.venue == "kalshi" and job.dataset == "forecast_outcomes":
                 tickers = self._pending_prediction_tickers(
                     collected_at or started_at, job.limit
@@ -253,7 +267,13 @@ class ShadowIngestionRunner:
                         tickers=tickers,
                     )
             else:
-                batch = collect_job(collector, job, collected_at, request_cursor)
+                batch = collect_job(
+                    collector,
+                    job,
+                    collected_at,
+                    request_cursor,
+                    option_reference_price=option_reference_price,
+                )
             if batch.cursor is not None and (
                 not isinstance(batch.cursor, str) or len(batch.cursor) > MAX_CURSOR_LENGTH
             ):
@@ -369,6 +389,29 @@ class ShadowIngestionRunner:
                 break
         return tuple(selected)
 
+    def _latest_equity_close(self, symbol: str, as_of: datetime) -> float | None:
+        equities = [
+            instrument
+            for instrument in self.store.instruments(asset_class=AssetClass.EQUITY)
+            if instrument.venue == "alpaca" and instrument.symbol.upper() == symbol.upper()
+        ]
+        if len(equities) != 1:
+            return None
+        bars = self.store.events_available_at(
+            as_of,
+            instrument_id=equities[0].instrument_id,
+            event_type=MarketEventType.BAR,
+        )
+        bars.sort(key=lambda item: (item.event_time, item.available_at, item.event_id))
+        for event in reversed(bars):
+            try:
+                close = float(event.payload.get("close"))
+            except (TypeError, ValueError):
+                continue
+            if close > 0 and close < float("inf"):
+                return close
+        return None
+
 
 def default_collector_factory(venue: str, dataset: str) -> object:
     if venue == "kalshi":
@@ -391,6 +434,7 @@ def collect_job(
     cursor: str | None = None,
     *,
     tickers: tuple[str, ...] = (),
+    option_reference_price: float | None = None,
 ) -> CollectionBatch:
     if job.venue == "kalshi":
         if job.dataset == "markets":
@@ -457,12 +501,35 @@ def collect_job(
             )
     if job.venue == "alpaca":
         if job.dataset == "chain" and job.symbol:
+            window_start = collected_at or utc_now()
+            strike_price_gte = None
+            strike_price_lte = None
+            if job.strike_band_pct is not None:
+                if option_reference_price is None or option_reference_price <= 0:
+                    raise ValueError("filtered option cohort requires a positive reference price")
+                strike_price_gte = option_reference_price * (1 - job.strike_band_pct)
+                strike_price_lte = option_reference_price * (1 + job.strike_band_pct)
+            expiration_date_gte = None
+            expiration_date_lte = None
+            if job.expiration_lookahead_days is not None:
+                expiration_date_gte = window_start.date().isoformat()
+                expiration_date_lte = (
+                    window_start.date() + timedelta(days=job.expiration_lookahead_days)
+                ).isoformat()
+            updated_since = None
+            if job.updated_since_minutes is not None:
+                updated_since = window_start - timedelta(minutes=job.updated_since_minutes)
             return collector.collect_chain(  # type: ignore[attr-defined,no-any-return]
                 job.symbol,
                 collected_at=collected_at,
                 feed=job.feed,
                 limit=job.limit,
                 page_token=cursor,
+                expiration_date_gte=expiration_date_gte,
+                expiration_date_lte=expiration_date_lte,
+                strike_price_gte=strike_price_gte,
+                strike_price_lte=strike_price_lte,
+                updated_since=updated_since,
             )
         if job.dataset == "bars" and job.symbol:
             return collector.collect_daily_bars(  # type: ignore[attr-defined,no-any-return]

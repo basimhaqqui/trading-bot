@@ -63,9 +63,11 @@ class FakeAlpacaCollector:
     def __init__(self):
         self.page_token = None
         self.bar_page_token = None
+        self.chain_kwargs = {}
 
     def collect_chain(self, symbol, **kwargs):
         self.page_token = kwargs.get("page_token")
+        self.chain_kwargs = kwargs
         return CollectionBatch("alpaca")
 
     def collect_daily_bars(self, symbol, **kwargs):
@@ -315,6 +317,118 @@ class IngestionTests(unittest.TestCase):
                 "coinbase",
                 "products",
                 cursor_mode="restart",
+            )
+
+    def test_filtered_option_cohort_is_bounded_and_uses_underlying_close(self):
+        equity = Instrument(
+            "alpaca:equity:AAPL",
+            "alpaca",
+            "AAPL",
+            AssetClass.EQUITY,
+            "USD",
+        )
+        self.store.register_instrument(equity)
+        self.store.append_event(
+            MarketEvent(
+                "aapl-close",
+                MarketEventType.BAR,
+                "alpaca",
+                equity.instrument_id,
+                self.now - timedelta(days=1),
+                self.now,
+                "fixture",
+                {"close": 200.0},
+                ingested_at=self.now,
+            )
+        )
+        collector = FakeAlpacaCollector()
+        runner = ShadowIngestionRunner(
+            self.store,
+            self.ledger,
+            collector_factory=lambda venue, dataset: collector,
+        )
+        job = ObservationJob(
+            "aapl-liquid-options",
+            "alpaca",
+            "chain",
+            symbol="AAPL",
+            cursor_mode="restart",
+            expiration_lookahead_days=14,
+            strike_band_pct=0.1,
+            updated_since_minutes=120,
+        )
+
+        record = runner.run_plan(
+            ShadowIngestionPlan("liquid-options", (job,)),
+            collected_at=self.now,
+        )[0]
+
+        self.assertEqual(record.status, IngestionRunStatus.SUCCESS)
+        self.assertEqual(collector.chain_kwargs["expiration_date_gte"], "2026-07-21")
+        self.assertEqual(collector.chain_kwargs["expiration_date_lte"], "2026-08-04")
+        self.assertAlmostEqual(collector.chain_kwargs["strike_price_gte"], 180.0)
+        self.assertAlmostEqual(collector.chain_kwargs["strike_price_lte"], 220.0)
+        self.assertEqual(
+            collector.chain_kwargs["updated_since"],
+            self.now - timedelta(minutes=120),
+        )
+        self.assertIsNone(collector.chain_kwargs["page_token"])
+
+    def test_option_cohort_filters_are_strictly_scoped_and_bounded(self):
+        valid = ObservationJob(
+            "liquid-options",
+            "alpaca",
+            "chain",
+            symbol="AAPL",
+            cursor_mode="restart",
+            expiration_lookahead_days=14,
+            strike_band_pct=0.1,
+            updated_since_minutes=120,
+        )
+        self.assertEqual(valid.expiration_lookahead_days, 14)
+        with self.assertRaisesRegex(ValueError, "must restart pagination"):
+            ObservationJob(
+                "resume-filtered-options",
+                "alpaca",
+                "chain",
+                symbol="AAPL",
+                expiration_lookahead_days=14,
+            )
+        with self.assertRaisesRegex(ValueError, "between 1 and 60"):
+            ObservationJob(
+                "wide-options",
+                "alpaca",
+                "chain",
+                symbol="AAPL",
+                cursor_mode="restart",
+                expiration_lookahead_days=61,
+            )
+        with self.assertRaisesRegex(ValueError, "between zero and 0.5"):
+            ObservationJob(
+                "wide-strikes",
+                "alpaca",
+                "chain",
+                symbol="AAPL",
+                cursor_mode="restart",
+                strike_band_pct=0.6,
+            )
+        with self.assertRaisesRegex(ValueError, "between 1 and 1440"):
+            ObservationJob(
+                "stale-options",
+                "alpaca",
+                "chain",
+                symbol="AAPL",
+                cursor_mode="restart",
+                updated_since_minutes=1441,
+            )
+        with self.assertRaisesRegex(ValueError, "only valid for Alpaca chain"):
+            ObservationJob(
+                "stock-bars",
+                "alpaca",
+                "bars",
+                symbol="AAPL",
+                cursor_mode="resume",
+                strike_band_pct=0.1,
             )
 
     def test_mve_filter_is_restricted_to_kalshi_market_jobs(self):

@@ -48,6 +48,9 @@ class ObservationJob:
     cursor_mode: str = "resume"
     mve_filter: str | None = None
     close_lookahead_hours: int | None = None
+    expiration_lookahead_days: int | None = None
+    strike_band_pct: float | None = None
+    updated_since_minutes: int | None = None
 
     def __post_init__(self) -> None:
         if not self.job_id or not self.job_id.replace("-", "").replace("_", "").isalnum():
@@ -128,6 +131,35 @@ class ObservationJob:
                 )
             if self.status != "open":
                 raise ValueError("close lookahead jobs must target open markets")
+        option_filter_values = (
+            self.expiration_lookahead_days,
+            self.strike_band_pct,
+            self.updated_since_minutes,
+        )
+        if any(value is not None for value in option_filter_values) and not (
+            self.venue == "alpaca" and self.dataset == "chain"
+        ):
+            raise ValueError("option cohort filters are only valid for Alpaca chain jobs")
+        if self.expiration_lookahead_days is not None and (
+            isinstance(self.expiration_lookahead_days, bool)
+            or not 1 <= self.expiration_lookahead_days <= 60
+        ):
+            raise ValueError("expiration lookahead days must be between 1 and 60")
+        if self.strike_band_pct is not None and (
+            isinstance(self.strike_band_pct, bool)
+            or not 0 < self.strike_band_pct <= 0.5
+        ):
+            raise ValueError("strike band percent must be between zero and 0.5")
+        if self.updated_since_minutes is not None and (
+            isinstance(self.updated_since_minutes, bool)
+            or not 1 <= self.updated_since_minutes <= 1440
+        ):
+            raise ValueError("updated-since minutes must be between 1 and 1440")
+        if (
+            any(value is not None for value in option_filter_values)
+            and self.cursor_mode != "restart"
+        ):
+            raise ValueError("filtered option cohort jobs must restart pagination")
 
     def missing_activation_environment(
         self, environment: Mapping[str, str] | None = None
@@ -192,6 +224,9 @@ def load_plan(path: str | Path) -> ShadowIngestionPlan:
         "cursor_mode",
         "mve_filter",
         "close_lookahead_hours",
+        "expiration_lookahead_days",
+        "strike_band_pct",
+        "updated_since_minutes",
     }
     jobs: list[ObservationJob] = []
     for raw_job in raw_jobs:
