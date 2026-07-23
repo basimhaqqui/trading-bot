@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from trading_bot.core.schemas import Forecast, ForecastKind
+from trading_bot.evaluation.outcomes import evaluation_outcome_target_time
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
 
@@ -146,7 +147,10 @@ def build_walk_forward_report(
             ),
             (
                 CohortDimension.OUTCOME_HORIZON,
-                _horizon_bucket(score.target_time, forecast.generated_at),
+                _horizon_bucket(
+                    evaluation_outcome_target_time(forecast, score.target_time),
+                    forecast.generated_at,
+                ),
             ),
         ):
             cohort_key = (*key, dimension, label)
@@ -400,7 +404,10 @@ def _latest_independent_outcomes(
 ) -> list[_Observation]:
     latest: dict[str, _Observation] = {}
     for item in observations:
-        key = independent_outcome_key(item.forecast, item.score.target_time)
+        target_time = evaluation_outcome_target_time(
+            item.forecast, item.score.target_time
+        )
+        key = independent_outcome_key(item.forecast, target_time)
         existing = latest.get(key)
         if existing is None or (
             item.forecast.generated_at,
@@ -413,7 +420,9 @@ def _latest_independent_outcomes(
     return sorted(
         latest.values(),
         key=lambda item: (
-            item.score.target_time,
+            evaluation_outcome_target_time(
+                item.forecast, item.score.target_time
+            ),
             item.forecast.instrument_id,
             item.forecast.forecast_id,
         ),
