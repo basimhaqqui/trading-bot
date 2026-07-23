@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from time import sleep
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -34,6 +35,11 @@ class ReadOnlyHttpTransport:
     headers: Mapping[str, str] | None = None
     timeout_seconds: float = 10.0
     max_response_bytes: int = 5_000_000
+    max_attempts: int = 3
+    retry_backoff_seconds: float = 0.5
+    max_retry_after_seconds: float = 5.0
+
+    _RETRYABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
 
     _ALLOWED_HEADERS = frozenset(
         {
@@ -55,8 +61,14 @@ class ReadOnlyHttpTransport:
             or parts.password is not None
         ):
             raise ValueError("base_url must be HTTPS and match allowed_host")
-        if self.timeout_seconds <= 0 or self.max_response_bytes < 1:
-            raise ValueError("timeout and response limit must be positive")
+        if (
+            self.timeout_seconds <= 0
+            or self.max_response_bytes < 1
+            or not 1 <= self.max_attempts <= 5
+            or not 0 <= self.retry_backoff_seconds <= 10
+            or not 0 <= self.max_retry_after_seconds <= 60
+        ):
+            raise ValueError("transport limits are invalid")
         for name, value in (self.headers or {}).items():
             if name.lower() not in self._ALLOWED_HEADERS:
                 raise ValueError(f"header is not allowed for read-only transport: {name}")
@@ -87,11 +99,34 @@ class ReadOnlyHttpTransport:
             **(self.headers or {}),
         }
         request = Request(url, headers=request_headers, method="GET")
-        try:
-            with build_opener(_NoRedirects()).open(request, timeout=self.timeout_seconds) as response:
-                body = response.read(self.max_response_bytes + 1)
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise ReadOnlyHttpError(f"GET failed for {self.allowed_host}: {exc}") from exc
+        body: bytes | None = None
+        for attempt in range(self.max_attempts):
+            try:
+                with build_opener(_NoRedirects()).open(
+                    request, timeout=self.timeout_seconds
+                ) as response:
+                    body = response.read(self.max_response_bytes + 1)
+                break
+            except HTTPError as exc:
+                if (
+                    exc.code not in self._RETRYABLE_HTTP_STATUS
+                    or attempt + 1 >= self.max_attempts
+                ):
+                    raise ReadOnlyHttpError(
+                        f"GET failed for {self.allowed_host}: {exc}"
+                    ) from exc
+                retry_after = (
+                    exc.headers.get("Retry-After") if exc.headers is not None else None
+                )
+                sleep(self._retry_delay(attempt, retry_after))
+            except (URLError, TimeoutError) as exc:
+                if attempt + 1 >= self.max_attempts:
+                    raise ReadOnlyHttpError(
+                        f"GET failed for {self.allowed_host}: {exc}"
+                    ) from exc
+                sleep(self._retry_delay(attempt))
+        if body is None:
+            raise ReadOnlyHttpError(f"GET failed for {self.allowed_host}")
         if len(body) > self.max_response_bytes:
             raise ReadOnlyHttpError("JSON response exceeded configured size limit")
         try:
@@ -102,6 +137,19 @@ class ReadOnlyHttpTransport:
             raise ReadOnlyHttpError("top-level JSON response must be an object")
         _validate_json_shape(payload)
         return payload
+
+    def _retry_delay(self, attempt: int, retry_after: str | None = None) -> float:
+        if retry_after is not None:
+            try:
+                requested = float(retry_after)
+            except (TypeError, ValueError):
+                requested = -1
+            if requested >= 0:
+                return min(requested, self.max_retry_after_seconds)
+        return min(
+            self.retry_backoff_seconds * (2**attempt),
+            self.max_retry_after_seconds,
+        )
 
 
 def _validate_json_shape(
