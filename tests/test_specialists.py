@@ -7,7 +7,10 @@ from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
-from trading_bot.agents.prediction import PredictionMarketCalibrationSpecialist
+from trading_bot.agents.prediction import (
+    AdjustedPredictionMarketCalibrationSpecialist,
+    PredictionMarketCalibrationSpecialist,
+)
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.replay import ReplayEngine
@@ -423,6 +426,25 @@ class SpecialistTests(unittest.TestCase):
             forecast.valid_until,
             datetime(2026, 7, 21, 22, tzinfo=timezone.utc),
         )
+        adjusted_specialist = AdjustedPredictionMarketCalibrationSpecialist()
+        self.assertEqual(adjusted_specialist.config.probability_bucket_radius, 0.10)
+        self.assertEqual(adjusted_specialist.config.min_calibration_cohort, 5)
+        self.assertEqual(adjusted_specialist.config.shrinkage_observations, 20.0)
+        self.assertEqual(adjusted_specialist.config.max_book_spread, 0.10)
+        self.assertEqual(
+            adjusted_specialist.config.min_forecast_horizon, timedelta(hours=1)
+        )
+        self.assertEqual(adjusted_specialist.config.forecast_horizon, timedelta(hours=8))
+        adjusted = adjusted_specialist.evaluate(
+            ReplayContext(self.now, primary, tuple(events), tuple(related))
+        )
+        self.assertIsNotNone(adjusted)
+        assert adjusted is not None
+        self.assertEqual(
+            adjusted.specialist_id, "prediction-market-calibration-baseline-v4"
+        )
+        self.assertEqual(adjusted.model_version, "baseline-v4")
+        self.assertEqual(adjusted.values["state"], "cohort_adjusted")
         wide_book = self.event(
             "target-wide-book",
             MarketEventType.BOOK_SNAPSHOT,
@@ -512,6 +534,28 @@ class SpecialistTests(unittest.TestCase):
         self.assertIsNone(
             PredictionMarketCalibrationSpecialist().evaluate(
                 ReplayContext(self.now, market, (rule, book), ())
+            )
+        )
+        identified_rule = self.event(
+            "identified-event-ticker",
+            MarketEventType.CONTRACT_RULE,
+            market,
+            {
+                "rules_primary": "Named public source.",
+                "event_ticker": "IDENTIFIED-EVENT",
+                "occurrence_datetime": (self.now + timedelta(hours=2)).isoformat(),
+            },
+            minutes_ago=2,
+        )
+        prior = PredictionMarketCalibrationSpecialist().evaluate(
+            ReplayContext(self.now, market, (identified_rule, book), ())
+        )
+        self.assertIsNotNone(prior)
+        assert prior is not None
+        self.assertEqual(prior.values["state"], "executable_market_prior")
+        self.assertIsNone(
+            AdjustedPredictionMarketCalibrationSpecialist().evaluate(
+                ReplayContext(self.now, market, (identified_rule, book), ())
             )
         )
 

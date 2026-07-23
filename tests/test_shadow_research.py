@@ -54,6 +54,40 @@ class ShadowResearchTests(unittest.TestCase):
             ingested_at=available_at,
         )
 
+    def add_prediction_history(self, count=5):
+        occurrence = self.now - timedelta(hours=2)
+        for index in range(count):
+            market = Instrument(
+                f"kalshi:prediction:HISTORY-{index}",
+                "kalshi",
+                f"HISTORY-{index}",
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(market)
+            self.store.append_event(
+                self.event(
+                    f"history-book-{index}",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    market,
+                    {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                    event_time=self.now - timedelta(hours=4),
+                )
+            )
+            self.store.append_event(
+                self.event(
+                    f"history-settlement-{index}",
+                    MarketEventType.SETTLEMENT,
+                    market,
+                    {
+                        "result": "yes" if index < count - 1 else "no",
+                        "event_ticker": f"HISTORY-EVENT-{index}",
+                        "occurrence_datetime": occurrence.isoformat(),
+                    },
+                    event_time=self.now - timedelta(hours=1),
+                )
+            )
+
     def test_perpetual_forecast_is_idempotent_and_scores_next_distinct_period(self):
         perpetual = Instrument(
             "coinbase:product:BTC-PERP",
@@ -132,6 +166,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(counts[AuditRecordType.ORDER_INTENT], 0)
 
     def test_prediction_forecast_waits_for_future_public_settlement(self):
+        self.add_prediction_history()
         market = Instrument(
             "kalshi:prediction:TARGET",
             "kalshi",
@@ -167,6 +202,10 @@ class ShadowResearchTests(unittest.TestCase):
         generated = self.runner.run(as_of=self.now)
         self.assertEqual(generated.generation.appended, 1)
         forecast = self.audit.forecasts()[0]
+        self.assertEqual(
+            forecast.specialist_id, "prediction-market-calibration-baseline-v4"
+        )
+        self.assertEqual(forecast.values["state"], "cohort_adjusted")
         self.assertEqual(forecast.values["outcome_cluster"], "TARGET-EVENT")
         self.assertEqual(forecast.values["target_time"], forecast.valid_until.isoformat())
         self.assertEqual(self.runner.score_available(as_of=self.now).matched, 0)
@@ -309,6 +348,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(events_available_at.call_count, 1)
 
     def test_prediction_candidate_discovery_uses_three_bulk_event_reads(self):
+        self.add_prediction_history()
         for index in range(40):
             market = Instrument(
                 f"kalshi:prediction:BULK-{index}",

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import math
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from trading_bot.agents.base import ReplayContext
-from trading_bot.agents.hypotheses import PREDICTION_CALIBRATION_HYPOTHESIS
+from trading_bot.agents.hypotheses import (
+    PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
+    PREDICTION_CALIBRATION_HYPOTHESIS,
+)
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
 from trading_bot.core.serialization import parse_datetime
@@ -203,6 +207,24 @@ class PredictionMarketCalibrationSpecialist:
         ]
 
 
+class AdjustedPredictionMarketCalibrationSpecialist(
+    PredictionMarketCalibrationSpecialist
+):
+    agent_id = "prediction-market-calibration-baseline-v4"
+    model_version = "baseline-v4"
+    hypothesis = PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS
+
+    def evaluate(self, context: ReplayContext) -> Forecast | None:
+        forecast = super().evaluate(context)
+        if forecast is None or forecast.values.get("state") != "cohort_adjusted":
+            return None
+        probability = float(forecast.values["probability"])
+        market_probability = float(forecast.values["market_probability"])
+        if math.isclose(probability, market_probability, rel_tol=0.0, abs_tol=1e-12):
+            return None
+        return forecast
+
+
 def _settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = settlement.payload.get("event_ticker")
@@ -259,5 +281,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
     {
         "prediction-market-calibration-baseline-v2",
         PredictionMarketCalibrationSpecialist.agent_id,
+        AdjustedPredictionMarketCalibrationSpecialist.agent_id,
     }
 )

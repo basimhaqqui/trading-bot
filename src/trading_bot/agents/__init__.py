@@ -6,11 +6,15 @@ __all__ = ["ReplayContext", "Specialist"]
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
-from trading_bot.agents.prediction import PredictionMarketCalibrationSpecialist
+from trading_bot.agents.prediction import (
+    AdjustedPredictionMarketCalibrationSpecialist,
+    PredictionMarketCalibrationSpecialist,
+)
 
 __all__ = [
     "OptionVolatilitySpecialist",
     "CryptoRangeBreakoutSpecialist",
     "PerpetualFundingBasisSpecialist",
     "PredictionMarketCalibrationSpecialist",
+    "AdjustedPredictionMarketCalibrationSpecialist",
 ]
