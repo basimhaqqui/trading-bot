@@ -12,7 +12,7 @@ from trading_bot.evaluation.costs import CostBasis, EconomicCostModel, EconomicC
 from trading_bot.evaluation.reporting import (
     EdgeStatus,
     WalkForwardReport,
-    outcome_cluster_id,
+    independent_outcome_key,
 )
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
@@ -168,7 +168,7 @@ def build_economic_report(
 def _latest_independent_scores(
     forecasts_by_id: dict[str, Forecast], scores: tuple[ForecastScore, ...]
 ) -> dict[tuple[str, ScoreKind], tuple[tuple[Forecast, ForecastScore], ...]]:
-    latest: dict[tuple[str, ScoreKind, str, datetime], tuple[Forecast, ForecastScore]] = {}
+    latest: dict[tuple[str, ScoreKind, str], tuple[Forecast, ForecastScore]] = {}
     for score in scores:
         forecast = forecasts_by_id.get(score.forecast_id)
         if forecast is None or forecast.specialist_id != score.specialist_id:
@@ -176,8 +176,7 @@ def _latest_independent_scores(
         key = (
             score.specialist_id,
             score.kind,
-            outcome_cluster_id(forecast),
-            score.target_time,
+            independent_outcome_key(forecast, score.target_time),
         )
         existing = latest.get(key)
         if existing is None or (forecast.generated_at, forecast.forecast_id) > (

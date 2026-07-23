@@ -12,7 +12,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Iterator, Protocol
 
-from trading_bot.agents.prediction import TIMING_GUARDED_PREDICTION_SPECIALISTS
+from trading_bot.agents.prediction import (
+    TIMING_GUARDED_PREDICTION_SPECIALISTS,
+    prediction_forecast_target_time,
+)
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.schemas import (
     AssetClass,
@@ -572,12 +575,8 @@ def _market_outcome_poll_time(rule: MarketEvent) -> datetime | None:
 def _prediction_forecast_timing_is_valid(forecast: Forecast) -> bool:
     if forecast.specialist_id not in TIMING_GUARDED_PREDICTION_SPECIALISTS:
         return True
-    raw_target = forecast.values.get("outcome_cluster")
-    if not isinstance(raw_target, str):
-        return False
-    try:
-        target_time = parse_datetime(raw_target)
-    except (TypeError, ValueError):
+    target_time = prediction_forecast_target_time(forecast)
+    if target_time is None:
         return False
     return target_time > forecast.generated_at
 

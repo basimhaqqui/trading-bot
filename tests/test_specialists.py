@@ -340,7 +340,37 @@ class SpecialistTests(unittest.TestCase):
                     duplicate_event_instrument,
                     {
                         "result": "no",
-                        "event_ticker": "HIST-EVENT-0-OTHER",
+                        "event_ticker": "HIST-EVENT-0",
+                        "occurrence_datetime": "2026-07-10T20:00:00Z",
+                    },
+                    minutes_ago=60,
+                ),
+            )
+        )
+        independent_same_time = Instrument(
+            "kalshi:prediction:HIST-INDEPENDENT-SAME-TIME",
+            "kalshi",
+            "HIST-INDEPENDENT-SAME-TIME",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        related.append(independent_same_time)
+        events.extend(
+            (
+                self.event(
+                    "hist-book-independent-same-time",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    independent_same_time,
+                    {"yes_bids": [["0.55", "10"]], "no_bids": [["0.40", "10"]]},
+                    minutes_ago=120,
+                ),
+                self.event(
+                    "settlement-independent-same-time",
+                    MarketEventType.SETTLEMENT,
+                    independent_same_time,
+                    {
+                        "result": "no",
+                        "event_ticker": "HIST-INDEPENDENT-SAME-TIME",
                         "occurrence_datetime": "2026-07-10T20:00:00Z",
                     },
                     minutes_ago=60,
@@ -354,16 +384,15 @@ class SpecialistTests(unittest.TestCase):
         assert forecast is not None
         self.assertEqual(forecast.values["market_probability"], 0.575)
         self.assertGreater(forecast.values["probability"], 0.575)
-        self.assertEqual(forecast.values["calibration_cohort_size"], 5.0)
+        self.assertEqual(forecast.values["calibration_cohort_size"], 6.0)
         self.assertEqual(forecast.values["state"], "cohort_adjusted")
         self.assertEqual(
             forecast.specialist_id, "prediction-market-calibration-baseline-v3"
         )
         self.assertEqual(forecast.model_version, "baseline-v3")
         self.assertEqual(forecast.values["event_ticker"], "TARGET-EVENT")
-        self.assertEqual(
-            forecast.values["outcome_cluster"], "2026-07-21T22:00:00Z"
-        )
+        self.assertEqual(forecast.values["outcome_cluster"], "TARGET-EVENT")
+        self.assertEqual(forecast.values["target_time"], "2026-07-21T22:00:00+00:00")
         self.assertEqual(
             forecast.valid_until,
             datetime(2026, 7, 21, 22, tzinfo=timezone.utc),
@@ -428,6 +457,37 @@ class SpecialistTests(unittest.TestCase):
                         ReplayContext(self.now, market, (rule, book), ())
                     )
                 )
+
+    def test_prediction_specialist_requires_stable_event_identity(self):
+        market = Instrument(
+            "kalshi:prediction:NO-EVENT",
+            "kalshi",
+            "NO-EVENT",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        rule = self.event(
+            "missing-event-ticker",
+            MarketEventType.CONTRACT_RULE,
+            market,
+            {
+                "rules_primary": "Named public source.",
+                "occurrence_datetime": (self.now + timedelta(hours=2)).isoformat(),
+            },
+            minutes_ago=2,
+        )
+        book = self.event(
+            "missing-event-ticker-book",
+            MarketEventType.BOOK_SNAPSHOT,
+            market,
+            {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+        )
+
+        self.assertIsNone(
+            PredictionMarketCalibrationSpecialist().evaluate(
+                ReplayContext(self.now, market, (rule, book), ())
+            )
+        )
 
     def test_crypto_breakout_requires_completed_range_break_and_volume(self):
         instrument = Instrument(
