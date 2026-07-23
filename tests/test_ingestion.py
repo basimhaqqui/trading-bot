@@ -661,6 +661,36 @@ class IngestionTests(unittest.TestCase):
             {symbol: {"resume", "restart"} for symbol in by_symbol},
         )
 
+    def test_checked_in_crypto_plan_covers_validated_liquid_universe(self):
+        plan = load_plan("config/shadow-ingestion.json")
+        candle_jobs = [
+            job
+            for job in plan.jobs
+            if job.venue == "coinbase" and job.dataset == "candles"
+        ]
+
+        self.assertEqual(
+            {job.symbol for job in candle_jobs},
+            {
+                "BTC-USD",
+                "ETH-USD",
+                "SOL-USD",
+                "DOGE-USD",
+                "XRP-USD",
+                "ADA-USD",
+                "AVAX-USD",
+                "LINK-USD",
+                "LTC-USD",
+                "BCH-USD",
+            },
+        )
+        self.assertTrue(
+            all(
+                job.granularity == "ONE_HOUR" and job.limit == 30
+                for job in candle_jobs
+            )
+        )
+
     def test_checked_in_prediction_plan_excludes_mve_and_tracks_outcomes(self):
         plan = load_plan("config/shadow-ingestion.json")
         open_job = next(job for job in plan.jobs if job.job_id == "kalshi-open-markets")
