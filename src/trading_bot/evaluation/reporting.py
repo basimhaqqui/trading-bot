@@ -348,7 +348,7 @@ def _latest_independent_outcomes(
 ) -> list[_Observation]:
     latest: dict[tuple[str, datetime], _Observation] = {}
     for item in observations:
-        key = (_outcome_cluster_id(item.forecast), item.score.target_time)
+        key = (outcome_cluster_id(item.forecast), item.score.target_time)
         existing = latest.get(key)
         if existing is None or (
             item.forecast.generated_at,
@@ -368,13 +368,16 @@ def _latest_independent_outcomes(
     )
 
 
-def _outcome_cluster_id(forecast: Forecast) -> str:
+def outcome_cluster_id(forecast: Forecast) -> str:
+    cluster = forecast.values.get("outcome_cluster")
+    if isinstance(cluster, str) and cluster:
+        return f"{forecast.kind.value}:{cluster}"
     if forecast.kind is ForecastKind.BINARY_PROBABILITY:
-        cluster = forecast.values.get("outcome_cluster")
-        if not isinstance(cluster, str) or not cluster:
-            cluster = forecast.values.get("event_ticker")
-        if isinstance(cluster, str) and cluster:
-            return f"prediction-event:{cluster}"
+        event_ticker = forecast.values.get("event_ticker")
+        if isinstance(event_ticker, str) and event_ticker:
+            return f"prediction-event:{event_ticker}"
+    if forecast.specialist_id == "crypto-range-breakout-continuation-baseline":
+        return f"crypto-market:{forecast.valid_until.isoformat()}"
     return f"instrument:{forecast.instrument_id}"
 
 

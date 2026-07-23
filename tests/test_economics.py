@@ -97,6 +97,58 @@ class EconomicReplayTests(unittest.TestCase):
         self.assertGreater(evaluation.doubled_cost_lower_confidence_bound, 0)
         self.assertEqual(evaluation.max_full_notional_drawdown, 0)
 
+    def test_economic_gate_uses_same_crypto_outcome_clusters(self):
+        observations = []
+        for cluster_index, actual in enumerate((0.04, -0.04)):
+            target_time = self.base + timedelta(hours=cluster_index + 1)
+            for instrument_index in range(2):
+                forecast = Forecast(
+                    f"crypto-{cluster_index}-{instrument_index}",
+                    "crypto-range-breakout-continuation-baseline",
+                    "baseline-v1",
+                    f"coinbase:product:ASSET-{instrument_index}-USD",
+                    ForecastKind.RETURN_DISTRIBUTION,
+                    target_time - timedelta(hours=1),
+                    target_time,
+                    {"predicted_return": actual, "benchmark_return": 0.0},
+                    0.4,
+                    {"sample_size": 20.0},
+                    (f"event-{cluster_index}-{instrument_index}",),
+                    ("correlated assets invalidate independence",),
+                )
+                score = score_return_forecast(
+                    forecast,
+                    actual_return=actual,
+                    target_time=target_time,
+                    scored_at=target_time,
+                )
+                observations.append((forecast, score))
+
+        report = self.report(
+            observations,
+            EconomicCostRegistry(
+                "crypto-costs-v1",
+                (
+                    EconomicCostModel(
+                        "crypto-costs",
+                        "crypto-range-breakout-continuation-baseline",
+                        ScoreKind.RETURN,
+                        CostBasis.STATIC_BPS,
+                        "https://example.com/fees",
+                        date(2026, 1, 1),
+                        fee_bps=10,
+                    ),
+                ),
+            ),
+            min_outcomes=2,
+            min_trades=2,
+        )
+
+        evaluation = report.evaluations[0]
+        self.assertEqual(evaluation.eligible_forecasts, 2)
+        self.assertEqual(evaluation.trades, 2)
+        self.assertEqual(evaluation.status, EconomicStatus.CANDIDATE)
+
     def test_doubled_cost_failure_rejects_positive_base_case(self):
         report = self.report(self.return_observations(), self.registry(300))
         evaluation = report.evaluations[0]

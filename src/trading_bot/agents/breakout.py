@@ -135,6 +135,7 @@ class CryptoRangeBreakoutSpecialist:
                 "prior_range_low": prior_low,
                 "volume_ratio": volume_ratio,
                 "granularity_seconds": float(granularity_seconds),
+                "outcome_cluster": target_time.isoformat(),
                 "state": f"confirmed_{direction}_range_breakout",
             },
             confidence=confidence,
