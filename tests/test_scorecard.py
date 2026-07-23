@@ -235,7 +235,7 @@ class DailyScorecardTests(unittest.TestCase):
 
     def test_scorecard_reports_prediction_calibration_cohort_readiness(self):
         self.append_public_run()
-        probabilities = (0.05, 0.06, 0.40, 0.08, 0.09)
+        probabilities = (0.05, 0.06, 0.40, 0.08, 0.09, 0.07)
         for index, probability in enumerate(probabilities):
             instrument = Instrument(
                 f"kalshi:prediction:HISTORY-{index}",
@@ -269,14 +269,22 @@ class DailyScorecardTests(unittest.TestCase):
                     "kalshi",
                     instrument.instrument_id,
                     self.now - timedelta(hours=1),
-                    self.now - timedelta(hours=1),
+                    (
+                        self.now
+                        if index == len(probabilities) - 1
+                        else self.now - timedelta(hours=1)
+                    ),
                     "fixture",
                     {
                         "result": "no",
                         "event_ticker": f"HISTORY-EVENT-{index}",
                         "occurrence_datetime": occurrence.isoformat(),
                     },
-                    ingested_at=self.now - timedelta(hours=1),
+                    ingested_at=(
+                        self.now
+                        if index == len(probabilities) - 1
+                        else self.now - timedelta(hours=1)
+                    ),
                 )
             )
 
@@ -331,7 +339,7 @@ class DailyScorecardTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            scorecard.prediction_calibration.eligible_independent_events, 5
+            scorecard.prediction_calibration.eligible_independent_events, 6
         )
         self.assertEqual(scorecard.prediction_calibration.eligible_open_events, 1)
         self.assertEqual(scorecard.prediction_calibration.strongest_bucket_events, 4)
