@@ -275,6 +275,7 @@ class SpecialistTests(unittest.TestCase):
             ),
         ]
         related = []
+        historical_occurrence = (self.now - timedelta(minutes=90)).isoformat()
         for index, result in enumerate(("yes", "yes", "yes", "yes", "no")):
             instrument = Instrument(
                 f"kalshi:prediction:HIST-{index}",
@@ -289,7 +290,7 @@ class SpecialistTests(unittest.TestCase):
                 MarketEventType.BOOK_SNAPSHOT,
                 instrument,
                 {"yes_bids": [["0.55", "10"]], "no_bids": [["0.40", "10"]]},
-                minutes_ago=120,
+                minutes_ago=180,
             )
             settlement = self.event(
                 f"settlement-{index}",
@@ -298,23 +299,48 @@ class SpecialistTests(unittest.TestCase):
                 {
                     "result": result,
                     "event_ticker": f"HIST-EVENT-{index}",
-                    "occurrence_datetime": f"2026-07-{10 + index:02d}T20:00:00Z",
+                    "occurrence_datetime": historical_occurrence,
                 },
                 minutes_ago=60,
             )
             events.extend((book, settlement))
             if index == 0:
+                events.extend(
+                    (
+                        self.event(
+                            "hist-book-0-post-occurrence",
+                            MarketEventType.BOOK_SNAPSHOT,
+                            instrument,
+                            {
+                                "yes_bids": [["0.98", "10"]],
+                                "no_bids": [["0.01", "10"]],
+                            },
+                            minutes_ago=80,
+                        ),
+                        self.event(
+                            "settlement-0-repeat-poll",
+                            MarketEventType.SETTLEMENT,
+                            instrument,
+                            {
+                                "result": result,
+                                "event_ticker": "HIST-EVENT-0",
+                                "occurrence_datetime": historical_occurrence,
+                            },
+                            minutes_ago=30,
+                        ),
+                    )
+                )
+            if index == 1:
                 events.append(
                     self.event(
-                        "settlement-0-repeat-poll",
-                        MarketEventType.SETTLEMENT,
+                        "hist-book-1-wide-pre-occurrence",
+                        MarketEventType.BOOK_SNAPSHOT,
                         instrument,
                         {
-                            "result": result,
-                            "event_ticker": "HIST-EVENT-0",
-                            "occurrence_datetime": "2026-07-10T20:00:00Z",
+                            "yes_bids": [["0.10", "10"]],
+                            "no_bids": [["0.10", "10"]],
                         },
-                        minutes_ago=30,
+                        minutes_ago=165,
                     )
                 )
         duplicate_event_instrument = Instrument(
@@ -332,7 +358,7 @@ class SpecialistTests(unittest.TestCase):
                     MarketEventType.BOOK_SNAPSHOT,
                     duplicate_event_instrument,
                     {"yes_bids": [["0.55", "10"]], "no_bids": [["0.40", "10"]]},
-                    minutes_ago=120,
+                    minutes_ago=180,
                 ),
                 self.event(
                     "settlement-other-strike",
@@ -341,7 +367,7 @@ class SpecialistTests(unittest.TestCase):
                     {
                         "result": "no",
                         "event_ticker": "HIST-EVENT-0",
-                        "occurrence_datetime": "2026-07-10T20:00:00Z",
+                        "occurrence_datetime": historical_occurrence,
                     },
                     minutes_ago=60,
                 ),
@@ -362,7 +388,7 @@ class SpecialistTests(unittest.TestCase):
                     MarketEventType.BOOK_SNAPSHOT,
                     independent_same_time,
                     {"yes_bids": [["0.55", "10"]], "no_bids": [["0.40", "10"]]},
-                    minutes_ago=120,
+                    minutes_ago=180,
                 ),
                 self.event(
                     "settlement-independent-same-time",
@@ -371,7 +397,7 @@ class SpecialistTests(unittest.TestCase):
                     {
                         "result": "no",
                         "event_ticker": "HIST-INDEPENDENT-SAME-TIME",
-                        "occurrence_datetime": "2026-07-10T20:00:00Z",
+                        "occurrence_datetime": historical_occurrence,
                     },
                     minutes_ago=60,
                 ),
