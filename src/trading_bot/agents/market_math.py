@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from math import isfinite
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from trading_bot.core.schemas import MarketEvent, MarketEventType
 
@@ -47,8 +47,14 @@ def executable_quote(event: MarketEvent) -> tuple[float, float, float, float] | 
 
 
 def prediction_book(event: MarketEvent) -> tuple[float, float, float, float] | None:
-    yes_levels = event.payload.get("yes_bids")
-    no_levels = event.payload.get("no_bids")
+    return prediction_book_payload(event.payload)
+
+
+def prediction_book_payload(
+    payload: Mapping[str, object],
+) -> tuple[float, float, float, float] | None:
+    yes_levels = payload.get("yes_bids")
+    no_levels = payload.get("no_bids")
     if not isinstance(yes_levels, list) or not isinstance(no_levels, list):
         return None
     try:

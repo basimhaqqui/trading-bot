@@ -233,6 +233,113 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("### Outcome queue", markdown)
         self.assertIn("due without outcome: **1**", markdown)
 
+    def test_scorecard_reports_prediction_calibration_cohort_readiness(self):
+        self.append_public_run()
+        probabilities = (0.05, 0.06, 0.40, 0.08, 0.09)
+        for index, probability in enumerate(probabilities):
+            instrument = Instrument(
+                f"kalshi:prediction:HISTORY-{index}",
+                "kalshi",
+                f"HISTORY-{index}",
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(instrument)
+            occurrence = self.now - timedelta(hours=2)
+            self.store.append_event(
+                MarketEvent(
+                    f"history-book-{index}",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    "kalshi",
+                    instrument.instrument_id,
+                    self.now - timedelta(hours=4),
+                    self.now - timedelta(hours=4),
+                    "fixture",
+                    {
+                        "yes_bids": [[f"{probability - 0.01:.2f}", "10"]],
+                        "no_bids": [[f"{1 - probability - 0.01:.2f}", "10"]],
+                    },
+                    ingested_at=self.now - timedelta(hours=4),
+                )
+            )
+            self.store.append_event(
+                MarketEvent(
+                    f"history-settlement-{index}",
+                    MarketEventType.SETTLEMENT,
+                    "kalshi",
+                    instrument.instrument_id,
+                    self.now - timedelta(hours=1),
+                    self.now - timedelta(hours=1),
+                    "fixture",
+                    {
+                        "result": "no",
+                        "event_ticker": f"HISTORY-EVENT-{index}",
+                        "occurrence_datetime": occurrence.isoformat(),
+                    },
+                    ingested_at=self.now - timedelta(hours=1),
+                )
+            )
+
+        target = Instrument(
+            "kalshi:prediction:TARGET",
+            "kalshi",
+            "TARGET",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(target)
+        self.store.append_event(
+            MarketEvent(
+                "target-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                "kalshi",
+                target.instrument_id,
+                self.now - timedelta(minutes=1),
+                self.now - timedelta(minutes=1),
+                "fixture",
+                {"yes_bids": [["0.09", "10"]], "no_bids": [["0.89", "10"]]},
+                ingested_at=self.now - timedelta(minutes=1),
+            )
+        )
+        self.store.append_event(
+            MarketEvent(
+                "target-rule",
+                MarketEventType.CONTRACT_RULE,
+                "kalshi",
+                target.instrument_id,
+                self.now - timedelta(minutes=1),
+                self.now - timedelta(minutes=1),
+                "fixture",
+                {
+                    "event_ticker": "TARGET-EVENT",
+                    "occurrence_datetime": (self.now + timedelta(hours=2)).isoformat(),
+                },
+                ingested_at=self.now - timedelta(minutes=1),
+            )
+        )
+
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(
+            scorecard.prediction_calibration.eligible_independent_events, 5
+        )
+        self.assertEqual(scorecard.prediction_calibration.eligible_open_events, 1)
+        self.assertEqual(scorecard.prediction_calibration.strongest_bucket_events, 4)
+        self.assertFalse(scorecard.prediction_calibration.ready)
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("Prediction calibration readiness", markdown)
+        self.assertIn("strongest fixed ten-cent bucket: **4/5**", markdown)
+
 
 if __name__ == "__main__":
     unittest.main()

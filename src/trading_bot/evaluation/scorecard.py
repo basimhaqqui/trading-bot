@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 from dataclasses import dataclass
@@ -8,9 +9,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Mapping
 
+from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import AssetClass, Forecast
-from trading_bot.core.serialization import canonical_json, require_aware
+from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.costs import EconomicCostRegistry
 from trading_bot.evaluation.economics import (
@@ -119,6 +121,16 @@ class OutcomeQueueSummary:
 
 
 @dataclass(frozen=True)
+class PredictionCalibrationReadiness:
+    eligible_independent_events: int
+    eligible_open_events: int
+    strongest_bucket_events: int
+    required_bucket_events: int
+    probability_bucket_radius: float
+    ready: bool
+
+
+@dataclass(frozen=True)
 class DailyScorecard:
     generated_at: datetime
     status: ScorecardStatus
@@ -128,6 +140,7 @@ class DailyScorecard:
     economics: tuple[EconomicSummary, ...]
     paper: PaperOperationsSummary
     outcome_queue: OutcomeQueueSummary
+    prediction_calibration: PredictionCalibrationReadiness
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -252,6 +265,7 @@ def build_daily_scorecard(
         reconciliation_records,
     )
     outcome_queue = _outcome_queue(forecasts, scores, as_of)
+    prediction_calibration = _prediction_calibration_readiness(path, as_of)
     alerts = _build_alerts(
         health, strategies, economics, totals, paper, outcome_queue
     )
@@ -264,6 +278,7 @@ def build_daily_scorecard(
         economics,
         paper,
         outcome_queue,
+        prediction_calibration,
         health,
         alerts,
     )
@@ -294,6 +309,14 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"not_due={scorecard.outcome_queue.not_due} "
             f"due_unmatched={scorecard.outcome_queue.due_unmatched} "
             f"quarantined={scorecard.outcome_queue.quarantined}"
+        ),
+        (
+            "prediction_calibration: "
+            f"eligible_events={scorecard.prediction_calibration.eligible_independent_events} "
+            f"open_events={scorecard.prediction_calibration.eligible_open_events} "
+            f"strongest_bucket={scorecard.prediction_calibration.strongest_bucket_events}/"
+            f"{scorecard.prediction_calibration.required_bucket_events} "
+            f"ready={str(scorecard.prediction_calibration.ready).lower()}"
         ),
     ]
     for alert in scorecard.alerts:
@@ -473,6 +496,228 @@ def _outcome_queue(
     )
 
 
+def _prediction_calibration_readiness(
+    path: str | Path,
+    as_of: datetime,
+    *,
+    probability_bucket_radius: float = 0.10,
+    required_bucket_events: int = 5,
+) -> PredictionCalibrationReadiness:
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            """
+            WITH ranked_settlements AS (
+                SELECT
+                    instrument_id,
+                    event_id,
+                    available_at,
+                    payload_json,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY instrument_id
+                        ORDER BY available_at, event_id
+                    ) AS settlement_rank
+                FROM market_events
+                WHERE event_type = 'settlement'
+                  AND available_at <= ?
+                  AND LOWER(json_extract(payload_json, '$.result')) IN ('yes', 'no')
+            )
+            SELECT
+                settlements.instrument_id,
+                settlements.payload_json,
+                books.event_id,
+                books.event_time,
+                books.available_at,
+                books.payload_json
+            FROM ranked_settlements AS settlements
+            JOIN market_events AS books
+              ON books.instrument_id = settlements.instrument_id
+             AND books.event_type = 'book_snapshot'
+             AND books.available_at <= ?
+            JOIN instruments
+              ON instruments.instrument_id = settlements.instrument_id
+            WHERE settlements.settlement_rank = 1
+              AND instruments.asset_class = 'prediction'
+            ORDER BY settlements.instrument_id, books.available_at, books.event_id
+            """,
+            (as_of.isoformat(), as_of.isoformat()),
+        ).fetchall()
+        open_rows = connection.execute(
+            """
+            WITH ranked_books AS (
+                SELECT
+                    instrument_id,
+                    available_at,
+                    payload_json,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY instrument_id
+                        ORDER BY available_at DESC, event_time DESC, event_id DESC
+                    ) AS event_rank
+                FROM market_events
+                WHERE event_type = 'book_snapshot' AND available_at <= ?
+            ),
+            ranked_rules AS (
+                SELECT
+                    instrument_id,
+                    payload_json,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY instrument_id
+                        ORDER BY available_at DESC, event_time DESC, event_id DESC
+                    ) AS event_rank
+                FROM market_events
+                WHERE event_type = 'contract_rule' AND available_at <= ?
+            ),
+            settled AS (
+                SELECT DISTINCT instrument_id
+                FROM market_events
+                WHERE event_type = 'settlement'
+                  AND available_at <= ?
+                  AND LOWER(json_extract(payload_json, '$.result')) IN ('yes', 'no')
+            )
+            SELECT
+                books.instrument_id,
+                books.available_at,
+                books.payload_json,
+                rules.payload_json
+            FROM ranked_books AS books
+            JOIN ranked_rules AS rules USING (instrument_id)
+            JOIN instruments USING (instrument_id)
+            LEFT JOIN settled USING (instrument_id)
+            WHERE books.event_rank = 1
+              AND rules.event_rank = 1
+              AND instruments.asset_class = 'prediction'
+              AND settled.instrument_id IS NULL
+            """,
+            (as_of.isoformat(), as_of.isoformat(), as_of.isoformat()),
+        ).fetchall()
+        forecasted_event_keys = {
+            str(event_key)
+            for (event_key,) in connection.execute(
+                """
+                SELECT COALESCE(
+                    json_extract(payload_json, '$.values.event_ticker'),
+                    json_extract(payload_json, '$.values.outcome_cluster'),
+                    json_extract(payload_json, '$.instrument_id')
+                )
+                FROM audit_records
+                WHERE record_type = 'forecast'
+                  AND json_extract(payload_json, '$.specialist_id') =
+                      'prediction-market-calibration-baseline-v4'
+                """
+            ).fetchall()
+        }
+
+    candidates_by_event: dict[str, list[float]] = {}
+    latest_by_instrument: dict[str, tuple[datetime, str, str, float]] = {}
+    for (
+        instrument_id,
+        settlement_json,
+        book_event_id,
+        book_event_time,
+        book_available_at,
+        book_json,
+    ) in rows:
+        settlement = json.loads(settlement_json)
+        raw_market = settlement.get("raw_market")
+        raw_market = raw_market if isinstance(raw_market, dict) else {}
+        occurrence_value = settlement.get("occurrence_datetime") or raw_market.get(
+            "occurrence_datetime"
+        )
+        if not isinstance(occurrence_value, str) or not occurrence_value:
+            continue
+        try:
+            occurrence = parse_datetime(occurrence_value)
+            event_time = parse_datetime(book_event_time)
+            available_at = parse_datetime(book_available_at)
+        except (TypeError, ValueError):
+            continue
+        time_to_occurrence = occurrence - available_at
+        if (
+            event_time > occurrence
+            or time_to_occurrence <= timedelta(hours=1)
+            or time_to_occurrence > timedelta(hours=8)
+        ):
+            continue
+        executable = prediction_book_payload(json.loads(book_json))
+        if executable is None or executable[3] > probability_bucket_radius:
+            continue
+        event_ticker = settlement.get("event_ticker") or raw_market.get("event_ticker")
+        if isinstance(event_ticker, str) and event_ticker:
+            event_key = f"event:{event_ticker}"
+        else:
+            event_key = f"occurrence:{occurrence_value}"
+        latest_by_instrument[instrument_id] = (
+            available_at,
+            book_event_id,
+            event_key,
+            executable[2],
+        )
+
+    for _, _, event_key, probability in latest_by_instrument.values():
+        candidates_by_event.setdefault(event_key, []).append(probability)
+
+    open_by_event: dict[str, tuple[float, float, str]] = {}
+    open_probability_by_event: dict[str, float] = {}
+    for instrument_id, book_available_at, book_json, rule_json in open_rows:
+        try:
+            decision_time = parse_datetime(book_available_at)
+        except (TypeError, ValueError):
+            continue
+        if as_of - decision_time > timedelta(minutes=15):
+            continue
+        rule = json.loads(rule_json)
+        occurrence_value = rule.get("occurrence_datetime")
+        event_key = rule.get("event_ticker")
+        if (
+            not isinstance(occurrence_value, str)
+            or not occurrence_value
+            or not isinstance(event_key, str)
+            or not event_key
+            or event_key in forecasted_event_keys
+        ):
+            continue
+        try:
+            occurrence = parse_datetime(occurrence_value)
+        except (TypeError, ValueError):
+            continue
+        time_to_occurrence = occurrence - decision_time
+        if (
+            time_to_occurrence <= timedelta(hours=1)
+            or time_to_occurrence > timedelta(hours=8)
+        ):
+            continue
+        executable = prediction_book_payload(json.loads(book_json))
+        if executable is None or executable[3] > probability_bucket_radius:
+            continue
+        candidate = (executable[3], -decision_time.timestamp(), instrument_id)
+        existing = open_by_event.get(event_key)
+        if existing is None or candidate < existing:
+            open_by_event[event_key] = candidate
+            open_probability_by_event[event_key] = executable[2]
+
+    target_probabilities = list(open_probability_by_event.values())
+    strongest_bucket = max(
+        (
+            sum(
+                any(
+                    abs(probability - target) <= probability_bucket_radius + 1e-12
+                    for probability in event_probabilities
+                )
+                for event_probabilities in candidates_by_event.values()
+            )
+            for target in target_probabilities
+        ),
+        default=0,
+    )
+    return PredictionCalibrationReadiness(
+        len(candidates_by_event),
+        len(open_by_event),
+        strongest_bucket,
+        required_bucket_events,
+        probability_bucket_radius,
+        strongest_bucket >= required_bucket_events,
+    )
+
+
 def _render_markdown(scorecard: DailyScorecard) -> str:
     totals = scorecard.totals
     lines = [
@@ -531,6 +776,19 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"`{scorecard.outcome_queue.oldest_due_at.isoformat()}`"
                 if scorecard.outcome_queue.oldest_due_at is not None
                 else "Oldest due without outcome: —"
+            ),
+            "",
+            "### Prediction calibration readiness",
+            "",
+            (
+                "Eligible independent resolved events: "
+                f"**{scorecard.prediction_calibration.eligible_independent_events}** · "
+                "eligible open events: "
+                f"**{scorecard.prediction_calibration.eligible_open_events}** · "
+                "strongest fixed ten-cent bucket: "
+                f"**{scorecard.prediction_calibration.strongest_bucket_events}/"
+                f"{scorecard.prediction_calibration.required_bucket_events}** · "
+                f"v4 adjustment ready: **{str(scorecard.prediction_calibration.ready).lower()}**"
             ),
             "",
             "### Strategy evidence",
