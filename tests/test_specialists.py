@@ -200,6 +200,39 @@ class SpecialistTests(unittest.TestCase):
         self.assertLessEqual(forecast.confidence, 0.25)
         self.assertEqual(forecast.evidence_event_ids, ("quote-1", "quote-2", "quote-3"))
 
+    def test_options_specialist_rejects_stale_source_with_fresh_receipt(self):
+        option = Instrument(
+            "alpaca:option:AAPL260918C00200000",
+            "alpaca",
+            "AAPL260918C00200000",
+            AssetClass.OPTION,
+            "USD",
+            100,
+        )
+        receipt_time = self.now - timedelta(minutes=1)
+        events = tuple(
+            self.event(
+                f"stale-option-quote-{index}",
+                MarketEventType.QUOTE,
+                option,
+                {
+                    "bid_price": 4.9,
+                    "ask_price": 5.1,
+                    "implied_volatility": implied,
+                    "feed": "indicative",
+                },
+                minutes_ago=300 - index,
+                available_at=receipt_time,
+            )
+            for index, implied in enumerate((0.20, 0.21, 0.30), start=1)
+        )
+
+        forecast = OptionVolatilitySpecialist().evaluate(
+            ReplayContext(self.now, option, events)
+        )
+
+        self.assertIsNone(forecast)
+
     def test_options_specialist_reports_point_in_time_underlying_realized_volatility(self):
         option = Instrument(
             "alpaca:option:AAPL260918C00200000",
