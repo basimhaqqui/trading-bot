@@ -8,7 +8,11 @@ from trading_bot.evaluation.reporting import (
     EvaluationGateConfig,
     build_walk_forward_report,
 )
-from trading_bot.evaluation.scoring import score_binary_forecast, score_return_forecast
+from trading_bot.evaluation.scoring import (
+    score_binary_forecast,
+    score_return_forecast,
+    score_volatility_forecast,
+)
 
 
 class ReportingTests(unittest.TestCase):
@@ -193,6 +197,46 @@ class ReportingTests(unittest.TestCase):
 
         group = report.groups[0]
         self.assertEqual(group.raw_scores, 3)
+        self.assertEqual(group.independent_outcomes, 1)
+        self.assertEqual(group.status, EdgeStatus.COLLECTING)
+
+    def test_same_session_option_contracts_are_one_outcome_cluster(self):
+        target_time = self.base + timedelta(days=1)
+        observations = []
+        for index in range(30):
+            forecast = Forecast(
+                f"option-{index}",
+                "options-implied-volatility-state-baseline",
+                "baseline-v1",
+                f"alpaca:option:SPY-{index}",
+                ForecastKind.VOLATILITY,
+                self.base,
+                target_time,
+                {
+                    "current_implied_volatility": 0.2,
+                    "expected_implied_volatility": 0.25,
+                    "outcome_cluster": "option-session:2026-01-02",
+                },
+                0.25,
+                {"observations": 3.0},
+                (f"option-event-{index}",),
+                ("same-session contracts invalidate independence",),
+            )
+            score = score_volatility_forecast(
+                forecast,
+                actual_implied_volatility=0.3,
+                target_time=target_time,
+                scored_at=target_time,
+            )
+            observations.append((forecast, score))
+
+        report = build_walk_forward_report(
+            tuple(item[0] for item in observations),
+            tuple(item[1] for item in observations),
+        )
+
+        group = report.groups[0]
+        self.assertEqual(group.raw_scores, 30)
         self.assertEqual(group.independent_outcomes, 1)
         self.assertEqual(group.status, EdgeStatus.COLLECTING)
 

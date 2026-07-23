@@ -199,6 +199,9 @@ class SpecialistTests(unittest.TestCase):
         self.assertEqual(forecast.values["state"], "implied_volatility_elevated")
         self.assertLessEqual(forecast.confidence, 0.25)
         self.assertEqual(forecast.evidence_event_ids, ("quote-1", "quote-2", "quote-3"))
+        self.assertEqual(
+            forecast.values["outcome_cluster"], "option-session:2026-07-22"
+        )
 
     def test_options_specialist_rejects_stale_source_with_fresh_receipt(self):
         option = Instrument(
