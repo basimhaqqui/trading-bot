@@ -263,7 +263,7 @@ class SpecialistTests(unittest.TestCase):
                 {
                     "rules_primary": "Settlement from the named source.",
                     "event_ticker": "TARGET-EVENT",
-                    "occurrence_datetime": "2026-07-21T21:00:00Z",
+                    "occurrence_datetime": "2026-07-21T22:00:00Z",
                 },
                 minutes_ago=60,
             ),
@@ -357,16 +357,16 @@ class SpecialistTests(unittest.TestCase):
         self.assertEqual(forecast.values["calibration_cohort_size"], 5.0)
         self.assertEqual(forecast.values["state"], "cohort_adjusted")
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-calibration-baseline-v2"
+            forecast.specialist_id, "prediction-market-calibration-baseline-v3"
         )
-        self.assertEqual(forecast.model_version, "baseline-v2")
+        self.assertEqual(forecast.model_version, "baseline-v3")
         self.assertEqual(forecast.values["event_ticker"], "TARGET-EVENT")
         self.assertEqual(
-            forecast.values["outcome_cluster"], "2026-07-21T21:00:00Z"
+            forecast.values["outcome_cluster"], "2026-07-21T22:00:00Z"
         )
         self.assertEqual(
             forecast.valid_until,
-            datetime(2026, 7, 21, 21, tzinfo=timezone.utc),
+            datetime(2026, 7, 21, 22, tzinfo=timezone.utc),
         )
         wide_book = self.event(
             "target-wide-book",
@@ -406,6 +406,8 @@ class SpecialistTests(unittest.TestCase):
             "not-a-time",
             self.now.isoformat(),
             (self.now - timedelta(minutes=1)).isoformat(),
+            (self.now + timedelta(hours=1)).isoformat(),
+            (self.now + timedelta(hours=9)).isoformat(),
             (self.now + timedelta(hours=49)).isoformat(),
         )
         specialist = PredictionMarketCalibrationSpecialist()

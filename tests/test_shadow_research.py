@@ -148,7 +148,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "rules_primary": "Named public source.",
                     "occurrence_datetime": (
-                        self.now + timedelta(hours=47)
+                        self.now + timedelta(hours=7)
                     ).isoformat(),
                 },
                 event_time=self.now - timedelta(minutes=2),
@@ -322,7 +322,7 @@ class ShadowResearchTests(unittest.TestCase):
                     {
                         "rules_primary": "Named public source.",
                         "occurrence_datetime": (
-                            self.now + timedelta(hours=1, minutes=index)
+                            self.now + timedelta(hours=2, minutes=index)
                         ).isoformat(),
                     },
                     event_time=self.now - timedelta(minutes=2),
