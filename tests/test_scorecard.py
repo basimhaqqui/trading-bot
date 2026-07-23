@@ -223,6 +223,23 @@ class DailyScorecardTests(unittest.TestCase):
             scorecard.outcome_queue.oldest_due_at,
             self.now - timedelta(minutes=30),
         )
+        self.assertEqual(len(scorecard.strategy_outcome_queues), 1)
+        strategy_queue = scorecard.strategy_outcome_queues[0]
+        self.assertEqual(
+            strategy_queue.specialist_id,
+            "prediction-market-calibration-baseline-v3",
+        )
+        self.assertEqual(strategy_queue.pending, 2)
+        self.assertEqual(strategy_queue.not_due, 1)
+        self.assertEqual(strategy_queue.due_unmatched, 1)
+        self.assertEqual(
+            strategy_queue.next_due_at,
+            self.now + timedelta(hours=2),
+        )
+        self.assertEqual(
+            strategy_queue.oldest_due_at,
+            self.now - timedelta(minutes=30),
+        )
         self.assertTrue(
             any(
                 alert.code == "outcomes_awaiting_settlement"
@@ -231,7 +248,11 @@ class DailyScorecardTests(unittest.TestCase):
         )
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("### Outcome queue", markdown)
+        self.assertIn("### Pending outcomes by strategy", markdown)
         self.assertIn("due without outcome: **1**", markdown)
+        self.assertIn(
+            "prediction-market-calibration-baseline-v3", markdown
+        )
 
     def test_scorecard_reports_prediction_calibration_cohort_readiness(self):
         self.append_public_run()
