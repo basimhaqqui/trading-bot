@@ -64,6 +64,7 @@ class FakeAlpacaCollector:
         self.page_token = None
         self.bar_page_token = None
         self.chain_kwargs = {}
+        self.quote_kwargs = None
 
     def collect_chain(self, symbol, **kwargs):
         self.page_token = kwargs.get("page_token")
@@ -72,6 +73,10 @@ class FakeAlpacaCollector:
 
     def collect_daily_bars(self, symbol, **kwargs):
         self.bar_page_token = kwargs.get("page_token")
+        return CollectionBatch("alpaca")
+
+    def collect_latest_quote(self, symbol, **kwargs):
+        self.quote_kwargs = {"symbol": symbol, **kwargs}
         return CollectionBatch("alpaca")
 
 
@@ -278,6 +283,19 @@ class IngestionTests(unittest.TestCase):
         collect_job(collector, bars_job, self.now, "alpaca-bars-page-2")
         self.assertEqual(collector.page_token, "alpaca-page-2")
         self.assertEqual(collector.bar_page_token, "alpaca-bars-page-2")
+
+    def test_alpaca_quote_jobs_dispatch_to_the_stock_quote_collector(self):
+        collector = FakeAlpacaCollector()
+        quote_job = ObservationJob(
+            "spy-quote", "alpaca", "quotes", symbol="SPY", stock_feed="iex"
+        )
+        collect_job(collector, quote_job, self.now, None)
+        self.assertEqual(
+            collector.quote_kwargs,
+            {"symbol": "SPY", "collected_at": self.now, "feed": "iex"},
+        )
+        with self.assertRaises(ValueError):
+            ObservationJob("missing-symbol", "alpaca", "quotes")
 
     def test_restart_cursor_mode_repeats_first_chain_page_and_keeps_audit_cursor(self):
         collector = PaginatedAlpacaCollector()
