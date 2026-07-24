@@ -10,7 +10,7 @@ from typing import Any, Mapping
 ALLOWED_DATASETS = {
     "kalshi": {"markets", "forecast_outcomes", "trades", "book"},
     "coinbase": {"products", "book", "candles"},
-    "alpaca": {"chain", "bars"},
+    "alpaca": {"chain", "bars", "quotes"},
 }
 SENSITIVE_FRAGMENTS = (
     "secret",
@@ -59,7 +59,7 @@ class ObservationJob:
             raise ValueError(f"unsupported observation job: {self.venue}/{self.dataset}")
         if not 1 <= self.limit <= 1000:
             raise ValueError("job limit must be between 1 and 1000")
-        if self.dataset in {"book", "chain", "bars", "candles"} and not self.symbol:
+        if self.dataset in {"book", "chain", "bars", "candles", "quotes"} and not self.symbol:
             raise ValueError(f"{self.dataset} jobs require a symbol")
         if self.dataset == "candles" and self.limit > 350:
             raise ValueError("Coinbase candle limit cannot exceed 350")

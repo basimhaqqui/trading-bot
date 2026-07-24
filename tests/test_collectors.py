@@ -405,6 +405,80 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(batch.events[0].available_at, self.collected)
         self.assertEqual(transport.calls[0][1]["end"], "2026-07-21")
 
+    def test_alpaca_stock_latest_quote_preserves_executable_book_and_receipt(self):
+        transport = FakeTransport(
+            {
+                "/SPY/quotes/latest": {
+                    "symbol": "SPY",
+                    "quote": {
+                        "t": "2026-07-21T19:59:58.123456789Z",
+                        "bp": 630.10,
+                        "bs": 4,
+                        "bx": "V",
+                        "ap": 630.14,
+                        "as": 2,
+                        "ax": "V",
+                        "c": ["R"],
+                        "z": "B",
+                    },
+                }
+            }
+        )
+        batch = AlpacaStockCollector("key", "secret", transport).collect_latest_quote(
+            "SPY", collected_at=self.collected, feed="iex"
+        )
+        self.assertEqual(transport.calls[0][1]["feed"], "iex")
+        self.assertEqual(batch.instruments[0].instrument_id, "alpaca:equity:SPY")
+        self.assertEqual(len(batch.events), 1)
+        event = batch.events[0]
+        self.assertIs(event.event_type, MarketEventType.QUOTE)
+        self.assertEqual(event.payload["bid_price"], 630.10)
+        self.assertEqual(event.payload["bid_size"], 4)
+        self.assertEqual(event.payload["ask_price"], 630.14)
+        self.assertEqual(event.payload["ask_size"], 2)
+        self.assertEqual(event.payload["feed"], "iex")
+        self.assertEqual(event.available_at, self.collected)
+        self.assertLess(event.event_time, self.collected)
+
+    def test_alpaca_stock_latest_quote_rejects_mismatched_symbol(self):
+        transport = FakeTransport(
+            {
+                "/SPY/quotes/latest": {
+                    "symbol": "QQQ",
+                    "quote": {"t": "2026-07-21T19:59:58Z", "bp": 1.0, "ap": 1.1},
+                }
+            }
+        )
+        with self.assertRaises(CollectorPayloadError):
+            AlpacaStockCollector("key", "secret", transport).collect_latest_quote(
+                "SPY", collected_at=self.collected
+            )
+
+    def test_alpaca_stock_latest_quote_flags_crossed_books(self):
+        transport = FakeTransport(
+            {
+                "/SPY/quotes/latest": {
+                    "symbol": "SPY",
+                    "quote": {
+                        "t": "2026-07-21T19:59:58Z",
+                        "bp": 631.0,
+                        "bs": 1,
+                        "ap": 630.0,
+                        "as": 1,
+                    },
+                }
+            }
+        )
+        batch = AlpacaStockCollector("key", "secret", transport).collect_latest_quote(
+            "SPY", collected_at=self.collected
+        )
+        self.assertTrue(
+            any(
+                diagnostic.code is DiagnosticCode.CROSSED_BOOK
+                for diagnostic in batch.diagnostics
+            )
+        )
+
     def test_kalshi_finalized_market_emits_public_settlement_label(self):
         transport = FakeTransport(
             {

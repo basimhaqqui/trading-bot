@@ -433,7 +433,7 @@ def default_collector_factory(venue: str, dataset: str) -> object:
     if venue == "alpaca":
         key_id = os.getenv("ALPACA_MARKET_DATA_KEY_ID", "")
         secret_key = os.getenv("ALPACA_MARKET_DATA_SECRET_KEY", "")
-        if dataset == "bars":
+        if dataset in {"bars", "quotes"}:
             return AlpacaStockCollector(key_id, secret_key)
         return AlpacaOptionsCollector(key_id, secret_key)
     raise ValueError(f"unsupported venue: {venue}")
@@ -551,6 +551,12 @@ def collect_job(
                 lookback_days=job.lookback_days,
                 limit=job.limit,
                 page_token=cursor,
+            )
+        if job.dataset == "quotes" and job.symbol:
+            return collector.collect_latest_quote(  # type: ignore[attr-defined,no-any-return]
+                job.symbol,
+                collected_at=collected_at,
+                feed=job.stock_feed,
             )
     raise TypeError(f"collector does not implement {job.venue}/{job.dataset}")
 

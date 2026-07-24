@@ -39,6 +39,85 @@ class AlpacaStockCollector:
             },
         )
 
+    def collect_latest_quote(
+        self,
+        symbol: str,
+        *,
+        collected_at: datetime | None = None,
+        feed: str = "iex",
+    ) -> CollectionBatch:
+        override = require_aware(collected_at, "collected_at") if collected_at else None
+        if not re.fullmatch(r"[A-Z0-9.]{1,12}", symbol):
+            raise ValueError("invalid stock symbol")
+        if feed not in {"iex", "sip", "delayed_sip"}:
+            raise ValueError("stock feed must be iex, sip, or delayed_sip")
+        response = self.transport.get_json(
+            f"/{quote(symbol, safe='')}/quotes/latest",
+            query={"feed": feed},
+        )
+        receipt_time = override or utc_now()
+        response_symbol = response.get("symbol", symbol)
+        if response_symbol != symbol:
+            raise CollectorPayloadError("quote response symbol did not match the request")
+        quote_data = require_object(response.get("quote"), "quote")
+        source_time = parse_time(quote_data.get("t"), "quote.t")
+        instrument = Instrument(
+            instrument_id=f"alpaca:equity:{symbol}",
+            venue=self.venue,
+            symbol=symbol,
+            asset_class=AssetClass.EQUITY,
+            quote_currency="USD",
+            metadata={},
+        )
+        diagnostics: list[DataQualityDiagnostic] = []
+        event_time = observed_event_time(
+            source_time,
+            receipt_time,
+            instrument_id=instrument.instrument_id,
+            diagnostics=diagnostics,
+        )
+        payload = {
+            "bid_price": quote_data.get("bp"),
+            "bid_size": quote_data.get("bs"),
+            "bid_exchange": quote_data.get("bx"),
+            "ask_price": quote_data.get("ap"),
+            "ask_size": quote_data.get("as"),
+            "ask_exchange": quote_data.get("ax"),
+            "conditions": quote_data.get("c"),
+            "tape": quote_data.get("z"),
+            "feed": feed,
+            "raw": dict(quote_data),
+        }
+        event = MarketEvent(
+            event_id=stable_event_id(
+                "alpaca:stock-quote",
+                {
+                    "symbol": symbol,
+                    "feed": feed,
+                    "source_time": source_time,
+                    "payload": payload,
+                },
+            ),
+            event_type=MarketEventType.QUOTE,
+            venue=self.venue,
+            instrument_id=instrument.instrument_id,
+            event_time=event_time,
+            available_at=receipt_time,
+            source=f"alpaca-stocks-{feed}-latest-quote-v2",
+            payload=payload,
+            ingested_at=receipt_time,
+        )
+        events = [event]
+        diagnostics.extend(inspect_events(events))
+        return CollectionBatch(
+            self.venue,
+            (instrument,),
+            tuple(events),
+            tuple(diagnostics),
+            None,
+            {"feed": feed},
+        )
+
     def collect_daily_bars(
         self,
         symbol: str,

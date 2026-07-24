@@ -254,6 +254,14 @@
       "activation_profile": "alpaca_market_data"
     },
     {
+      "job_id": "alpaca-spy-quote",
+      "venue": "alpaca",
+      "dataset": "quotes",
+      "symbol": "SPY",
+      "stock_feed": "iex",
+      "activation_profile": "alpaca_market_data"
+    },
+    {
       "job_id": "alpaca-spy-options",
       "venue": "alpaca",
       "dataset": "chain",
@@ -283,6 +291,14 @@
       "stock_feed": "iex",
       "lookback_days": 90,
       "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-qqq-quote",
+      "venue": "alpaca",
+      "dataset": "quotes",
+      "symbol": "QQQ",
+      "stock_feed": "iex",
       "activation_profile": "alpaca_market_data"
     },
     {
@@ -318,6 +334,14 @@
       "activation_profile": "alpaca_market_data"
     },
     {
+      "job_id": "alpaca-aapl-quote",
+      "venue": "alpaca",
+      "dataset": "quotes",
+      "symbol": "AAPL",
+      "stock_feed": "iex",
+      "activation_profile": "alpaca_market_data"
+    },
+    {
       "job_id": "alpaca-aapl-options",
       "venue": "alpaca",
       "dataset": "chain",
@@ -347,6 +371,14 @@
       "stock_feed": "iex",
       "lookback_days": 90,
       "limit": 100,
+      "activation_profile": "alpaca_market_data"
+    },
+    {
+      "job_id": "alpaca-nvda-quote",
+      "venue": "alpaca",
+      "dataset": "quotes",
+      "symbol": "NVDA",
+      "stock_feed": "iex",
       "activation_profile": "alpaca_market_data"
     },
     {
