@@ -23,6 +23,7 @@ from trading_bot.execution.schemas import (
     OrderIntent,
     RiskDecision,
 )
+from trading_bot.evaluation.reporting import EdgeStatus, EvaluationDecision
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
 
@@ -33,6 +34,7 @@ class AuditRecordType(StrEnum):
     APPROVAL = "approval"
     EXECUTION_RECEIPT = "execution_receipt"
     FORECAST_SCORE = "forecast_score"
+    EVALUATION_DECISION = "evaluation_decision"
 
 
 SCHEMA = """
@@ -142,6 +144,39 @@ class AuditLedger:
             score.score_id,
             score.scored_at,
             score,
+        )
+
+    def append_evaluation_decision(self, decision: EvaluationDecision) -> bool:
+        if self.has_evaluation_decision(decision.decision_id):
+            return False
+        return self._append(
+            AuditRecordType.EVALUATION_DECISION,
+            decision.decision_id,
+            decision.decided_at,
+            decision,
+        )
+
+    def has_evaluation_decision(self, decision_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM audit_records WHERE record_type = ? AND record_id = ?",
+                (AuditRecordType.EVALUATION_DECISION.value, decision_id),
+            ).fetchone()
+        return row is not None
+
+    def evaluation_decisions(self) -> tuple[EvaluationDecision, ...]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM audit_records
+                WHERE record_type = ?
+                ORDER BY occurred_at, record_id
+                """,
+                (AuditRecordType.EVALUATION_DECISION.value,),
+            ).fetchall()
+        return tuple(
+            self._evaluation_decision_from_payload(json.loads(row["payload_json"]))
+            for row in rows
         )
 
     def _append(
@@ -288,6 +323,29 @@ class AuditLedger:
                 str(key): float(value)
                 for key, value in dict(payload["metrics"]).items()
             },
+        )
+
+    @staticmethod
+    def _evaluation_decision_from_payload(
+        payload: dict[str, object],
+    ) -> EvaluationDecision:
+        def optional_float(key: str) -> float | None:
+            value = payload.get(key)
+            return None if value is None else float(value)
+
+        return EvaluationDecision(
+            specialist_id=str(payload["specialist_id"]),
+            kind=ScoreKind(str(payload["kind"])),
+            scope=str(payload["scope"]),
+            boundary=int(payload["boundary"]),
+            status=EdgeStatus(str(payload["status"])),
+            independent_outcomes=int(payload["independent_outcomes"]),
+            unique_instruments=int(payload["unique_instruments"]),
+            mean_improvement=optional_float("mean_improvement"),
+            lower_confidence_bound=optional_float("lower_confidence_bound"),
+            win_rate=optional_float("win_rate"),
+            reasons=tuple(str(item) for item in payload["reasons"]),
+            decided_at=parse_datetime(str(payload["decided_at"])),
         )
 
     @staticmethod

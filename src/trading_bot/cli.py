@@ -75,10 +75,14 @@ from trading_bot.execution.schemas import (
 from trading_bot.evaluation.readiness import data_readiness
 from trading_bot.evaluation.costs import load_cost_registry
 from trading_bot.evaluation.economics import EconomicGateConfig, build_economic_report
+from trading_bot.evaluation.checkpoint import (
+    checkpointed_walk_forward_report,
+    locked_walk_forward_report,
+)
 from trading_bot.evaluation.reporting import (
+    EvaluationDecision,
     EvaluationGateConfig,
     WalkForwardReport,
-    build_walk_forward_report,
 )
 from trading_bot.evaluation.shadow import ShadowResearchResult, ShadowResearchRunner
 from trading_bot.evaluation.scorecard import (
@@ -601,10 +605,9 @@ def _shadow_cycle(path: Path, plan_path: Path, *, validate_only: bool = False) -
             print(f"  next_cursor={record.next_cursor}")
     research = ShadowResearchRunner(store, audit).run(as_of=utc_now())
     _print_shadow_research(research)
-    _print_shadow_report(
-        build_walk_forward_report(audit.forecasts(), audit.forecast_scores()),
-        min_outcomes=30,
-    )
+    report, locked = checkpointed_walk_forward_report(audit, as_of=utc_now())
+    _print_locked_decisions(locked)
+    _print_shadow_report(report, min_outcomes=30)
     failed = any(record.status is IngestionRunStatus.FAILED for record in records)
     return 1 if failed or research.generation.errors or research.scoring.errors else 0
 
@@ -613,11 +616,19 @@ def _shadow_research(path: Path) -> int:
     store, _, audit = _initialize(path)
     result = ShadowResearchRunner(store, audit).run(as_of=utc_now())
     _print_shadow_research(result)
-    _print_shadow_report(
-        build_walk_forward_report(audit.forecasts(), audit.forecast_scores()),
-        min_outcomes=30,
-    )
+    report, locked = checkpointed_walk_forward_report(audit, as_of=utc_now())
+    _print_locked_decisions(locked)
+    _print_shadow_report(report, min_outcomes=30)
     return 1 if result.generation.errors or result.scoring.errors else 0
+
+
+def _print_locked_decisions(decisions: tuple[EvaluationDecision, ...]) -> None:
+    for decision in decisions:
+        print(
+            f"decision locked: {decision.specialist_id}/{decision.kind.value} "
+            f"scope={decision.scope} status={decision.status.value} "
+            f"outcomes={decision.independent_outcomes}/{decision.boundary}"
+        )
 
 
 def _print_shadow_research(result: ShadowResearchResult) -> None:
@@ -645,9 +656,8 @@ def _print_shadow_research(result: ShadowResearchResult) -> None:
 
 def _shadow_report(path: Path, *, min_outcomes: int) -> int:
     _, _, audit = _initialize(path)
-    report = build_walk_forward_report(
-        audit.forecasts(),
-        audit.forecast_scores(),
+    report = locked_walk_forward_report(
+        audit,
         EvaluationGateConfig(min_independent_outcomes=min_outcomes),
     )
     _print_shadow_report(report, min_outcomes=min_outcomes)
@@ -670,6 +680,13 @@ def _print_shadow_report(report: WalkForwardReport, *, min_outcomes: int) -> Non
             f"raw_scores={group.raw_scores} forecasts={group.forecasts} "
             f"instruments={group.unique_instruments}"
         )
+        if group.locked_status is not None:
+            print(
+                f"  decision: locked {group.locked_status.value} at "
+                f"{group.locked_outcomes} outcomes on "
+                f"{group.locked_at.isoformat()}; "
+                f"monitoring={group.monitoring_status.value}"
+            )
         if group.mean_loss is not None:
             print(
                 "  paired: "
@@ -699,6 +716,13 @@ def _print_shadow_report(report: WalkForwardReport, *, min_outcomes: int) -> Non
                 f"outcomes={evaluation.independent_outcomes}/{min_outcomes} "
                 f"raw_scores={evaluation.raw_scores} forecasts={evaluation.forecasts}"
             )
+            if evaluation.locked_status is not None:
+                print(
+                    f"    decision: locked {evaluation.locked_status.value} at "
+                    f"{evaluation.locked_outcomes} outcomes on "
+                    f"{evaluation.locked_at.isoformat()}; "
+                    f"monitoring={evaluation.monitoring_status.value}"
+                )
             if evaluation.mean_improvement is not None:
                 print(
                     "    paired: "
@@ -744,9 +768,8 @@ def _economic_report(path: Path, args: argparse.Namespace) -> int:
     _, _, audit = _initialize(path)
     forecasts = audit.forecasts()
     scores = audit.forecast_scores()
-    forecast_report = build_walk_forward_report(
-        forecasts,
-        scores,
+    forecast_report = locked_walk_forward_report(
+        audit,
         EvaluationGateConfig(min_independent_outcomes=args.min_outcomes),
     )
     report = build_economic_report(

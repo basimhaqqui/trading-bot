@@ -20,11 +20,11 @@ from trading_bot.evaluation.economics import (
     EconomicStatus,
     build_economic_report,
 )
+from trading_bot.evaluation.checkpoint import checkpointed_walk_forward_report
 from trading_bot.evaluation.outcomes import forecast_outcome_target_time
 from trading_bot.evaluation.reporting import (
     EdgeStatus,
     EvaluationGateConfig,
-    build_walk_forward_report,
 )
 from trading_bot.evaluation.scoring import ForecastScore
 from trading_bot.ingestion.health import IngestionHealthReport, ingestion_health
@@ -86,6 +86,10 @@ class StrategySummary:
     lower_confidence_bound: float | None
     win_rate: float | None
     reasons: tuple[str, ...]
+    locked_status: EdgeStatus | None = None
+    locked_at: datetime | None = None
+    locked_outcomes: int | None = None
+    monitoring_status: EdgeStatus | None = None
 
 
 @dataclass(frozen=True)
@@ -174,10 +178,10 @@ def build_daily_scorecard(
     audit = AuditLedger(path)
     forecasts = audit.forecasts()
     scores = audit.forecast_scores()
-    evaluation = build_walk_forward_report(
-        forecasts,
-        scores,
+    evaluation, _ = checkpointed_walk_forward_report(
+        audit,
         EvaluationGateConfig(min_independent_outcomes=min_outcomes),
+        as_of=as_of,
     )
     economic = build_economic_report(
         forecasts,
@@ -250,6 +254,10 @@ def build_daily_scorecard(
             _finite(item.lower_confidence_bound),
             _finite(item.win_rate),
             item.reasons,
+            item.locked_status,
+            item.locked_at,
+            item.locked_outcomes,
+            item.monitoring_status,
         )
         for item in evaluation.groups
     )
@@ -344,6 +352,13 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"{strategy.specialist_id}/{strategy.kind}: {strategy.status.value} "
             f"outcomes={strategy.outcomes}/{strategy.required_outcomes}"
         )
+        if strategy.locked_status is not None:
+            lines.append(
+                f"  decision: locked {strategy.locked_status.value} at "
+                f"{strategy.locked_outcomes} outcomes on "
+                f"{strategy.locked_at.isoformat()}; "
+                f"monitoring={strategy.monitoring_status.value}"
+            )
     for queue in scorecard.strategy_outcome_queues:
         lines.append(
             f"{queue.specialist_id}/{queue.kind} pending: "
@@ -887,15 +902,22 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
             "",
             "### Strategy evidence",
             "",
-            "| Specialist | Score | Status | Outcomes | Improvement | Lower bound | Win rate |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+            "| Specialist | Score | Status | Locked decision | Outcomes | Improvement | Lower bound | Win rate |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
         ]
     )
     if not scorecard.strategies:
-        lines.append("| none | — | collecting | 0 | — | — | — |")
+        lines.append("| none | — | collecting | — | 0 | — | — | — |")
     for item in scorecard.strategies:
+        locked = "—"
+        if item.locked_status is not None:
+            locked = (
+                f"{item.locked_status.value} @ {item.locked_outcomes} "
+                f"(monitoring {item.monitoring_status.value})"
+            )
         lines.append(
             f"| `{item.specialist_id}` | {item.kind} | **{item.status.value}** | "
+            f"{locked} | "
             f"{item.outcomes}/{item.required_outcomes} | {_number(item.mean_improvement)} | "
             f"{_number(item.lower_confidence_bound)} | {_percent(item.win_rate)} |"
         )
