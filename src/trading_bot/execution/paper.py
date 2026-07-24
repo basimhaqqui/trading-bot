@@ -130,6 +130,7 @@ def candidate_eligibility(
         forecasts,
         scores,
         EvaluationGateConfig(min_independent_outcomes=config.min_outcomes),
+        locked_decisions=audit.evaluation_decisions(),
     )
     economic_report = build_economic_report(
         forecasts,

@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from trading_bot.core.schemas import Forecast, ForecastKind
+from trading_bot.core.serialization import require_aware
 from trading_bot.evaluation.outcomes import evaluation_outcome_target_time
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
@@ -21,6 +22,19 @@ class EdgeStatus(StrEnum):
 class CohortDimension(StrEnum):
     FORECAST_HORIZON = "forecast_horizon"
     OUTCOME_HORIZON = "outcome_horizon"
+
+
+DECISION_SCOPE_AGGREGATE = "aggregate"
+
+_STATUS_SEVERITY = {
+    EdgeStatus.REJECTED: 0,
+    EdgeStatus.COLLECTING: 1,
+    EdgeStatus.CANDIDATE: 2,
+}
+
+
+def cohort_decision_scope(dimension: CohortDimension, label: str) -> str:
+    return f"{dimension.value}={label}"
 
 
 @dataclass(frozen=True)
@@ -63,6 +77,41 @@ class SpecialistEvaluation:
     delayed_control_improvement: float | None
     shuffled_control_improvement: float | None
     reasons: tuple[str, ...]
+    locked_status: EdgeStatus | None = None
+    locked_at: datetime | None = None
+    locked_outcomes: int | None = None
+    monitoring_status: EdgeStatus | None = None
+
+
+@dataclass(frozen=True)
+class EvaluationDecision:
+    specialist_id: str
+    kind: ScoreKind
+    scope: str
+    boundary: int
+    status: EdgeStatus
+    independent_outcomes: int
+    unique_instruments: int
+    mean_improvement: float | None
+    lower_confidence_bound: float | None
+    win_rate: float | None
+    reasons: tuple[str, ...]
+    decided_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "decided_at", require_aware(self.decided_at, "decided_at")
+        )
+        if self.boundary < 2:
+            raise ValueError("decision boundary must be at least two")
+        if self.status is EdgeStatus.COLLECTING:
+            raise ValueError("only mature pass/fail decisions can be locked")
+        if self.independent_outcomes < self.boundary:
+            raise ValueError("locked decisions require the preregistered outcome count")
+
+    @property
+    def decision_id(self) -> str:
+        return f"{self.specialist_id}:{self.kind.value}:{self.scope}:{self.boundary}"
 
 
 @dataclass(frozen=True)
@@ -109,8 +158,14 @@ def build_walk_forward_report(
     forecasts: tuple[Forecast, ...],
     scores: tuple[ForecastScore, ...],
     config: EvaluationGateConfig | None = None,
+    locked_decisions: tuple[EvaluationDecision, ...] = (),
 ) -> WalkForwardReport:
     config = config or EvaluationGateConfig()
+    decisions_by_scope = {
+        (decision.specialist_id, decision.kind, decision.scope): decision
+        for decision in locked_decisions
+        if decision.boundary == config.min_independent_outcomes
+    }
     forecasts_by_id = {item.forecast_id: item for item in forecasts}
     forecast_groups: dict[tuple[str, ScoreKind], list[Forecast]] = {}
     observations: dict[tuple[str, ScoreKind], list[_Observation]] = {}
@@ -179,12 +234,17 @@ def build_walk_forward_report(
         CohortEvaluation(
             key[2],
             key[3],
-            _evaluate_group(
-                (key[0], key[1]),
-                cohort_forecasts.get(key, []),
-                cohort_observations.get(key, []),
-                config,
-                critical_value,
+            _lock_evaluation(
+                _evaluate_group(
+                    (key[0], key[1]),
+                    cohort_forecasts.get(key, []),
+                    cohort_observations.get(key, []),
+                    config,
+                    critical_value,
+                ),
+                decisions_by_scope.get(
+                    (key[0], key[1], cohort_decision_scope(key[2], key[3]))
+                ),
             ),
         )
         for key in cohort_keys
@@ -200,7 +260,13 @@ def build_walk_forward_report(
         for key in keys
     )
     groups = tuple(
-        _apply_cohort_gate(group, cohort_results, config) for group in raw_groups
+        _lock_evaluation(
+            _apply_cohort_gate(group, cohort_results, config),
+            decisions_by_scope.get(
+                (group.specialist_id, group.kind, DECISION_SCOPE_AGGREGATE)
+            ),
+        )
+        for group in raw_groups
     )
     return WalkForwardReport(
         groups,
@@ -208,6 +274,82 @@ def build_walk_forward_report(
         config.familywise_alpha,
         confidence_tests,
     )
+
+
+def _lock_evaluation(
+    evaluation: SpecialistEvaluation,
+    decision: EvaluationDecision | None,
+) -> SpecialistEvaluation:
+    if decision is None:
+        return evaluation
+    monitoring = evaluation.status
+    effective = min(decision.status, monitoring, key=_STATUS_SEVERITY.__getitem__)
+    reasons = evaluation.reasons
+    if effective is not monitoring:
+        reasons += (
+            f"decision locked as {decision.status.value} at the preregistered "
+            f"{decision.boundary}-outcome boundary "
+            f"({decision.independent_outcomes} outcomes); "
+            "continued sampling cannot revise it",
+        )
+    elif monitoring is not decision.status:
+        reasons += (
+            f"locked {decision.status.value} decision does not authorize "
+            f"qualification while continued monitoring computes {monitoring.value}",
+        )
+    return replace(
+        evaluation,
+        status=effective,
+        reasons=reasons,
+        locked_status=decision.status,
+        locked_at=decision.decided_at,
+        locked_outcomes=decision.independent_outcomes,
+        monitoring_status=monitoring,
+    )
+
+
+def new_mature_decisions(
+    report: WalkForwardReport,
+    *,
+    config: EvaluationGateConfig,
+    as_of: datetime,
+) -> tuple[EvaluationDecision, ...]:
+    as_of = require_aware(as_of, "as_of")
+    decisions: list[EvaluationDecision] = []
+    scoped = [
+        (DECISION_SCOPE_AGGREGATE, group) for group in report.groups
+    ] + [
+        (cohort_decision_scope(item.dimension, item.label), item.evaluation)
+        for item in report.cohorts
+    ]
+    for scope, evaluation in scoped:
+        if evaluation.locked_status is not None:
+            continue
+        if evaluation.status is EdgeStatus.COLLECTING:
+            continue
+        if evaluation.independent_outcomes < config.min_independent_outcomes:
+            continue
+        decisions.append(
+            EvaluationDecision(
+                evaluation.specialist_id,
+                evaluation.kind,
+                scope,
+                config.min_independent_outcomes,
+                evaluation.status,
+                evaluation.independent_outcomes,
+                evaluation.unique_instruments,
+                _finite_or_none(evaluation.mean_improvement),
+                _finite_or_none(evaluation.lower_confidence_bound),
+                _finite_or_none(evaluation.win_rate),
+                evaluation.reasons,
+                as_of,
+            )
+        )
+    return tuple(decisions)
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    return value if value is not None and math.isfinite(value) else None
 
 
 def _horizon_bucket(target: datetime, origin: datetime) -> str:
