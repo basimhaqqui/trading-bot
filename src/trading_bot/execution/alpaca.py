@@ -5,6 +5,7 @@ import json
 import math
 from dataclasses import dataclass
 from datetime import datetime
+from time import sleep
 from typing import Any, Callable, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -57,6 +58,11 @@ class PinnedTradingHttpTransport:
     allowed_host: str = "paper-api.alpaca.markets"
     timeout_seconds: float = 10.0
     max_response_bytes: int = 5_000_000
+    max_read_attempts: int = 3
+    retry_backoff_seconds: float = 0.5
+    max_retry_after_seconds: float = 5.0
+
+    _RETRYABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
 
     def __post_init__(self) -> None:
         if not self.api_key_id or not self.api_secret_key:
@@ -76,6 +82,12 @@ class PinnedTradingHttpTransport:
             raise ValueError("paper transport must be pinned to paper-api.alpaca.markets")
         if self.timeout_seconds <= 0 or self.max_response_bytes < 1:
             raise ValueError("timeout and response limit must be positive")
+        if (
+            not 1 <= self.max_read_attempts <= 5
+            or not 0 <= self.retry_backoff_seconds <= 10
+            or not 0 <= self.max_retry_after_seconds <= 60
+        ):
+            raise ValueError("read retry limits are invalid")
 
     def get_json(
         self, path: str, *, query: Mapping[str, str | int | float | bool | None] | None = None
@@ -122,19 +134,51 @@ class PinnedTradingHttpTransport:
             body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
             headers["Content-Type"] = "application/json"
         request = Request(url, data=body, headers=headers, method=method)
-        try:
-            with build_opener(_NoRedirects()).open(request, timeout=self.timeout_seconds) as response:
-                raw = response.read(self.max_response_bytes + 1)
-        except HTTPError as exc:
-            raise AlpacaPaperError(
-                f"{method} failed for paper-api.alpaca.markets with HTTP {exc.code}"
-            ) from exc
-        except (URLError, TimeoutError) as exc:
-            raise AlpacaPaperError(
-                f"{method} failed for paper-api.alpaca.markets"
-            ) from exc
+        attempts = self.max_read_attempts if method == "GET" else 1
+        raw = None
+        for attempt in range(attempts):
+            try:
+                with build_opener(_NoRedirects()).open(request, timeout=self.timeout_seconds) as response:
+                    raw = response.read(self.max_response_bytes + 1)
+                break
+            except HTTPError as exc:
+                if (
+                    exc.code not in self._RETRYABLE_HTTP_STATUS
+                    or attempt + 1 >= attempts
+                ):
+                    raise AlpacaPaperError(
+                        f"{method} failed for paper-api.alpaca.markets with HTTP {exc.code}"
+                    ) from exc
+                retry_after = (
+                    exc.headers.get("Retry-After") if exc.headers is not None else None
+                )
+                sleep(self._retry_delay(attempt, retry_after))
+            except (URLError, TimeoutError) as exc:
+                if attempt + 1 >= attempts:
+                    raise AlpacaPaperError(
+                        f"{method} failed for paper-api.alpaca.markets"
+                    ) from exc
+                sleep(self._retry_delay(attempt))
+        if raw is None:
+            raise AlpacaPaperError(f"{method} failed for paper-api.alpaca.markets")
         if len(raw) > self.max_response_bytes:
             raise AlpacaPaperError("paper API response exceeded configured size limit")
+        return self._parse_json(raw)
+
+    def _retry_delay(self, attempt: int, retry_after: str | None = None) -> float:
+        if retry_after is not None:
+            try:
+                requested = float(retry_after)
+            except (TypeError, ValueError):
+                requested = -1
+            if requested >= 0:
+                return min(requested, self.max_retry_after_seconds)
+        return min(
+            self.retry_backoff_seconds * (2**attempt),
+            self.max_retry_after_seconds,
+        )
+
+    def _parse_json(self, raw: bytes) -> JsonValue:
         if not raw:
             return {}
         try:

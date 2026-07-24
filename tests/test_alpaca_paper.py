@@ -1,11 +1,14 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError, URLError
 
 from trading_bot.core.schemas import AssetClass, Instrument
 from trading_bot.execution.alpaca import (
     AlpacaOrder,
     AlpacaPaperAdapter,
     AlpacaPaperClient,
+    AlpacaPaperError,
     PaperOrderRequest,
     PinnedTradingHttpTransport,
 )
@@ -189,6 +192,88 @@ class AlpacaPaperTests(unittest.TestCase):
         )
         adapter.submit(approval, now=NOW)
         self.assertEqual(len(client.submitted), 1)
+
+    @patch("trading_bot.execution.alpaca.sleep")
+    @patch("trading_bot.execution.alpaca.build_opener")
+    def test_transient_network_failure_retries_read_only_get(
+        self, build_opener, sleep
+    ):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"ok": true}'
+        opener = build_opener.return_value
+        opener.open.side_effect = (URLError("connection reset"), response)
+        transport = PinnedTradingHttpTransport("key", "secret")
+
+        self.assertEqual(transport.get_json("/v2/account"), {"ok": True})
+        self.assertEqual(opener.open.call_count, 2)
+        sleep.assert_called_once_with(0.5)
+        for call in opener.open.call_args_list:
+            self.assertEqual(call.args[0].method, "GET")
+
+    @patch("trading_bot.execution.alpaca.sleep")
+    @patch("trading_bot.execution.alpaca.build_opener")
+    def test_read_retries_stop_at_configured_attempts(self, build_opener, sleep):
+        opener = build_opener.return_value
+        opener.open.side_effect = HTTPError(
+            "https://paper-api.alpaca.markets/v2/account",
+            503,
+            "Service Unavailable",
+            None,
+            None,
+        )
+        transport = PinnedTradingHttpTransport(
+            "key", "secret", max_read_attempts=3, retry_backoff_seconds=0.25
+        )
+
+        with self.assertRaises(AlpacaPaperError):
+            transport.get_json("/v2/account")
+
+        self.assertEqual(opener.open.call_count, 3)
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [0.25, 0.5],
+        )
+
+    @patch("trading_bot.execution.alpaca.sleep")
+    @patch("trading_bot.execution.alpaca.build_opener")
+    def test_auth_failures_are_not_retried(self, build_opener, sleep):
+        opener = build_opener.return_value
+        opener.open.side_effect = HTTPError(
+            "https://paper-api.alpaca.markets/v2/account",
+            401,
+            "Unauthorized",
+            None,
+            None,
+        )
+        transport = PinnedTradingHttpTransport("key", "secret")
+
+        with self.assertRaises(AlpacaPaperError) as raised:
+            transport.get_json("/v2/account")
+
+        self.assertIn("HTTP 401", str(raised.exception))
+        self.assertEqual(opener.open.call_count, 1)
+        sleep.assert_not_called()
+
+    @patch("trading_bot.execution.alpaca.sleep")
+    @patch("trading_bot.execution.alpaca.build_opener")
+    def test_mutating_requests_are_never_retried(self, build_opener, sleep):
+        opener = build_opener.return_value
+        opener.open.side_effect = HTTPError(
+            "https://paper-api.alpaca.markets/v2/orders",
+            503,
+            "Service Unavailable",
+            None,
+            None,
+        )
+        transport = PinnedTradingHttpTransport("key", "secret")
+
+        with self.assertRaises(AlpacaPaperError):
+            transport.post_json("/v2/orders", {"symbol": "SPY"})
+        with self.assertRaises(AlpacaPaperError):
+            transport.delete_json("/v2/orders")
+
+        self.assertEqual(opener.open.call_count, 2)
+        sleep.assert_not_called()
 
 
 if __name__ == "__main__":
