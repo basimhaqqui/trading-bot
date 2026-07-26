@@ -274,7 +274,7 @@ class FastPredictionSettlementSpecialist:
         rule = rules[-1]
         if str(rule.payload.get("status", "")).lower() != "active":
             return None
-        if rule.payload.get("can_close_early") is True:
+        if rule.payload.get("can_close_early") is not False:
             return None
         timer = _positive_int(rule.payload.get("settlement_timer_seconds"))
         if timer is None or timer > self.config.max_settlement_timer_seconds:

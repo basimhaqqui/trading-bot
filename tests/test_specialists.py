@@ -597,6 +597,20 @@ class SpecialistTests(unittest.TestCase):
             self.assertIsNone(
                 specialist.evaluate(ReplayContext(self.now, market, (unsafe_rule, book), ()))
             )
+        missing_early_close = dict(rule.payload)
+        del missing_early_close["can_close_early"]
+        missing_early_close_rule = self.event(
+            "fast-missing-can-close-early",
+            MarketEventType.CONTRACT_RULE,
+            market,
+            missing_early_close,
+            minutes_ago=1,
+        )
+        self.assertIsNone(
+            specialist.evaluate(
+                ReplayContext(self.now, market, (missing_early_close_rule, book), ())
+            )
+        )
 
     def test_prediction_specialist_requires_stable_event_identity(self):
         market = Instrument(

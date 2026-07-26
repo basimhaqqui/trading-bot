@@ -584,7 +584,7 @@ class ShadowResearchRunner:
                 or event_ticker in forecasted_events
                 or target_time is None
                 or str(rule.payload.get("status", "")).lower() != "active"
-                or rule.payload.get("can_close_early") is True
+                or rule.payload.get("can_close_early") is not False
                 or executable is None
                 or executable[3] > specialist.config.max_book_spread
             ):
