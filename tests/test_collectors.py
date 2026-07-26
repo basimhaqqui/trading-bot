@@ -66,6 +66,59 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(all(reason.endswith("_unobserved") for reason in event.payload["safety_reasons"]))
         self.assertFalse(event.payload["wallet_or_transaction_authority"])
 
+    def test_dexscreener_pool_observations_are_bounded_and_remain_blocked(self):
+        raw_profile = {
+            "chainId": "solana",
+            "tokenAddress": "ExampleMint",
+        }
+        smaller_pool = {
+            "chainId": "solana",
+            "pairAddress": "SmallPool",
+            "baseToken": {"address": "ExampleMint"},
+            "quoteToken": {"address": "USDC"},
+            "liquidity": {"usd": 5},
+        }
+        selected_pool = {
+            "chainId": "solana",
+            "pairAddress": "LargePool",
+            "baseToken": {"address": "ExampleMint"},
+            "quoteToken": {"address": "USDC"},
+            "liquidity": {"usd": 100_000},
+            "pairCreatedAt": 1_700_000_000_000,
+            "priceUsd": "0.12",
+        }
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [raw_profile],
+                "/tokens/v1/solana/ExampleMint": [smaller_pool, selected_pool],
+            }
+        )
+
+        batch = DexscreenerCollector(transport).collect_token_profiles(
+            collected_at=self.collected, limit=25, include_pool_observations=True
+        )
+
+        self.assertEqual(
+            transport.calls,
+            [
+                ("/token-profiles/latest/v1", {}),
+                ("/tokens/v1/solana/ExampleMint", {}),
+            ],
+        )
+        self.assertEqual(len(batch.instruments), 1)
+        self.assertEqual(len(batch.events), 2)
+        pool_event = batch.events[1]
+        self.assertEqual(pool_event.instrument_id, batch.instruments[0].instrument_id)
+        self.assertEqual(pool_event.event_time, self.collected)
+        self.assertEqual(pool_event.available_at, self.collected)
+        self.assertEqual(pool_event.payload["pair_address"], "LargePool")
+        self.assertEqual(pool_event.payload["raw_pair"], selected_pool)
+        self.assertEqual(pool_event.payload["safety_status"], "blocked_unverified")
+        self.assertFalse(pool_event.payload["wallet_or_transaction_authority"])
+        self.assertFalse(pool_event.payload["forecast_created"])
+        self.assertFalse(pool_event.payload["shadow_intent_created"])
+        self.assertEqual(batch.metadata["pool_observations_seen"], 1)
+
     def test_kalshi_contract_trades_and_book_preserve_availability(self):
         transport = FakeTransport(
             {

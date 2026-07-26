@@ -516,7 +516,9 @@ def collect_job(
             )
     if job.venue == "dexscreener" and job.dataset == "token_profiles":
         return collector.collect_token_profiles(  # type: ignore[attr-defined,no-any-return]
-            collected_at=collected_at, limit=job.limit
+            collected_at=collected_at,
+            limit=job.limit,
+            include_pool_observations=job.include_pool_observations,
         )
     if job.venue == "alpaca":
         if job.dataset == "chain" and job.symbol:

@@ -52,6 +52,7 @@ class ObservationJob:
     expiration_lookahead_days: int | None = None
     strike_band_pct: float | None = None
     updated_since_minutes: int | None = None
+    include_pool_observations: bool = False
 
     def __post_init__(self) -> None:
         if not self.job_id or not self.job_id.replace("-", "").replace("_", "").isalnum():
@@ -66,6 +67,14 @@ class ObservationJob:
             raise ValueError("Coinbase candle limit cannot exceed 350")
         if self.dataset == "token_profiles" and self.limit > 100:
             raise ValueError("Dexscreener token profile limit cannot exceed 100")
+        if type(self.include_pool_observations) is not bool:
+            raise ValueError("include_pool_observations must be boolean")
+        if self.include_pool_observations and not (
+            self.venue == "dexscreener" and self.dataset == "token_profiles"
+        ):
+            raise ValueError(
+                "pool observations are only valid for Dexscreener token profile jobs"
+            )
         if self.feed not in {"opra", "indicative"}:
             raise ValueError("feed must be opra or indicative")
         if self.venue == "kalshi" and self.status not in {
@@ -230,6 +239,7 @@ def load_plan(path: str | Path) -> ShadowIngestionPlan:
         "expiration_lookahead_days",
         "strike_band_pct",
         "updated_since_minutes",
+        "include_pool_observations",
     }
     jobs: list[ObservationJob] = []
     for raw_job in raw_jobs:
