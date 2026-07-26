@@ -692,6 +692,57 @@ class IngestionTests(unittest.TestCase):
                 cursor_mode="invalid",
             )
 
+    def test_forecast_outcome_polling_rotates_overdue_tickers_past_api_cap(self):
+        audit = AuditLedger(self.db_path)
+        audit.initialize()
+        runner = ShadowIngestionRunner(self.store, self.ledger, audit=audit)
+        for index in range(101):
+            symbol = f"KXCAP-{index:03d}"
+            instrument = Instrument(
+                f"kalshi:prediction:{symbol}",
+                "kalshi",
+                symbol,
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(instrument)
+            target_time = self.now - timedelta(hours=201 - index)
+            observed_at = self.now if index < 100 else target_time - timedelta(minutes=1)
+            rule = MarketEvent(
+                f"rule-{symbol}",
+                MarketEventType.CONTRACT_RULE,
+                "kalshi",
+                instrument.instrument_id,
+                observed_at,
+                observed_at,
+                "fixture",
+                {},
+                ingested_at=observed_at,
+            )
+            self.store.append_event(rule)
+            audit.append_forecast(
+                Forecast(
+                    f"forecast-{symbol}",
+                    "prediction-market-calibration-baseline-v3",
+                    "baseline-v3",
+                    instrument.instrument_id,
+                    ForecastKind.BINARY_PROBABILITY,
+                    target_time - timedelta(hours=1),
+                    target_time,
+                    {"probability": 0.5, "target_time": target_time.isoformat()},
+                    0.25,
+                    {"market_spread": 0.1},
+                    (rule.event_id,),
+                    ("fixture",),
+                )
+            )
+
+        tickers = runner._pending_prediction_tickers(self.now, 100)
+
+        self.assertEqual(len(tickers), 100)
+        self.assertIn("KXCAP-100", tickers)
+        self.assertNotIn("KXCAP-099", tickers)
+
     def test_checked_in_option_plan_pairs_breadth_and_repeat_cohorts(self):
         plan = load_plan("config/shadow-ingestion.json")
         option_jobs = [job for job in plan.jobs if job.dataset == "chain"]
