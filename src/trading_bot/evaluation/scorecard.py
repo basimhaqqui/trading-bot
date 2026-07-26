@@ -9,6 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Mapping
 
+from trading_bot.agents.hypotheses import BASELINE_HYPOTHESES
 from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import AssetClass, Forecast
@@ -72,6 +73,26 @@ class CoverageSummary:
     events: int
     forecasts: int
     scores: int
+
+
+@dataclass(frozen=True)
+class ResearchLaneSummary:
+    specialist_id: str
+    market: AssetClass
+    proposed_at: datetime
+    forecasts: int
+    scores: int
+    latest_forecast_at: datetime | None
+
+
+@dataclass(frozen=True)
+class MemecoinResearchSummary:
+    discovered_tokens: int
+    latest_profile_observations: int
+    latest_pool_observations: int
+    blocked_unverified_tokens: int
+    safety_eligible_tokens: int
+    missing_hard_gates: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -151,6 +172,8 @@ class DailyScorecard:
     status: ScorecardStatus
     totals: SystemTotals
     coverage: tuple[CoverageSummary, ...]
+    research_lanes: tuple[ResearchLaneSummary, ...]
+    memecoin_research: MemecoinResearchSummary
     strategies: tuple[StrategySummary, ...]
     economics: tuple[EconomicSummary, ...]
     paper: PaperOperationsSummary
@@ -232,6 +255,8 @@ def build_daily_scorecard(
         )
         for asset_class in AssetClass
     )
+    research_lanes = _research_lane_summaries(forecasts, scores)
+    memecoin_research = _memecoin_research_summary(path, as_of)
     totals = SystemTotals(
         instruments=database_totals["instruments"],
         events=database_totals["events"],
@@ -299,6 +324,8 @@ def build_daily_scorecard(
         _scorecard_status(alerts),
         totals,
         coverage,
+        research_lanes,
+        memecoin_research,
         strategies,
         economics,
         paper,
@@ -344,7 +371,21 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"{scorecard.prediction_calibration.required_bucket_events} "
             f"ready={str(scorecard.prediction_calibration.ready).lower()}"
         ),
+        (
+            "memecoin_research: "
+            f"tokens={scorecard.memecoin_research.discovered_tokens} "
+            f"profiles={scorecard.memecoin_research.latest_profile_observations} "
+            f"pools={scorecard.memecoin_research.latest_pool_observations} "
+            f"blocked_unverified={scorecard.memecoin_research.blocked_unverified_tokens} "
+            f"safety_eligible={scorecard.memecoin_research.safety_eligible_tokens}"
+        ),
     ]
+    for lane in scorecard.research_lanes:
+        latest = lane.latest_forecast_at.isoformat() if lane.latest_forecast_at else "—"
+        lines.append(
+            f"research_lane: {lane.specialist_id} market={lane.market.value} "
+            f"forecasts={lane.forecasts} scores={lane.scores} latest={latest}"
+        )
     for alert in scorecard.alerts:
         lines.append(f"{alert.severity.value}: {alert.code}: {alert.message}")
     for strategy in scorecard.strategies:
@@ -403,6 +444,121 @@ def _database_counts(path: str | Path) -> tuple[dict[str, int], dict[AssetClass,
             """
         ).fetchall()
     return totals, {AssetClass(asset_class): int(count) for asset_class, count in rows}
+
+
+def _research_lane_summaries(
+    forecasts: tuple[Forecast, ...], scores: tuple[ForecastScore, ...]
+) -> tuple[ResearchLaneSummary, ...]:
+    score_counts: dict[str, int] = {}
+    for score in scores:
+        score_counts[score.specialist_id] = score_counts.get(score.specialist_id, 0) + 1
+    summaries: list[ResearchLaneSummary] = []
+    for hypothesis in BASELINE_HYPOTHESES:
+        lane_forecasts = tuple(
+            item for item in forecasts if item.specialist_id == hypothesis.hypothesis_id
+        )
+        latest = max(
+            (item.generated_at for item in lane_forecasts), default=None
+        )
+        summaries.append(
+            ResearchLaneSummary(
+                hypothesis.hypothesis_id,
+                hypothesis.market,
+                hypothesis.proposed_at,
+                len(lane_forecasts),
+                score_counts.get(hypothesis.hypothesis_id, 0),
+                latest,
+            )
+        )
+    return tuple(summaries)
+
+
+def _memecoin_research_summary(
+    path: str | Path, as_of: datetime
+) -> MemecoinResearchSummary:
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT event.instrument_id, event.source, event.available_at, event.event_id,
+                   event.payload_json
+            FROM market_events AS event
+            JOIN instruments USING (instrument_id)
+            WHERE instruments.asset_class = ?
+              AND event.event_type = ?
+              AND event.available_at <= ?
+              AND event.venue = 'dexscreener'
+            ORDER BY event.instrument_id, event.available_at, event.event_id
+            """,
+            (
+                AssetClass.MEMECOIN.value,
+                "onchain_state",
+                as_of.isoformat(),
+            ),
+        ).fetchall()
+
+    latest: dict[tuple[str, str], tuple[datetime, str, Mapping[str, object]]] = {}
+    for instrument_id, source, available_at, event_id, payload_json in rows:
+        category = _memecoin_observation_category(source)
+        if category is None:
+            continue
+        try:
+            observed_at = parse_datetime(available_at)
+            payload = json.loads(payload_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        key = (instrument_id, category)
+        candidate = (observed_at, event_id, payload)
+        existing = latest.get(key)
+        if existing is None or candidate[:2] > existing[:2]:
+            latest[key] = candidate
+
+    by_token: dict[str, list[Mapping[str, object]]] = {}
+    profiles = 0
+    pools = 0
+    for (instrument_id, category), (_, _, payload) in latest.items():
+        by_token.setdefault(instrument_id, []).append(payload)
+        if category == "profile":
+            profiles += 1
+        else:
+            pools += 1
+    blocked = 0
+    eligible = 0
+    missing: set[str] = set()
+    hard_gates = {
+        "onchain_authorities_observed": "onchain authorities",
+        "holder_concentration_observed": "holder concentration",
+        "transfer_behavior_observed": "transfer behavior",
+        "round_trip_simulation_observed": "round-trip simulation",
+    }
+    for payloads in by_token.values():
+        statuses = {str(payload.get("safety_status", "")) for payload in payloads}
+        token_missing = False
+        for field, label in hard_gates.items():
+            if not any(payload.get(field) is True for payload in payloads):
+                missing.add(label)
+                token_missing = True
+        if statuses == {"sandbox_eligible"} and not token_missing:
+            eligible += 1
+        else:
+            blocked += 1
+    return MemecoinResearchSummary(
+        len(by_token),
+        profiles,
+        pools,
+        blocked,
+        eligible,
+        tuple(sorted(missing)),
+    )
+
+
+def _memecoin_observation_category(source: str) -> str | None:
+    if source == "dexscreener-public-token-profile-v1":
+        return "profile"
+    if source == "dexscreener-public-token-pairs-v1":
+        return "pool"
+    return None
 
 
 def _build_alerts(
@@ -836,6 +992,41 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
         )
     lines.extend(
         [
+            "",
+            "### Pre-registered research lanes",
+            "",
+            "| Specialist | Market | Proposed | Forecasts | Scores | Latest forecast |",
+            "| --- | --- | --- | ---: | ---: | --- |",
+        ]
+    )
+    for lane in scorecard.research_lanes:
+        latest = (
+            f"`{lane.latest_forecast_at.isoformat()}`"
+            if lane.latest_forecast_at is not None
+            else "—"
+        )
+        lines.append(
+            f"| `{lane.specialist_id}` | {lane.market.value} | "
+            f"`{lane.proposed_at.isoformat()}` | {lane.forecasts} | {lane.scores} | {latest} |"
+        )
+    memecoin = scorecard.memecoin_research
+    missing_gates = ", ".join(memecoin.missing_hard_gates) or "none"
+    lines.extend(
+        [
+            "",
+            "### Memecoin shadow research",
+            "",
+            (
+                f"Latest public observations: **{memecoin.discovered_tokens}** token(s) · "
+                f"**{memecoin.latest_profile_observations}** profile(s) · "
+                f"**{memecoin.latest_pool_observations}** pool snapshot(s)."
+            ),
+            "",
+            (
+                f"Safety filter: **{memecoin.blocked_unverified_tokens}** blocked-unverified · "
+                f"**{memecoin.safety_eligible_tokens}** sandbox-eligible. "
+                f"Missing hard-gate evidence: {_markdown_escape(missing_gates)}."
+            ),
             "",
             "### Outcome queue",
             "",
