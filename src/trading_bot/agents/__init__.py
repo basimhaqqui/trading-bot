@@ -9,6 +9,7 @@ from trading_bot.agents.crypto_momentum import CryptoIntradayMomentumSpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
+    FastPredictionSettlementSpecialist,
     PredictionMarketCalibrationSpecialist,
 )
 
@@ -19,4 +20,5 @@ __all__ = [
     "PerpetualFundingBasisSpecialist",
     "PredictionMarketCalibrationSpecialist",
     "AdjustedPredictionMarketCalibrationSpecialist",
+    "FastPredictionSettlementSpecialist",
 ]

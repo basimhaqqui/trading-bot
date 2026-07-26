@@ -7,6 +7,7 @@ BASELINE_PROPOSED_AT = datetime(2026, 7, 21, tzinfo=timezone.utc)
 PREDICTION_V3_PROPOSED_AT = datetime(2026, 7, 23, tzinfo=timezone.utc)
 PREDICTION_V4_PROPOSED_AT = datetime(2026, 7, 23, 1, 35, tzinfo=timezone.utc)
 CRYPTO_INTRADAY_PROPOSED_AT = datetime(2026, 7, 26, 11, 35, tzinfo=timezone.utc)
+PREDICTION_FAST_PROPOSED_AT = datetime(2026, 7, 26, 13, 10, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -123,6 +124,35 @@ PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_FAST_SETTLEMENT_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-fast-settlement-baseline-v1",
+    family="prediction-market-fast-settlement",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "The executable probability of a short-dated, active binary market is a fixed "
+        "baseline for its finalized settlement. This lane is intentionally unadjusted: "
+        "it collects prospective calibration evidence without borrowing from the longer "
+        "one-to-eight-hour cohort."
+    ),
+    target="binary finalized settlement probability",
+    horizon="20 minutes to two hours until Kalshi expected expiration",
+    information_set=(
+        "current executable yes and no bids",
+        "Kalshi event ticker and expected expiration time",
+        "active market status with early closing disabled",
+        "a settlement timer no longer than fifteen minutes",
+        "a pre-declared maximum executable spread of ten cents",
+    ),
+    invalidation_conditions=(
+        "market probabilities do not beat the fixed neutral benchmark out of sample",
+        "results disappear when one event ticker or resolution period is removed",
+        "expected-expiration changes or delayed finalization explain apparent performance",
+        "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_FAST_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -183,6 +213,7 @@ BASELINE_HYPOTHESES = (
     OPTIONS_VOLATILITY_HYPOTHESIS,
     PREDICTION_CALIBRATION_HYPOTHESIS,
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
 )

@@ -10,6 +10,7 @@ from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
+    FastPredictionSettlementSpecialist,
     PredictionMarketCalibrationSpecialist,
 )
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
@@ -542,6 +543,74 @@ class SpecialistTests(unittest.TestCase):
                         ReplayContext(self.now, market, (rule, book), ())
                     )
                 )
+
+    def test_fast_prediction_specialist_uses_expected_expiration_only(self):
+        market = Instrument(
+            "kalshi:prediction:FAST",
+            "kalshi",
+            "FAST",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        rule = self.event(
+            "fast-rule",
+            MarketEventType.CONTRACT_RULE,
+            market,
+            {
+                "event_ticker": "FAST-EVENT",
+                "status": "active",
+                "can_close_early": False,
+                "settlement_timer_seconds": 900,
+                "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+            },
+            minutes_ago=1,
+        )
+        book = self.event(
+            "fast-book",
+            MarketEventType.BOOK_SNAPSHOT,
+            market,
+            {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+            minutes_ago=0,
+        )
+        specialist = FastPredictionSettlementSpecialist()
+        forecast = specialist.evaluate(ReplayContext(self.now, market, (rule, book), ()))
+        self.assertIsNotNone(forecast)
+        assert forecast is not None
+        self.assertEqual(forecast.values["event_ticker"], "FAST-EVENT")
+        self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
+        self.assertEqual(forecast.values["state"], "executable_market_prior")
+        self.assertEqual(forecast.valid_until, self.now + timedelta(hours=1))
+        for field, value in (
+            ("can_close_early", True),
+            ("settlement_timer_seconds", 901),
+            ("settlement_timer_seconds", 900.5),
+        ):
+            unsafe_payload = dict(rule.payload)
+            unsafe_payload[field] = value
+            unsafe_rule = self.event(
+                f"fast-unsafe-{field}",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                unsafe_payload,
+                minutes_ago=1,
+            )
+            self.assertIsNone(
+                specialist.evaluate(ReplayContext(self.now, market, (unsafe_rule, book), ()))
+            )
+        missing_early_close = dict(rule.payload)
+        del missing_early_close["can_close_early"]
+        missing_early_close_rule = self.event(
+            "fast-missing-can-close-early",
+            MarketEventType.CONTRACT_RULE,
+            market,
+            missing_early_close,
+            minutes_ago=1,
+        )
+        self.assertIsNone(
+            specialist.evaluate(
+                ReplayContext(self.now, market, (missing_early_close_rule, book), ())
+            )
+        )
 
     def test_prediction_specialist_requires_stable_event_identity(self):
         market = Instrument(
