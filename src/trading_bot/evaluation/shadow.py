@@ -76,6 +76,19 @@ class ShadowResearchResult:
 
 
 @dataclass(frozen=True)
+class FastPredictionEligibilitySummary:
+    paired_markets: int
+    fresh_book_markets: int
+    active_markets: int
+    fixed_close_markets: int
+    short_timer_markets: int
+    horizon_markets: int
+    executable_markets: int
+    unforecasted_event_candidates: int
+    selected_events: int
+
+
+@dataclass(frozen=True)
 class ShadowResearchConfig:
     max_prediction_forecasts: int = 25
     max_prediction_history: int = 250
@@ -537,6 +550,18 @@ class ShadowResearchRunner:
         return candidates
 
     def _fast_prediction_candidates(self, as_of: datetime) -> list[_Candidate]:
+        candidates, _ = self._fast_prediction_selection(as_of)
+        return candidates
+
+    def fast_prediction_eligibility(self, *, as_of: datetime) -> FastPredictionEligibilitySummary:
+        """Return the current preregistered eligibility funnel without generating forecasts."""
+        as_of = require_aware(as_of, "as_of")
+        _, summary = self._fast_prediction_selection(as_of)
+        return summary
+
+    def _fast_prediction_selection(
+        self, as_of: datetime
+    ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
         specialist = FastPredictionSettlementSpecialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
@@ -567,35 +592,29 @@ class ShadowResearchRunner:
                 target[event.instrument_id] = event
 
         best_by_event: dict[str, tuple[datetime, Instrument, float]] = {}
+        paired_markets = 0
+        fresh_book_markets = 0
+        active_markets = 0
+        fixed_close_markets = 0
+        short_timer_markets = 0
+        horizon_markets = 0
+        executable_markets = 0
         for instrument in instruments:
             book = latest_books.get(instrument.instrument_id)
             rule = latest_rules.get(instrument.instrument_id)
             if book is None or rule is None:
                 continue
+            paired_markets += 1
             decision_time = book.available_at
             if as_of - decision_time > specialist.config.max_book_age:
                 continue
-            event_ticker = rule.payload.get("event_ticker")
-            target_time = prediction_expected_expiration_time(rule)
-            executable = prediction_book(book)
-            if (
-                not isinstance(event_ticker, str)
-                or not event_ticker
-                or event_ticker in forecasted_events
-                or target_time is None
-                or str(rule.payload.get("status", "")).lower() != "active"
-                or rule.payload.get("can_close_early") is not False
-                or executable is None
-                or executable[3] > specialist.config.max_book_spread
-            ):
+            fresh_book_markets += 1
+            if str(rule.payload.get("status", "")).lower() != "active":
                 continue
-            horizon = target_time - decision_time
-            if not (
-                specialist.config.min_forecast_horizon
-                < horizon
-                <= specialist.config.forecast_horizon
-            ):
+            active_markets += 1
+            if rule.payload.get("can_close_early") is not False:
                 continue
+            fixed_close_markets += 1
             timer = rule.payload.get("settlement_timer_seconds")
             if isinstance(timer, bool) or (
                 isinstance(timer, float)
@@ -607,6 +626,25 @@ class ShadowResearchRunner:
             except (TypeError, ValueError):
                 continue
             if not 0 < timer_value <= specialist.config.max_settlement_timer_seconds:
+                continue
+            short_timer_markets += 1
+            event_ticker = rule.payload.get("event_ticker")
+            target_time = prediction_expected_expiration_time(rule)
+            if not isinstance(event_ticker, str) or not event_ticker or target_time is None:
+                continue
+            horizon = target_time - decision_time
+            if not (
+                specialist.config.min_forecast_horizon
+                < horizon
+                <= specialist.config.forecast_horizon
+            ):
+                continue
+            horizon_markets += 1
+            executable = prediction_book(book)
+            if executable is None or executable[3] > specialist.config.max_book_spread:
+                continue
+            executable_markets += 1
+            if event_ticker in forecasted_events:
                 continue
             candidate = (decision_time, instrument, executable[3])
             existing = best_by_event.get(event_ticker)
@@ -625,10 +663,21 @@ class ShadowResearchRunner:
             key=lambda item: (item[0], item[1].instrument_id),
             reverse=True,
         )[: self.config.max_prediction_forecasts]
-        return [
+        candidates = [
             _Candidate(specialist, instrument.instrument_id, (), decision_time)
             for decision_time, instrument, _ in selected
         ]
+        return candidates, FastPredictionEligibilitySummary(
+            paired_markets,
+            fresh_book_markets,
+            active_markets,
+            fixed_close_markets,
+            short_timer_markets,
+            horizon_markets,
+            executable_markets,
+            len(best_by_event),
+            len(candidates),
+        )
 
     def _prediction_history_ids(
         self,
