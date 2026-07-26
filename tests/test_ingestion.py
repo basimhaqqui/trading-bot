@@ -162,9 +162,22 @@ class IngestionTests(unittest.TestCase):
 
     def test_dexscreener_profiles_are_bounded_and_need_no_symbol(self):
         job = ObservationJob(
-            "solana-profiles", "dexscreener", "token_profiles", limit=25
+            "solana-profiles",
+            "dexscreener",
+            "token_profiles",
+            limit=25,
+            include_pool_observations=True,
         )
         self.assertEqual(job.limit, 25)
+        self.assertTrue(job.include_pool_observations)
+        with self.assertRaisesRegex(ValueError, "only valid for Dexscreener"):
+            ObservationJob(
+                "bad-pool-observation", "coinbase", "products", include_pool_observations=True
+            )
+        with self.assertRaisesRegex(ValueError, "must be boolean"):
+            ObservationJob(
+                "bad-pool-observation", "dexscreener", "token_profiles", include_pool_observations=1
+            )
         with self.assertRaisesRegex(ValueError, "cannot exceed 100"):
             ObservationJob("too-many-profiles", "dexscreener", "token_profiles", limit=101)
         with self.assertRaisesRegex(ValueError, "do not accept a symbol"):

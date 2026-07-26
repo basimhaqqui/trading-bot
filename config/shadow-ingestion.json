@@ -5,7 +5,8 @@
       "job_id": "dexscreener-solana-token-profiles",
       "venue": "dexscreener",
       "dataset": "token_profiles",
-      "limit": 25
+      "limit": 25,
+      "include_pool_observations": true
     },
     {
       "job_id": "kalshi-open-markets",

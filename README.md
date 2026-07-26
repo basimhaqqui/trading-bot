@@ -236,13 +236,15 @@ operations sandbox, not an option strategy or proof of profitable volatility for
 
 ## Memecoin safety sandbox
 
-The scheduled shadow plan also collects at most 25 public Solana token-profile discoveries
-per cycle from Dexscreener. This is discovery-only: profile data is stored with its exact
-receipt time and raw payload, but it cannot create a safety snapshot, forecast, shadow
-intent, wallet, RPC connection, signed transaction, or venue request. Every profile is
-explicitly recorded as `blocked_unverified` until separate, point-in-time authority,
-holder-concentration, transfer-behavior, and simulated round-trip evidence exists.
-The policy's authority and extension gates follow Solana's primary token documentation.
+The scheduled shadow plan collects at most 25 public Solana token-profile discoveries per
+cycle from Dexscreener. For that bounded discovery set it also makes one documented,
+read-only batch request for the most-liquid public pool snapshot per token. Both the raw
+profile and raw pool payload retain their exact receipt time. These observations cannot
+create a safety snapshot, forecast, shadow intent, wallet, RPC connection, signed
+transaction, or venue order. Every observation is explicitly recorded as
+`blocked_unverified` until separate, point-in-time authority, holder-concentration,
+transfer-behavior, and simulated round-trip evidence exists. The policy's authority and
+extension gates follow Solana's primary token documentation.
 
 Run the token and pool safety evaluator without a wallet, RPC connection, or signed
 transaction:
