@@ -10,6 +10,7 @@ from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.hypotheses import (
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
     PREDICTION_CALIBRATION_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -225,6 +226,114 @@ class AdjustedPredictionMarketCalibrationSpecialist(
         return forecast
 
 
+@dataclass(frozen=True)
+class FastPredictionSettlementConfig:
+    max_book_age: timedelta = timedelta(minutes=15)
+    max_book_spread: float = 0.10
+    min_forecast_horizon: timedelta = timedelta(minutes=20)
+    forecast_horizon: timedelta = timedelta(hours=2)
+    max_settlement_timer_seconds: int = 15 * 60
+
+    def __post_init__(self) -> None:
+        if not 0 < self.max_book_spread < 1:
+            raise ValueError("maximum book spread must be between zero and one")
+        if not timedelta(0) < self.min_forecast_horizon < self.forecast_horizon:
+            raise ValueError("forecast horizon must have positive ordered bounds")
+        if self.max_settlement_timer_seconds < 1:
+            raise ValueError("settlement timer must be positive")
+
+
+class FastPredictionSettlementSpecialist:
+    """Pre-registered, unadjusted short-horizon Kalshi calibration baseline."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v1"
+    model_version = "baseline-v1"
+    supported_asset_classes = frozenset({AssetClass.PREDICTION})
+    hypothesis = PREDICTION_FAST_SETTLEMENT_HYPOTHESIS
+
+    def __init__(self, config: FastPredictionSettlementConfig | None = None) -> None:
+        self.config = config or FastPredictionSettlementConfig()
+
+    def evaluate(self, context: ReplayContext) -> Forecast | None:
+        primary_id = context.instrument.instrument_id
+        books = recent_events(
+            context.events,
+            instrument_id=primary_id,
+            event_type=MarketEventType.BOOK_SNAPSHOT,
+            decision_time=context.decision_time,
+            max_age=self.config.max_book_age,
+        )
+        rules = recent_events(
+            context.events,
+            instrument_id=primary_id,
+            event_type=MarketEventType.CONTRACT_RULE,
+            decision_time=context.decision_time,
+        )
+        if not books or not rules:
+            return None
+        rule = rules[-1]
+        if str(rule.payload.get("status", "")).lower() != "active":
+            return None
+        if rule.payload.get("can_close_early") is True:
+            return None
+        timer = _positive_int(rule.payload.get("settlement_timer_seconds"))
+        if timer is None or timer > self.config.max_settlement_timer_seconds:
+            return None
+        event_ticker = rule.payload.get("event_ticker")
+        if not isinstance(event_ticker, str) or not event_ticker:
+            return None
+        target_time = prediction_expected_expiration_time(rule)
+        time_to_target = (
+            target_time - context.decision_time if target_time is not None else None
+        )
+        if (
+            target_time is None
+            or time_to_target is None
+            or time_to_target <= self.config.min_forecast_horizon
+            or time_to_target > self.config.forecast_horizon
+        ):
+            return None
+        executable = prediction_book(books[-1])
+        if executable is None:
+            return None
+        yes_bid, yes_ask, market_probability, spread = executable
+        if spread > self.config.max_book_spread:
+            return None
+        return Forecast(
+            forecast_id=str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{self.agent_id}:{primary_id}:{context.decision_time}",
+                )
+            ),
+            specialist_id=self.agent_id,
+            model_version=self.model_version,
+            instrument_id=primary_id,
+            kind=ForecastKind.BINARY_PROBABILITY,
+            generated_at=context.decision_time,
+            valid_until=target_time,
+            values={
+                "probability": market_probability,
+                "market_probability": market_probability,
+                "yes_bid": yes_bid,
+                "yes_ask": yes_ask,
+                "spread": spread,
+                "state": "executable_market_prior",
+                "event_ticker": event_ticker,
+                "outcome_cluster": event_ticker,
+                "target_time": target_time.isoformat(),
+            },
+            confidence=max(0.2, 0.45 - min(0.25, spread * 2.5)),
+            uncertainty={
+                "market_spread": spread,
+                "settlement_timer_seconds": float(timer),
+                "time_to_expected_expiration_seconds": time_to_target.total_seconds(),
+            },
+            evidence_event_ids=(rule.event_id, books[-1].event_id),
+            invalidation_conditions=self.hypothesis.invalidation_conditions,
+        )
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = settlement.payload.get("event_ticker")
@@ -267,6 +376,28 @@ def prediction_occurrence_time(rule: MarketEvent) -> datetime | None:
         return None
 
 
+def prediction_expected_expiration_time(rule: MarketEvent) -> datetime | None:
+    value = rule.payload.get("expected_expiration_time")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return parse_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def prediction_forecast_target_time(forecast: Forecast) -> datetime | None:
     value = forecast.values.get("target_time")
     if not isinstance(value, str) or not value:
@@ -284,5 +415,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         "prediction-market-calibration-baseline-v2",
         PredictionMarketCalibrationSpecialist.agent_id,
         AdjustedPredictionMarketCalibrationSpecialist.agent_id,
+        FastPredictionSettlementSpecialist.agent_id,
     }
 )

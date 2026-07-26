@@ -16,8 +16,10 @@ from trading_bot.agents.option_volatility import (
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
+    FastPredictionSettlementSpecialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     prediction_forecast_target_time,
+    prediction_expected_expiration_time,
     prediction_occurrence_time,
     prediction_settlement_event_key,
     prediction_settlement_occurrence_time,
@@ -201,6 +203,7 @@ class ShadowResearchRunner:
         candidates.extend(self._perpetual_candidates(as_of))
         candidates.extend(self._option_candidates(as_of))
         candidates.extend(self._prediction_candidates(as_of))
+        candidates.extend(self._fast_prediction_candidates(as_of))
         return tuple(candidates)
 
     def _breakout_candidates(self, as_of: datetime) -> list[_Candidate]:
@@ -532,6 +535,100 @@ class ShadowResearchRunner:
                 )
             )
         return candidates
+
+    def _fast_prediction_candidates(self, as_of: datetime) -> list[_Candidate]:
+        specialist = FastPredictionSettlementSpecialist()
+        instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
+        instrument_ids = {item.instrument_id for item in instruments}
+        forecasted_events = {
+            str(forecast.values.get("event_ticker") or forecast.instrument_id)
+            for forecast in self.audit.forecasts()
+            if forecast.specialist_id == specialist.agent_id
+        }
+        latest_books: dict[str, MarketEvent] = {}
+        latest_rules: dict[str, MarketEvent] = {}
+        for event in self.store.events_available_at(as_of):
+            if event.instrument_id not in instrument_ids:
+                continue
+            target = (
+                latest_books
+                if event.event_type is MarketEventType.BOOK_SNAPSHOT
+                else latest_rules
+                if event.event_type is MarketEventType.CONTRACT_RULE
+                else None
+            )
+            if target is None:
+                continue
+            existing = target.get(event.instrument_id)
+            if existing is None or (event.available_at, event.event_id) > (
+                existing.available_at,
+                existing.event_id,
+            ):
+                target[event.instrument_id] = event
+
+        best_by_event: dict[str, tuple[datetime, Instrument, float]] = {}
+        for instrument in instruments:
+            book = latest_books.get(instrument.instrument_id)
+            rule = latest_rules.get(instrument.instrument_id)
+            if book is None or rule is None:
+                continue
+            decision_time = book.available_at
+            if as_of - decision_time > specialist.config.max_book_age:
+                continue
+            event_ticker = rule.payload.get("event_ticker")
+            target_time = prediction_expected_expiration_time(rule)
+            executable = prediction_book(book)
+            if (
+                not isinstance(event_ticker, str)
+                or not event_ticker
+                or event_ticker in forecasted_events
+                or target_time is None
+                or str(rule.payload.get("status", "")).lower() != "active"
+                or rule.payload.get("can_close_early") is True
+                or executable is None
+                or executable[3] > specialist.config.max_book_spread
+            ):
+                continue
+            horizon = target_time - decision_time
+            if not (
+                specialist.config.min_forecast_horizon
+                < horizon
+                <= specialist.config.forecast_horizon
+            ):
+                continue
+            timer = rule.payload.get("settlement_timer_seconds")
+            if isinstance(timer, bool) or (
+                isinstance(timer, float)
+                and (not math.isfinite(timer) or not timer.is_integer())
+            ):
+                continue
+            try:
+                timer_value = int(timer)
+            except (TypeError, ValueError):
+                continue
+            if not 0 < timer_value <= specialist.config.max_settlement_timer_seconds:
+                continue
+            candidate = (decision_time, instrument, executable[3])
+            existing = best_by_event.get(event_ticker)
+            if existing is None or (
+                candidate[2],
+                -candidate[0].timestamp(),
+                candidate[1].instrument_id,
+            ) < (
+                existing[2],
+                -existing[0].timestamp(),
+                existing[1].instrument_id,
+            ):
+                best_by_event[event_ticker] = candidate
+        selected = sorted(
+            best_by_event.values(),
+            key=lambda item: (item[0], item[1].instrument_id),
+            reverse=True,
+        )[: self.config.max_prediction_forecasts]
+        return [
+            _Candidate(specialist, instrument.instrument_id, (), decision_time)
+            for decision_time, instrument, _ in selected
+        ]
 
     def _prediction_history_ids(
         self,

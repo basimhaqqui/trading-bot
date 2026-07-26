@@ -424,6 +424,50 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(self.audit.forecast_scores()[0].target_time, occurrence)
         self.assertEqual(self.audit.forecast_scores()[0].scored_at, settlement_time)
 
+    def test_fast_prediction_candidates_cluster_to_one_event(self):
+        for index, spread in enumerate((("0.45", "0.53"), ("0.40", "0.48"))):
+            market = Instrument(
+                f"kalshi:prediction:FAST-{index}",
+                "kalshi",
+                f"FAST-{index}",
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(market)
+            self.store.append_event(
+                self.event(
+                    f"fast-rule-{index}",
+                    MarketEventType.CONTRACT_RULE,
+                    market,
+                    {
+                        "event_ticker": "FAST-EVENT",
+                        "status": "active",
+                        "can_close_early": False,
+                        "settlement_timer_seconds": 900,
+                        "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+                    },
+                    event_time=self.now - timedelta(minutes=2),
+                )
+            )
+            self.store.append_event(
+                self.event(
+                    f"fast-book-{index}",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    market,
+                    {"yes_bids": [[spread[0], "10"]], "no_bids": [[spread[1], "10"]]},
+                    event_time=self.now - timedelta(minutes=1),
+                )
+            )
+        candidates = self.runner._fast_prediction_candidates(self.now)
+        self.assertEqual(len(candidates), 1)
+        generated = self.runner.generate_forecasts(as_of=self.now)
+        self.assertEqual(generated.appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v1"
+        )
+        self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
+
     def test_option_forecast_scores_only_at_the_full_horizon(self):
         option = Instrument(
             "alpaca:option:AAPL260918C00200000",
