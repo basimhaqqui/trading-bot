@@ -10,12 +10,18 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 JsonObject = Mapping[str, Any]
+JsonArray = list[Any]
 
 
 class ReadOnlyTransport(Protocol):
     def get_json(
         self, path: str, *, query: Mapping[str, str | int | float | bool | None] | None = None
     ) -> JsonObject:
+        ...
+
+    def get_json_array(
+        self, path: str, *, query: Mapping[str, str | int | float | bool | None] | None = None
+    ) -> JsonArray:
         ...
 
 
@@ -78,6 +84,22 @@ class ReadOnlyHttpTransport:
     def get_json(
         self, path: str, *, query: Mapping[str, str | int | float | bool | None] | None = None
     ) -> JsonObject:
+        payload = self._get_payload(path, query=query)
+        if not isinstance(payload, dict):
+            raise ReadOnlyHttpError("top-level JSON response must be an object")
+        return payload
+
+    def get_json_array(
+        self, path: str, *, query: Mapping[str, str | int | float | bool | None] | None = None
+    ) -> JsonArray:
+        payload = self._get_payload(path, query=query)
+        if not isinstance(payload, list):
+            raise ReadOnlyHttpError("top-level JSON response must be an array")
+        return payload
+
+    def _get_payload(
+        self, path: str, *, query: Mapping[str, str | int | float | bool | None] | None = None
+    ) -> JsonObject | JsonArray:
         path_parts = urlsplit(path)
         if not path.startswith("/") or path.startswith("//") or path_parts.scheme or path_parts.netloc:
             raise ValueError("path must be an absolute path on the configured host")
@@ -133,8 +155,6 @@ class ReadOnlyHttpTransport:
             payload = json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ReadOnlyHttpError("response was not valid JSON") from exc
-        if not isinstance(payload, dict):
-            raise ReadOnlyHttpError("top-level JSON response must be an object")
         _validate_json_shape(payload)
         return payload
 
