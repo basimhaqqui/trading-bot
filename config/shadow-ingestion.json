@@ -2,6 +2,12 @@
   "name": "public-shadow-observation",
   "jobs": [
     {
+      "job_id": "dexscreener-solana-token-profiles",
+      "venue": "dexscreener",
+      "dataset": "token_profiles",
+      "limit": 25
+    },
+    {
       "job_id": "kalshi-open-markets",
       "venue": "kalshi",
       "dataset": "markets",

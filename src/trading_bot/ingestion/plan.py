@@ -10,6 +10,7 @@ from typing import Any, Mapping
 ALLOWED_DATASETS = {
     "kalshi": {"markets", "forecast_outcomes", "trades", "book"},
     "coinbase": {"products", "book", "candles"},
+    "dexscreener": {"token_profiles"},
     "alpaca": {"chain", "bars", "quotes"},
 }
 SENSITIVE_FRAGMENTS = (
@@ -63,6 +64,8 @@ class ObservationJob:
             raise ValueError(f"{self.dataset} jobs require a symbol")
         if self.dataset == "candles" and self.limit > 350:
             raise ValueError("Coinbase candle limit cannot exceed 350")
+        if self.dataset == "token_profiles" and self.limit > 100:
+            raise ValueError("Dexscreener token profile limit cannot exceed 100")
         if self.feed not in {"opra", "indicative"}:
             raise ValueError("feed must be opra or indicative")
         if self.venue == "kalshi" and self.status not in {
@@ -79,7 +82,7 @@ class ObservationJob:
             self.venue == "coinbase" and self.dataset == "products"
         ):
             raise ValueError("product_type is only valid for Coinbase product jobs")
-        if self.dataset in {"markets", "forecast_outcomes", "products"} and self.symbol is not None:
+        if self.dataset in {"markets", "forecast_outcomes", "products", "token_profiles"} and self.symbol is not None:
             raise ValueError(f"{self.dataset} jobs do not accept a symbol")
         if self.stock_feed not in {"iex", "sip", "delayed_sip"}:
             raise ValueError("stock_feed must be iex, sip, or delayed_sip")

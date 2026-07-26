@@ -5,6 +5,7 @@ from trading_bot.core.schemas import AssetClass, MarketEventType
 from trading_bot.data.collectors.alpaca import AlpacaOptionsCollector
 from trading_bot.data.collectors.alpaca_stocks import AlpacaStockCollector
 from trading_bot.data.collectors.coinbase import CoinbaseCollector
+from trading_bot.data.collectors.dexscreener import DexscreenerCollector
 from trading_bot.data.collectors.common import CollectorPayloadError
 from trading_bot.data.collectors.kalshi import KalshiCollector
 from trading_bot.data.schemas import DiagnosticCode
@@ -19,10 +20,51 @@ class FakeTransport:
         self.calls.append((path, query or {}))
         return self.responses[path]
 
+    def get_json_array(self, path, *, query=None):
+        self.calls.append((path, query or {}))
+        return self.responses[path]
+
 
 class CollectorTests(unittest.TestCase):
     def setUp(self):
         self.collected = datetime(2026, 7, 21, 20, tzinfo=timezone.utc)
+
+    def test_dexscreener_solana_profiles_are_point_in_time_and_safety_blocked(self):
+        raw_profile = {
+            "url": "https://dexscreener.com/solana/ExampleMint",
+            "chainId": "solana",
+            "tokenAddress": "ExampleMint",
+            "description": "untrusted profile text",
+            "links": [{"type": "website", "url": "https://example.invalid"}],
+        }
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [
+                    raw_profile,
+                    {
+                        "chainId": "ethereum",
+                        "tokenAddress": "0xNotASolanaToken",
+                    },
+                ]
+            }
+        )
+
+        batch = DexscreenerCollector(transport).collect_token_profiles(
+            collected_at=self.collected, limit=25
+        )
+
+        self.assertEqual(transport.calls, [("/token-profiles/latest/v1", {})])
+        self.assertEqual(len(batch.instruments), 1)
+        self.assertEqual(batch.instruments[0].asset_class, AssetClass.MEMECOIN)
+        self.assertEqual(batch.instruments[0].symbol, "ExampleMint")
+        event = batch.events[0]
+        self.assertIs(event.event_type, MarketEventType.ONCHAIN_STATE)
+        self.assertEqual(event.event_time, self.collected)
+        self.assertEqual(event.available_at, self.collected)
+        self.assertEqual(event.payload["raw_profile"], raw_profile)
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
+        self.assertTrue(all(reason.endswith("_unobserved") for reason in event.payload["safety_reasons"]))
+        self.assertFalse(event.payload["wallet_or_transaction_authority"])
 
     def test_kalshi_contract_trades_and_book_preserve_availability(self):
         transport = FakeTransport(

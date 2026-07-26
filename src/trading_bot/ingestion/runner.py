@@ -31,6 +31,7 @@ from trading_bot.data.collectors import (
     AlpacaOptionsCollector,
     AlpacaStockCollector,
     CoinbaseCollector,
+    DexscreenerCollector,
     KalshiCollector,
 )
 from trading_bot.data.schemas import CollectionBatch, DataQualityDiagnostic, DiagnosticSeverity
@@ -430,6 +431,8 @@ def default_collector_factory(venue: str, dataset: str) -> object:
         return KalshiCollector()
     if venue == "coinbase":
         return CoinbaseCollector()
+    if venue == "dexscreener":
+        return DexscreenerCollector()
     if venue == "alpaca":
         key_id = os.getenv("ALPACA_MARKET_DATA_KEY_ID", "")
         secret_key = os.getenv("ALPACA_MARKET_DATA_SECRET_KEY", "")
@@ -511,6 +514,10 @@ def collect_job(
                 granularity=job.granularity,
                 limit=job.limit,
             )
+    if job.venue == "dexscreener" and job.dataset == "token_profiles":
+        return collector.collect_token_profiles(  # type: ignore[attr-defined,no-any-return]
+            collected_at=collected_at, limit=job.limit
+        )
     if job.venue == "alpaca":
         if job.dataset == "chain" and job.symbol:
             window_start = collected_at or utc_now()

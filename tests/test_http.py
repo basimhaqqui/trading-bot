@@ -39,6 +39,16 @@ class ReadOnlyHttpTransportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             transport.get_json("//evil.example/steal")
 
+    @patch("trading_bot.data.http.build_opener")
+    def test_array_response_remains_bounded_to_read_only_get(self, build_opener):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'[{"ok": true}]'
+        build_opener.return_value.open.return_value = response
+        transport = ReadOnlyHttpTransport("https://api.example.com", "api.example.com")
+
+        self.assertEqual(transport.get_json_array("/profiles"), [{"ok": True}])
+        self.assertEqual(build_opener.return_value.open.call_args.args[0].method, "GET")
+
     @patch("trading_bot.data.http.sleep")
     @patch("trading_bot.data.http.build_opener")
     def test_transient_rate_limit_retries_bounded_read_only_get(

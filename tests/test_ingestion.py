@@ -160,6 +160,18 @@ class IngestionTests(unittest.TestCase):
                 limit=351,
             )
 
+    def test_dexscreener_profiles_are_bounded_and_need_no_symbol(self):
+        job = ObservationJob(
+            "solana-profiles", "dexscreener", "token_profiles", limit=25
+        )
+        self.assertEqual(job.limit, 25)
+        with self.assertRaisesRegex(ValueError, "cannot exceed 100"):
+            ObservationJob("too-many-profiles", "dexscreener", "token_profiles", limit=101)
+        with self.assertRaisesRegex(ValueError, "do not accept a symbol"):
+            ObservationJob(
+                "symbol-profile", "dexscreener", "token_profiles", symbol="SOL"
+            )
+
     def test_cycle_records_degraded_data_without_execution_access(self):
         instrument = Instrument(
             "coinbase:product:BTC-USD",

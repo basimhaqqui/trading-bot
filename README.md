@@ -22,6 +22,7 @@ Project build: `[##################] 18/18 (100%)`
 - One append-only audit chain for forecasts, intents, risk decisions, signed approvals, and execution receipts.
 - Host-pinned, HTTPS-only venue transport that only exposes GET requests and refuses redirects.
 - Read-only collectors for Kalshi markets/trades/books/settlements, Coinbase spot/perpetual products/books/completed candles, and Alpaca option chains and stock bars.
+- Bounded public Solana token-profile discovery with raw-payload provenance; every discovered token remains safety-blocked until independent on-chain authority, holder, transfer-behavior, and round-trip evidence is observed.
 - Venue timestamp normalization with explicit `available_at` boundaries.
 - Diagnostics for stale data, source clock drift, crossed or empty books, invalid values, sequence gaps, and indicative feeds.
 - Versioned, pre-registered hypotheses for perpetual funding/basis, options implied-volatility state, one-to-eight-hour and fast-settling prediction-market calibration, hourly crypto range breakouts, and fifteen-minute crypto momentum.
@@ -234,6 +235,14 @@ simulated risk sellout when exercise resources are insufficient. This is a payof
 operations sandbox, not an option strategy or proof of profitable volatility forecasting.
 
 ## Memecoin safety sandbox
+
+The scheduled shadow plan also collects at most 25 public Solana token-profile discoveries
+per cycle from Dexscreener. This is discovery-only: profile data is stored with its exact
+receipt time and raw payload, but it cannot create a safety snapshot, forecast, shadow
+intent, wallet, RPC connection, signed transaction, or venue request. Every profile is
+explicitly recorded as `blocked_unverified` until separate, point-in-time authority,
+holder-concentration, transfer-behavior, and simulated round-trip evidence exists.
+The policy's authority and extension gates follow Solana's primary token documentation.
 
 Run the token and pool safety evaluator without a wallet, RPC connection, or signed
 transaction:
