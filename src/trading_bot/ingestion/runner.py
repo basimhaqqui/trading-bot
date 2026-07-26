@@ -344,14 +344,6 @@ class ShadowIngestionRunner:
             target_time = forecast_outcome_target_time(forecast)
             if target_time is not None:
                 forecasts_with_targets.append((forecast, target_time))
-        forecasts_with_targets.sort(
-            key=lambda item: (
-                item[1] > as_of,
-                item[1],
-                item[0].generated_at,
-                item[0].forecast_id,
-            )
-        )
         instruments = {
             item.instrument_id: item
             for item in self.store.instruments(asset_class=AssetClass.PREDICTION)
@@ -379,6 +371,35 @@ class ShadowIngestionRunner:
         ):
             if str(event.payload.get("result", "")).lower() in {"yes", "no"}:
                 valid_settlements.add(event.instrument_id)
+
+        def priority(item: tuple[Forecast, datetime]) -> tuple[object, ...]:
+            forecast, target_time = item
+            rule = latest_rules.get(forecast.instrument_id)
+            checked_at = (
+                rule.available_at
+                if rule is not None and rule.available_at >= target_time
+                else None
+            )
+            if target_time <= as_of:
+                # A Kalshi request records a fresh contract rule.  Until that
+                # receipt exists after the forecast target, prefer the overdue
+                # ticker so a 100-ticker API cap cannot permanently starve it.
+                return (
+                    0,
+                    checked_at is not None,
+                    checked_at or target_time,
+                    target_time,
+                    forecast.generated_at,
+                    forecast.forecast_id,
+                )
+            return (
+                1,
+                target_time,
+                forecast.generated_at,
+                forecast.forecast_id,
+            )
+
+        forecasts_with_targets.sort(key=priority)
 
         selected: list[str] = []
         selected_instruments: set[str] = set()
