@@ -27,6 +27,7 @@ from trading_bot.evaluation.scorecard import (
     render_scorecard,
 )
 from trading_bot.evaluation.scoring import ScoreKind
+from trading_bot.evaluation.scoring import score_return_forecast
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
@@ -163,6 +164,45 @@ class DailyScorecardTests(unittest.TestCase):
 
     def test_scorecard_reports_empty_fast_lane_and_fail_closed_memecoin_research(self):
         self.append_public_run()
+        fast_market = Instrument(
+            "kalshi:prediction:FAST",
+            "kalshi",
+            "FAST",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(fast_market)
+        for event_id, event_type, payload in (
+            (
+                "fast-rule",
+                MarketEventType.CONTRACT_RULE,
+                {
+                    "event_ticker": "FAST-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+                },
+            ),
+            (
+                "fast-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+            ),
+        ):
+            self.store.append_event(
+                MarketEvent(
+                    event_id,
+                    event_type,
+                    "kalshi",
+                    fast_market.instrument_id,
+                    self.now - timedelta(minutes=5),
+                    self.now - timedelta(minutes=5),
+                    "fixture",
+                    payload,
+                    ingested_at=self.now - timedelta(minutes=5),
+                )
+            )
         instrument = Instrument(
             "dexscreener:memecoin:solana:Token",
             "dexscreener",
@@ -216,6 +256,9 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(fast.forecasts, 0)
         self.assertEqual(fast.scores, 0)
         self.assertIsNone(fast.latest_forecast_at)
+        self.assertEqual(scorecard.fast_prediction_eligibility.paired_markets, 1)
+        self.assertEqual(scorecard.fast_prediction_eligibility.executable_markets, 1)
+        self.assertEqual(scorecard.fast_prediction_eligibility.selected_events, 1)
         memecoin = scorecard.memecoin_research
         self.assertEqual(memecoin.discovered_tokens, 1)
         self.assertEqual(memecoin.latest_profile_observations, 1)
@@ -234,8 +277,57 @@ class DailyScorecardTests(unittest.TestCase):
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Pre-registered research lanes", markdown)
         self.assertIn("prediction-market-fast-settlement-baseline-v1", markdown)
+        self.assertIn("Fast-settlement prediction eligibility", markdown)
         self.assertIn("Memecoin shadow research", markdown)
         self.assertIn("1** blocked-unverified", markdown)
+
+    def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
+        self.append_public_run()
+        generated_at = self.now - timedelta(hours=1)
+        forecast = Forecast(
+            "intraday-forecast",
+            "crypto-intraday-momentum-baseline",
+            "baseline-v1",
+            "coinbase:product:BTC-USD",
+            ForecastKind.RETURN_DISTRIBUTION,
+            generated_at,
+            generated_at + timedelta(minutes=15),
+            {"predicted_return": 0.001, "benchmark_return": 0.0},
+            0.25,
+            {},
+            ("fixture-event",),
+            ("test fixture",),
+        )
+        self.audit.append_forecast(forecast)
+        self.audit.append_forecast_score(
+            score_return_forecast(
+                forecast,
+                actual_return=0.002,
+                target_time=forecast.valid_until,
+                scored_at=self.now - timedelta(minutes=30),
+            )
+        )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        lane = next(
+            item
+            for item in scorecard.research_lanes
+            if item.specialist_id == "crypto-intraday-momentum-baseline-v1"
+        )
+        self.assertEqual(lane.forecasts, 1)
+        self.assertEqual(lane.scores, 1)
+        self.assertEqual(lane.latest_forecast_at, generated_at)
 
     def test_scorecard_separates_future_and_due_unscored_forecasts(self):
         self.append_public_run()

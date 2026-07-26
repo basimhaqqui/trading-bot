@@ -9,7 +9,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Mapping
 
-from trading_bot.agents.hypotheses import BASELINE_HYPOTHESES
+from trading_bot.agents.hypotheses import (
+    BASELINE_HYPOTHESES,
+    BASELINE_HYPOTHESIS_SPECIALIST_IDS,
+)
 from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import AssetClass, Forecast
@@ -27,6 +30,7 @@ from trading_bot.evaluation.reporting import (
     EdgeStatus,
     EvaluationGateConfig,
 )
+from trading_bot.evaluation.shadow import FastPredictionEligibilitySummary, ShadowResearchRunner
 from trading_bot.evaluation.scoring import ForecastScore
 from trading_bot.ingestion.health import IngestionHealthReport, ingestion_health
 from trading_bot.ingestion.plan import ShadowIngestionPlan
@@ -180,6 +184,7 @@ class DailyScorecard:
     outcome_queue: OutcomeQueueSummary
     strategy_outcome_queues: tuple[StrategyOutcomeQueue, ...]
     prediction_calibration: PredictionCalibrationReadiness
+    fast_prediction_eligibility: FastPredictionEligibilitySummary
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -316,6 +321,9 @@ def build_daily_scorecard(
         as_of,
     )
     prediction_calibration = _prediction_calibration_readiness(path, as_of)
+    fast_prediction_eligibility = ShadowResearchRunner(store, audit).fast_prediction_eligibility(
+        as_of=as_of
+    )
     alerts = _build_alerts(
         health, strategies, economics, totals, paper, outcome_queue
     )
@@ -332,6 +340,7 @@ def build_daily_scorecard(
         outcome_queue,
         strategy_outcome_queues,
         prediction_calibration,
+        fast_prediction_eligibility,
         health,
         alerts,
     )
@@ -370,6 +379,18 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"strongest_bucket={scorecard.prediction_calibration.strongest_bucket_events}/"
             f"{scorecard.prediction_calibration.required_bucket_events} "
             f"ready={str(scorecard.prediction_calibration.ready).lower()}"
+        ),
+        (
+            "fast_prediction_eligibility: "
+            f"paired={scorecard.fast_prediction_eligibility.paired_markets} "
+            f"fresh={scorecard.fast_prediction_eligibility.fresh_book_markets} "
+            f"active={scorecard.fast_prediction_eligibility.active_markets} "
+            f"fixed_close={scorecard.fast_prediction_eligibility.fixed_close_markets} "
+            f"short_timer={scorecard.fast_prediction_eligibility.short_timer_markets} "
+            f"horizon={scorecard.fast_prediction_eligibility.horizon_markets} "
+            f"executable={scorecard.fast_prediction_eligibility.executable_markets} "
+            f"unforecasted_events={scorecard.fast_prediction_eligibility.unforecasted_event_candidates} "
+            f"selected={scorecard.fast_prediction_eligibility.selected_events}"
         ),
         (
             "memecoin_research: "
@@ -454,8 +475,9 @@ def _research_lane_summaries(
         score_counts[score.specialist_id] = score_counts.get(score.specialist_id, 0) + 1
     summaries: list[ResearchLaneSummary] = []
     for hypothesis in BASELINE_HYPOTHESES:
+        specialist_ids = BASELINE_HYPOTHESIS_SPECIALIST_IDS[hypothesis.hypothesis_id]
         lane_forecasts = tuple(
-            item for item in forecasts if item.specialist_id == hypothesis.hypothesis_id
+            item for item in forecasts if item.specialist_id in specialist_ids
         )
         latest = max(
             (item.generated_at for item in lane_forecasts), default=None
@@ -466,7 +488,7 @@ def _research_lane_summaries(
                 hypothesis.market,
                 hypothesis.proposed_at,
                 len(lane_forecasts),
-                score_counts.get(hypothesis.hypothesis_id, 0),
+                sum(score_counts.get(specialist_id, 0) for specialist_id in specialist_ids),
                 latest,
             )
         )
@@ -1009,6 +1031,26 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
             f"| `{lane.specialist_id}` | {lane.market.value} | "
             f"`{lane.proposed_at.isoformat()}` | {lane.forecasts} | {lane.scores} | {latest} |"
         )
+    fast = scorecard.fast_prediction_eligibility
+    lines.extend(
+        [
+            "",
+            "### Fast-settlement prediction eligibility",
+            "",
+            (
+                "Current, read-only funnel (not evidence): "
+                f"**{fast.paired_markets}** paired rule/book markets → "
+                f"**{fast.fresh_book_markets}** fresh books → "
+                f"**{fast.active_markets}** active → "
+                f"**{fast.fixed_close_markets}** fixed-close → "
+                f"**{fast.short_timer_markets}** short-timer → "
+                f"**{fast.horizon_markets}** in horizon → "
+                f"**{fast.executable_markets}** executable → "
+                f"**{fast.unforecasted_event_candidates}** unforecasted events → "
+                f"**{fast.selected_events}** selected."
+            ),
+        ]
+    )
     memecoin = scorecard.memecoin_research
     missing_gates = ", ".join(memecoin.missing_hard_gates) or "none"
     lines.extend(

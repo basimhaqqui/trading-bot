@@ -19,6 +19,16 @@
       "close_lookahead_hours": 48
     },
     {
+      "job_id": "kalshi-fast-settling-markets",
+      "venue": "kalshi",
+      "dataset": "markets",
+      "status": "open",
+      "limit": 250,
+      "cursor_mode": "restart",
+      "mve_filter": "exclude",
+      "close_lookahead_hours": 2
+    },
+    {
       "job_id": "kalshi-recent-settlements",
       "venue": "kalshi",
       "dataset": "markets",

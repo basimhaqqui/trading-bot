@@ -146,7 +146,7 @@ PREDICTION_FAST_SETTLEMENT_HYPOTHESIS = Hypothesis(
     invalidation_conditions=(
         "market probabilities do not beat the fixed neutral benchmark out of sample",
         "results disappear when one event ticker or resolution period is removed",
-        "expected-expiration changes or delayed finalization explain apparent performance",
+        "expected-expiration changes or finalization after the pre-recorded settlement deadline explain apparent performance",
         "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
     ),
     proposed_at=PREDICTION_FAST_PROPOSED_AT,
@@ -217,3 +217,31 @@ BASELINE_HYPOTHESES = (
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
 )
+
+
+# Forecast records retain their stable specialist IDs while hypotheses carry
+# versioned preregistration IDs. Keep this relationship explicit so reporting
+# cannot silently omit prospective evidence when the two names differ.
+BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
+    PERPETUAL_FUNDING_HYPOTHESIS.hypothesis_id: (
+        "perpetual-funding-basis-baseline",
+    ),
+    OPTIONS_VOLATILITY_HYPOTHESIS.hypothesis_id: (
+        "options-implied-volatility-state-baseline",
+    ),
+    PREDICTION_CALIBRATION_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-calibration-baseline-v3",
+    ),
+    PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-calibration-baseline-v4",
+    ),
+    PREDICTION_FAST_SETTLEMENT_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v1",
+    ),
+    CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
+        "crypto-range-breakout-continuation-baseline",
+    ),
+    CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS.hypothesis_id: (
+        "crypto-intraday-momentum-baseline",
+    ),
+}

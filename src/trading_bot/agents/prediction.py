@@ -299,6 +299,7 @@ class FastPredictionSettlementSpecialist:
         yes_bid, yes_ask, market_probability, spread = executable
         if spread > self.config.max_book_spread:
             return None
+        settlement_deadline = target_time + timedelta(seconds=timer)
         return Forecast(
             forecast_id=str(
                 uuid.uuid5(
@@ -322,6 +323,7 @@ class FastPredictionSettlementSpecialist:
                 "event_ticker": event_ticker,
                 "outcome_cluster": event_ticker,
                 "target_time": target_time.isoformat(),
+                "settlement_deadline": settlement_deadline.isoformat(),
             },
             confidence=max(0.2, 0.45 - min(0.25, spread * 2.5)),
             uncertainty={
@@ -402,6 +404,17 @@ def prediction_forecast_target_time(forecast: Forecast) -> datetime | None:
     value = forecast.values.get("target_time")
     if not isinstance(value, str) or not value:
         value = forecast.values.get("outcome_cluster")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return parse_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def fast_prediction_settlement_deadline(forecast: Forecast) -> datetime | None:
+    """Return the immutable finalization deadline recorded for a fast-lane forecast."""
+    value = forecast.values.get("settlement_deadline")
     if not isinstance(value, str) or not value:
         return None
     try:
