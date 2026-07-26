@@ -149,6 +149,7 @@ _HORIZON_BUCKET_ORDER = {
 _DIVERSITY_GUARDED_SPECIALISTS = frozenset(
     {
         "crypto-range-breakout-continuation-baseline",
+        "crypto-intraday-momentum-baseline",
         "perpetual-funding-basis-baseline",
     }
 )

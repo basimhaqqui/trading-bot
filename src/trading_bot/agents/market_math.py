@@ -15,6 +15,33 @@ def finite_float(value: object) -> float | None:
     return result if isfinite(result) else None
 
 
+def bar_values(
+    payload: object,
+) -> tuple[float, float, float, float, float, int] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    values = tuple(
+        finite_float(payload.get(name))
+        for name in ("open", "high", "low", "close", "volume", "granularity_seconds")
+    )
+    if any(value is None for value in values):
+        return None
+    open_price, high, low, close, volume, raw_granularity = (
+        float(value) for value in values
+    )
+    granularity = int(raw_granularity)
+    if (
+        min(open_price, high, low, close) <= 0
+        or volume < 0
+        or granularity <= 0
+        or granularity != raw_granularity
+        or low > min(open_price, close)
+        or high < max(open_price, close)
+    ):
+        return None
+    return open_price, high, low, close, volume, granularity
+
+
 def recent_events(
     events: Iterable[MarketEvent],
     *,

@@ -4,11 +4,10 @@ import statistics
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Mapping
 
 from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.hypotheses import CRYPTO_BREAKOUT_HYPOTHESIS
-from trading_bot.agents.market_math import finite_float
+from trading_bot.agents.market_math import bar_values
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEventType
 
 
@@ -18,6 +17,7 @@ class CryptoBreakoutConfig:
     minimum_volume_ratio: float = 0.75
     forecast_shrinkage: float = 0.25
     maximum_absolute_forecast: float = 0.05
+    granularity_seconds: int = 3600
     max_receipt_age: timedelta = timedelta(minutes=90)
 
     def __post_init__(self) -> None:
@@ -29,6 +29,8 @@ class CryptoBreakoutConfig:
             raise ValueError("forecast shrinkage must be between zero and one")
         if self.maximum_absolute_forecast <= 0:
             raise ValueError("maximum forecast must be positive")
+        if self.granularity_seconds <= 0:
+            raise ValueError("breakout granularity must be positive")
 
 
 class CryptoRangeBreakoutSpecialist:
@@ -48,10 +50,10 @@ class CryptoRangeBreakoutSpecialist:
                 or event.event_type is not MarketEventType.BAR
             ):
                 continue
-            values = _bar_values(event.payload)
-            if values is None:
+            values = bar_values(event.payload)
+            if values is None or values[5] != self.config.granularity_seconds:
                 continue
-            granularity_seconds = int(values[5])
+            granularity_seconds = values[5]
             key = (event.event_time, granularity_seconds)
             existing = latest_by_bar.get(key)
             if existing is None or (event.available_at, event.event_id) > (
@@ -65,7 +67,7 @@ class CryptoRangeBreakoutSpecialist:
             latest_by_bar.values(),
             key=lambda item: (item[0].event_time, item[0].available_at, item[0].event_id),
         )
-        granularity_seconds = int(latest_values[5])
+        granularity_seconds = latest_values[5]
         ordered = sorted(
             (
                 item
@@ -149,26 +151,3 @@ class CryptoRangeBreakoutSpecialist:
             evidence_event_ids=evidence,
             invalidation_conditions=self.hypothesis.invalidation_conditions,
         )
-
-
-def _bar_values(payload: object) -> tuple[float, float, float, float, float, float] | None:
-    if not isinstance(payload, Mapping):
-        return None
-    values = tuple(
-        finite_float(payload.get(name))
-        for name in ("open", "high", "low", "close", "volume", "granularity_seconds")
-    )
-    if any(value is None for value in values):
-        return None
-    open_price, high, low, close, volume, granularity = (
-        float(value) for value in values
-    )
-    if (
-        min(open_price, high, low, close) <= 0
-        or volume < 0
-        or granularity <= 0
-        or low > min(open_price, close)
-        or high < max(open_price, close)
-    ):
-        return None
-    return open_price, high, low, close, volume, granularity

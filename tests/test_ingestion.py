@@ -681,14 +681,16 @@ class IngestionTests(unittest.TestCase):
 
     def test_checked_in_crypto_plan_covers_validated_liquid_universe(self):
         plan = load_plan("config/shadow-ingestion.json")
-        candle_jobs = [
+        hourly_jobs = [
             job
             for job in plan.jobs
-            if job.venue == "coinbase" and job.dataset == "candles"
+            if job.venue == "coinbase"
+            and job.dataset == "candles"
+            and job.granularity == "ONE_HOUR"
         ]
 
         self.assertEqual(
-            {job.symbol for job in candle_jobs},
+            {job.symbol for job in hourly_jobs},
             {
                 "BTC-USD",
                 "ETH-USD",
@@ -713,11 +715,31 @@ class IngestionTests(unittest.TestCase):
             },
         )
         self.assertTrue(
-            all(
-                job.granularity == "ONE_HOUR" and job.limit == 30
-                for job in candle_jobs
-            )
+            all(job.limit == 30 for job in hourly_jobs)
         )
+        intraday_jobs = [
+            job
+            for job in plan.jobs
+            if job.venue == "coinbase"
+            and job.dataset == "candles"
+            and job.granularity == "FIFTEEN_MINUTE"
+        ]
+        self.assertEqual(
+            {job.symbol for job in intraday_jobs},
+            {
+                "BTC-USD",
+                "ETH-USD",
+                "SOL-USD",
+                "DOGE-USD",
+                "XRP-USD",
+                "ADA-USD",
+                "AVAX-USD",
+                "LINK-USD",
+                "HYPE-USD",
+                "PUMP-USD",
+            },
+        )
+        self.assertTrue(all(job.limit == 350 for job in intraday_jobs))
 
     def test_checked_in_perpetual_plan_pairs_btc_and_eth_books(self):
         plan = load_plan("config/shadow-ingestion.json")

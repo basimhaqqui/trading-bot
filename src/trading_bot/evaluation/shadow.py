@@ -7,6 +7,7 @@ from typing import Mapping
 
 from trading_bot.agents.base import Specialist
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
+from trading_bot.agents.crypto_momentum import CryptoIntradayMomentumSpecialist
 from trading_bot.agents.market_math import finite_float, prediction_book
 from trading_bot.agents.option_volatility import (
     OptionVolatilitySpecialist,
@@ -196,6 +197,7 @@ class ShadowResearchRunner:
     def _candidates(self, as_of: datetime) -> tuple[_Candidate, ...]:
         candidates: list[_Candidate] = []
         candidates.extend(self._breakout_candidates(as_of))
+        candidates.extend(self._intraday_momentum_candidates(as_of))
         candidates.extend(self._perpetual_candidates(as_of))
         candidates.extend(self._option_candidates(as_of))
         candidates.extend(self._prediction_candidates(as_of))
@@ -218,6 +220,35 @@ class ShadowResearchRunner:
                 continue
             latest = max(
                 bars,
+                key=lambda item: (item.event_time, item.available_at, item.event_id),
+            )
+            decision_time = latest.available_at
+            if as_of - decision_time > specialist.config.max_receipt_age:
+                continue
+            candidates.append(
+                _Candidate(specialist, instrument.instrument_id, (), decision_time)
+            )
+        return candidates
+
+    def _intraday_momentum_candidates(self, as_of: datetime) -> list[_Candidate]:
+        specialist = CryptoIntradayMomentumSpecialist()
+        candidates: list[_Candidate] = []
+        for instrument in self.store.instruments(asset_class=AssetClass.CRYPTO):
+            bars = self.store.events_available_at(
+                as_of,
+                instrument_id=instrument.instrument_id,
+                event_type=MarketEventType.BAR,
+            )
+            eligible = [
+                item
+                for item in bars
+                if _finite_float(item.payload.get("granularity_seconds"))
+                == specialist.config.granularity_seconds
+            ]
+            if not eligible:
+                continue
+            latest = max(
+                eligible,
                 key=lambda item: (item.event_time, item.available_at, item.event_id),
             )
             decision_time = latest.available_at

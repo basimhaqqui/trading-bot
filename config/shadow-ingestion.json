@@ -244,6 +244,86 @@
       "limit": 30
     },
     {
+      "job_id": "coinbase-btc-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "BTC-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-eth-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "ETH-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-sol-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "SOL-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-doge-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "DOGE-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-xrp-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "XRP-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-ada-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "ADA-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-avax-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "AVAX-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-link-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "LINK-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-hype-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "HYPE-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
+      "job_id": "coinbase-pump-fifteen-minute-candles",
+      "venue": "coinbase",
+      "dataset": "candles",
+      "symbol": "PUMP-USD",
+      "granularity": "FIFTEEN_MINUTE",
+      "limit": 350
+    },
+    {
       "job_id": "alpaca-spy-bars",
       "venue": "alpaca",
       "dataset": "bars",

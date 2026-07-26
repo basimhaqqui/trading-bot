@@ -5,6 +5,7 @@ from pathlib import Path
 
 from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
+from trading_bot.agents.crypto_momentum import CryptoIntradayMomentumSpecialist
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
@@ -665,6 +666,113 @@ class SpecialistTests(unittest.TestCase):
         self.assertIsNone(
             CryptoRangeBreakoutSpecialist().evaluate(
                 ReplayContext(self.now, instrument, (*events[:-1], low_volume_event))
+            )
+        )
+
+    def test_crypto_intraday_momentum_uses_only_fifteen_minute_bars(self):
+        instrument = Instrument(
+            "coinbase:product:BTC-USD",
+            "coinbase",
+            "BTC-USD",
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        events = []
+        for index in range(8):
+            event_time = self.now - timedelta(minutes=(7 - index) * 15)
+            close = 100 + index * 0.2
+            events.append(
+                MarketEvent(
+                    f"intraday-{index}",
+                    MarketEventType.BAR,
+                    "coinbase",
+                    instrument.instrument_id,
+                    event_time,
+                    event_time,
+                    "fixture",
+                    {
+                        "open": close - 0.1,
+                        "high": close + 0.1,
+                        "low": close - 0.2,
+                        "close": close,
+                        "volume": 100 + index,
+                        "granularity_seconds": 900,
+                    },
+                    ingested_at=event_time,
+                )
+            )
+        events.append(
+            MarketEvent(
+                "hourly-noise",
+                MarketEventType.BAR,
+                "coinbase",
+                instrument.instrument_id,
+                self.now,
+                self.now,
+                "fixture",
+                {
+                    "open": 100,
+                    "high": 100,
+                    "low": 50,
+                    "close": 50,
+                    "volume": 1000,
+                    "granularity_seconds": 3600,
+                },
+                ingested_at=self.now,
+            )
+        )
+
+        forecast = CryptoIntradayMomentumSpecialist().evaluate(
+            ReplayContext(self.now, instrument, tuple(events))
+        )
+
+        self.assertIsNotNone(forecast)
+        assert forecast is not None
+        self.assertEqual(forecast.valid_until, self.now + timedelta(minutes=15))
+        self.assertEqual(forecast.values["direction"], "up")
+        self.assertEqual(
+            forecast.values["outcome_cluster"],
+            f"crypto-intraday:{forecast.valid_until.isoformat()}",
+        )
+        self.assertEqual(len(forecast.evidence_event_ids), 8)
+        self.assertNotIn("hourly-noise", forecast.evidence_event_ids)
+
+    def test_legacy_crypto_breakout_ignores_new_intraday_bars(self):
+        instrument = Instrument(
+            "coinbase:product:BTC-USD",
+            "coinbase",
+            "BTC-USD",
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        events = []
+        for index in range(21):
+            event_time = self.now - timedelta(minutes=(20 - index) * 15)
+            close = 100 if index < 20 else 110
+            events.append(
+                MarketEvent(
+                    f"intraday-only-{index}",
+                    MarketEventType.BAR,
+                    "coinbase",
+                    instrument.instrument_id,
+                    event_time,
+                    event_time,
+                    "fixture",
+                    {
+                        "open": 100,
+                        "high": max(101, close),
+                        "low": 99,
+                        "close": close,
+                        "volume": 200,
+                        "granularity_seconds": 900,
+                    },
+                    ingested_at=event_time,
+                )
+            )
+
+        self.assertIsNone(
+            CryptoRangeBreakoutSpecialist().evaluate(
+                ReplayContext(self.now, instrument, tuple(events))
             )
         )
 
