@@ -9,7 +9,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Mapping
 
-from trading_bot.agents.hypotheses import BASELINE_HYPOTHESES
+from trading_bot.agents.hypotheses import (
+    BASELINE_HYPOTHESES,
+    BASELINE_HYPOTHESIS_SPECIALIST_IDS,
+)
 from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import AssetClass, Forecast
@@ -472,8 +475,9 @@ def _research_lane_summaries(
         score_counts[score.specialist_id] = score_counts.get(score.specialist_id, 0) + 1
     summaries: list[ResearchLaneSummary] = []
     for hypothesis in BASELINE_HYPOTHESES:
+        specialist_ids = BASELINE_HYPOTHESIS_SPECIALIST_IDS[hypothesis.hypothesis_id]
         lane_forecasts = tuple(
-            item for item in forecasts if item.specialist_id == hypothesis.hypothesis_id
+            item for item in forecasts if item.specialist_id in specialist_ids
         )
         latest = max(
             (item.generated_at for item in lane_forecasts), default=None
@@ -484,7 +488,7 @@ def _research_lane_summaries(
                 hypothesis.market,
                 hypothesis.proposed_at,
                 len(lane_forecasts),
-                score_counts.get(hypothesis.hypothesis_id, 0),
+                sum(score_counts.get(specialist_id, 0) for specialist_id in specialist_ids),
                 latest,
             )
         )

@@ -27,6 +27,7 @@ from trading_bot.evaluation.scorecard import (
     render_scorecard,
 )
 from trading_bot.evaluation.scoring import ScoreKind
+from trading_bot.evaluation.scoring import score_return_forecast
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
@@ -279,6 +280,54 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("Fast-settlement prediction eligibility", markdown)
         self.assertIn("Memecoin shadow research", markdown)
         self.assertIn("1** blocked-unverified", markdown)
+
+    def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
+        self.append_public_run()
+        generated_at = self.now - timedelta(hours=1)
+        forecast = Forecast(
+            "intraday-forecast",
+            "crypto-intraday-momentum-baseline",
+            "baseline-v1",
+            "coinbase:product:BTC-USD",
+            ForecastKind.RETURN_DISTRIBUTION,
+            generated_at,
+            generated_at + timedelta(minutes=15),
+            {"predicted_return": 0.001, "benchmark_return": 0.0},
+            0.25,
+            {},
+            ("fixture-event",),
+            ("test fixture",),
+        )
+        self.audit.append_forecast(forecast)
+        self.audit.append_forecast_score(
+            score_return_forecast(
+                forecast,
+                actual_return=0.002,
+                target_time=forecast.valid_until,
+                scored_at=self.now - timedelta(minutes=30),
+            )
+        )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        lane = next(
+            item
+            for item in scorecard.research_lanes
+            if item.specialist_id == "crypto-intraday-momentum-baseline-v1"
+        )
+        self.assertEqual(lane.forecasts, 1)
+        self.assertEqual(lane.scores, 1)
+        self.assertEqual(lane.latest_forecast_at, generated_at)
 
     def test_scorecard_separates_future_and_due_unscored_forecasts(self):
         self.append_public_run()

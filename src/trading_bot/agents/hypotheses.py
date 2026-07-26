@@ -217,3 +217,31 @@ BASELINE_HYPOTHESES = (
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
 )
+
+
+# Forecast records retain their stable specialist IDs while hypotheses carry
+# versioned preregistration IDs. Keep this relationship explicit so reporting
+# cannot silently omit prospective evidence when the two names differ.
+BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
+    PERPETUAL_FUNDING_HYPOTHESIS.hypothesis_id: (
+        "perpetual-funding-basis-baseline",
+    ),
+    OPTIONS_VOLATILITY_HYPOTHESIS.hypothesis_id: (
+        "options-implied-volatility-state-baseline",
+    ),
+    PREDICTION_CALIBRATION_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-calibration-baseline-v3",
+    ),
+    PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-calibration-baseline-v4",
+    ),
+    PREDICTION_FAST_SETTLEMENT_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v1",
+    ),
+    CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
+        "crypto-range-breakout-continuation-baseline",
+    ),
+    CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS.hypothesis_id: (
+        "crypto-intraday-momentum-baseline",
+    ),
+}
