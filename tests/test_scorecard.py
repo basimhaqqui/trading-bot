@@ -161,6 +161,82 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(scorecard.status, ScorecardStatus.CRITICAL)
         self.assertIn("::error", render_github_alerts(scorecard))
 
+    def test_scorecard_reports_empty_fast_lane_and_fail_closed_memecoin_research(self):
+        self.append_public_run()
+        instrument = Instrument(
+            "dexscreener:memecoin:solana:Token",
+            "dexscreener",
+            "Token",
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        payload = {
+            "safety_status": "blocked_unverified",
+            "onchain_authorities_observed": False,
+            "holder_concentration_observed": False,
+            "transfer_behavior_observed": False,
+            "round_trip_simulation_observed": False,
+        }
+        for event_id, source in (
+            ("token-profile", "dexscreener-public-token-profile-v1"),
+            ("pool-observation", "dexscreener-public-token-pairs-v1"),
+        ):
+            self.store.append_event(
+                MarketEvent(
+                    event_id,
+                    MarketEventType.ONCHAIN_STATE,
+                    "dexscreener",
+                    instrument.instrument_id,
+                    self.now - timedelta(minutes=5),
+                    self.now - timedelta(minutes=5),
+                    source,
+                    payload,
+                    ingested_at=self.now - timedelta(minutes=5),
+                )
+            )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        fast = next(
+            item
+            for item in scorecard.research_lanes
+            if item.specialist_id == "prediction-market-fast-settlement-baseline-v1"
+        )
+        self.assertEqual(fast.forecasts, 0)
+        self.assertEqual(fast.scores, 0)
+        self.assertIsNone(fast.latest_forecast_at)
+        memecoin = scorecard.memecoin_research
+        self.assertEqual(memecoin.discovered_tokens, 1)
+        self.assertEqual(memecoin.latest_profile_observations, 1)
+        self.assertEqual(memecoin.latest_pool_observations, 1)
+        self.assertEqual(memecoin.blocked_unverified_tokens, 1)
+        self.assertEqual(memecoin.safety_eligible_tokens, 0)
+        self.assertEqual(
+            memecoin.missing_hard_gates,
+            (
+                "holder concentration",
+                "onchain authorities",
+                "round-trip simulation",
+                "transfer behavior",
+            ),
+        )
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("Pre-registered research lanes", markdown)
+        self.assertIn("prediction-market-fast-settlement-baseline-v1", markdown)
+        self.assertIn("Memecoin shadow research", markdown)
+        self.assertIn("1** blocked-unverified", markdown)
+
     def test_scorecard_separates_future_and_due_unscored_forecasts(self):
         self.append_public_run()
         plan = ShadowIngestionPlan(
