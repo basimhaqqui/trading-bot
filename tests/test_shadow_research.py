@@ -799,6 +799,67 @@ class ShadowResearchTests(unittest.TestCase):
         scored = self.runner.score_available(as_of=target_time)
         self.assertEqual(scored.appended, 1)
 
+    def test_intraday_momentum_forecast_scores_on_next_fifteen_minute_bar(self):
+        instrument = Instrument(
+            "coinbase:product:ETH-USD",
+            "coinbase",
+            "ETH-USD",
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        for index in range(8):
+            event_time = self.now - timedelta(minutes=(7 - index) * 15)
+            close = 100 + index * 0.2
+            self.store.append_event(
+                self.event(
+                    f"intraday-{index}",
+                    MarketEventType.BAR,
+                    instrument,
+                    {
+                        "open": close - 0.1,
+                        "high": close + 0.1,
+                        "low": close - 0.2,
+                        "close": close,
+                        "volume": 100 + index,
+                        "granularity_seconds": 900,
+                    },
+                    event_time=event_time,
+                )
+            )
+
+        generated = self.runner.run(as_of=self.now)
+
+        self.assertEqual(generated.generation.appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(
+            forecast.specialist_id, "crypto-intraday-momentum-baseline"
+        )
+        self.assertEqual(
+            forecast.valid_until, self.now + timedelta(minutes=15)
+        )
+        target_time = self.now + timedelta(minutes=15)
+        self.store.append_event(
+            self.event(
+                "intraday-outcome",
+                MarketEventType.BAR,
+                instrument,
+                {
+                    "open": 101.4,
+                    "high": 102,
+                    "low": 101,
+                    "close": 101.8,
+                    "volume": 120,
+                    "granularity_seconds": 900,
+                },
+                event_time=target_time,
+            )
+        )
+
+        scored = self.runner.score_available(as_of=target_time)
+
+        self.assertEqual(scored.appended, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

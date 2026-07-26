@@ -112,18 +112,29 @@ def data_readiness(
     )
     prediction_ready = labeled_books >= 5
 
-    crypto_bars: dict[str, set[tuple[datetime, object]]] = defaultdict(set)
+    hourly_crypto_bars: dict[str, set[datetime]] = defaultdict(set)
+    intraday_crypto_bars: dict[str, set[datetime]] = defaultdict(set)
     for event in events:
         if (
             event.event_type is MarketEventType.BAR
             and instrument_classes.get(event.instrument_id)
             in {AssetClass.CRYPTO, AssetClass.MEMECOIN}
         ):
-            crypto_bars[event.instrument_id].add(
-                (event.event_time, event.payload.get("granularity_seconds"))
-            )
-    maximum_crypto_bars = max((len(items) for items in crypto_bars.values()), default=0)
-    breakout_ready = maximum_crypto_bars >= 21
+            if event.payload.get("granularity_seconds") == 3600:
+                hourly_crypto_bars[event.instrument_id].add(event.event_time)
+            if (
+                instrument_classes.get(event.instrument_id) is AssetClass.CRYPTO
+                and event.payload.get("granularity_seconds") == 900
+            ):
+                intraday_crypto_bars[event.instrument_id].add(event.event_time)
+    maximum_hourly_bars = max(
+        (len(items) for items in hourly_crypto_bars.values()), default=0
+    )
+    maximum_intraday_bars = max(
+        (len(items) for items in intraday_crypto_bars.values()), default=0
+    )
+    breakout_ready = maximum_hourly_bars >= 21
+    intraday_ready = maximum_intraday_bars >= 8
 
     return (
         SpecialistReadiness(
@@ -149,10 +160,18 @@ def data_readiness(
         SpecialistReadiness(
             "crypto-range-breakout",
             breakout_ready,
-            maximum_crypto_bars,
+            maximum_hourly_bars,
             "ready"
             if breakout_ready
-            else f"{21 - maximum_crypto_bars} completed hourly bar(s)",
+            else f"{21 - maximum_hourly_bars} completed hourly bar(s)",
+        ),
+        SpecialistReadiness(
+            "crypto-intraday-momentum",
+            intraday_ready,
+            maximum_intraday_bars,
+            "ready"
+            if intraday_ready
+            else f"{8 - maximum_intraday_bars} completed fifteen-minute bar(s)",
         ),
     )
 

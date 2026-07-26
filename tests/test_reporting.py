@@ -200,6 +200,46 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(group.independent_outcomes, 1)
         self.assertEqual(group.status, EdgeStatus.COLLECTING)
 
+    def test_same_intraday_crypto_block_is_one_outcome_cluster(self):
+        target_time = self.base + timedelta(minutes=15)
+        observations = []
+        for index, instrument in enumerate(("BTC-USD", "ETH-USD", "SOL-USD")):
+            forecast = Forecast(
+                f"intraday-crypto-{index}",
+                "crypto-intraday-momentum-baseline",
+                "baseline-v1",
+                f"coinbase:product:{instrument}",
+                ForecastKind.RETURN_DISTRIBUTION,
+                self.base,
+                target_time,
+                {
+                    "predicted_return": 0.002,
+                    "benchmark_return": 0.0,
+                    "outcome_cluster": f"crypto-intraday:{target_time.isoformat()}",
+                },
+                0.3,
+                {"lookback_bars": 8.0},
+                (f"intraday-event-{index}",),
+                ("correlated assets invalidate independence",),
+            )
+            score = score_return_forecast(
+                forecast,
+                actual_return=0.003,
+                target_time=target_time,
+                scored_at=target_time,
+            )
+            observations.append((forecast, score))
+
+        report = build_walk_forward_report(
+            tuple(item[0] for item in observations),
+            tuple(item[1] for item in observations),
+        )
+
+        group = report.groups[0]
+        self.assertEqual(group.raw_scores, 3)
+        self.assertEqual(group.independent_outcomes, 1)
+        self.assertEqual(group.status, EdgeStatus.COLLECTING)
+
     def test_crypto_candidate_requires_instrument_diversity(self):
         observations = []
         for index in range(40):

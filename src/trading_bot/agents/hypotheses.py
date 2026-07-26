@@ -6,6 +6,7 @@ from trading_bot.core.schemas import AssetClass, Hypothesis
 BASELINE_PROPOSED_AT = datetime(2026, 7, 21, tzinfo=timezone.utc)
 PREDICTION_V3_PROPOSED_AT = datetime(2026, 7, 23, tzinfo=timezone.utc)
 PREDICTION_V4_PROPOSED_AT = datetime(2026, 7, 23, 1, 35, tzinfo=timezone.utc)
+CRYPTO_INTRADAY_PROPOSED_AT = datetime(2026, 7, 26, 11, 35, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -149,10 +150,39 @@ CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
 )
 
 
+CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS = Hypothesis(
+    hypothesis_id="crypto-intraday-momentum-baseline-v1",
+    family="crypto-intraday-momentum",
+    market=AssetClass.CRYPTO,
+    mechanism=(
+        "A fixed fraction of the average log return across the previous eight completed "
+        "fifteen-minute bars may persist into the next bar in continuously traded, liquid "
+        "crypto markets. Every parameter and the market-wide outcome cluster are fixed "
+        "before this hypothesis begins collecting evidence."
+    ),
+    target="next completed fifteen-minute close-to-close return",
+    horizon="one fifteen-minute bar",
+    information_set=(
+        "the previous eight completed Coinbase fifteen-minute OHLCV bars",
+        "their original exchange timestamps and first observed availability",
+        "a fixed 0.25 shrinkage of average trailing log return",
+        "a fixed one percent absolute forecast cap",
+    ),
+    invalidation_conditions=(
+        "momentum forecasts do not beat a zero-return benchmark out of sample",
+        "results fail delayed or shuffled-prediction controls",
+        "market-wide blocks, serial dependence, or one instrument explain the result",
+        "returns do not survive fees, spread, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=CRYPTO_INTRADAY_PROPOSED_AT,
+)
+
+
 BASELINE_HYPOTHESES = (
     PERPETUAL_FUNDING_HYPOTHESIS,
     OPTIONS_VOLATILITY_HYPOTHESIS,
     PREDICTION_CALIBRATION_HYPOTHESIS,
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
+    CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
 )
