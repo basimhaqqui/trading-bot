@@ -263,6 +263,12 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(memecoin.discovered_tokens, 1)
         self.assertEqual(memecoin.latest_profile_observations, 1)
         self.assertEqual(memecoin.latest_pool_observations, 1)
+        self.assertEqual(
+            memecoin.latest_profile_observed_at, self.now - timedelta(minutes=5)
+        )
+        self.assertEqual(
+            memecoin.latest_pool_observed_at, self.now - timedelta(minutes=5)
+        )
         self.assertEqual(memecoin.blocked_unverified_tokens, 1)
         self.assertEqual(memecoin.safety_eligible_tokens, 0)
         self.assertEqual(
@@ -279,6 +285,8 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("prediction-market-fast-settlement-baseline-v1", markdown)
         self.assertIn("Fast-settlement prediction eligibility", markdown)
         self.assertIn("Memecoin shadow research", markdown)
+        self.assertIn("Recorded public discoveries", markdown)
+        self.assertIn("Most recent pool snapshot", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):

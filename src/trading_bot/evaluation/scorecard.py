@@ -94,6 +94,8 @@ class MemecoinResearchSummary:
     discovered_tokens: int
     latest_profile_observations: int
     latest_pool_observations: int
+    latest_profile_observed_at: datetime | None
+    latest_pool_observed_at: datetime | None
     blocked_unverified_tokens: int
     safety_eligible_tokens: int
     missing_hard_gates: tuple[str, ...]
@@ -539,12 +541,21 @@ def _memecoin_research_summary(
     by_token: dict[str, list[Mapping[str, object]]] = {}
     profiles = 0
     pools = 0
-    for (instrument_id, category), (_, _, payload) in latest.items():
+    latest_profile_observed_at: datetime | None = None
+    latest_pool_observed_at: datetime | None = None
+    for (instrument_id, category), (observed_at, _, payload) in latest.items():
         by_token.setdefault(instrument_id, []).append(payload)
         if category == "profile":
             profiles += 1
+            if (
+                latest_profile_observed_at is None
+                or observed_at > latest_profile_observed_at
+            ):
+                latest_profile_observed_at = observed_at
         else:
             pools += 1
+            if latest_pool_observed_at is None or observed_at > latest_pool_observed_at:
+                latest_pool_observed_at = observed_at
     blocked = 0
     eligible = 0
     missing: set[str] = set()
@@ -569,6 +580,8 @@ def _memecoin_research_summary(
         len(by_token),
         profiles,
         pools,
+        latest_profile_observed_at,
+        latest_pool_observed_at,
         blocked,
         eligible,
         tuple(sorted(missing)),
@@ -1059,9 +1072,21 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
             "### Memecoin shadow research",
             "",
             (
-                f"Latest public observations: **{memecoin.discovered_tokens}** token(s) · "
+                f"Recorded public discoveries: **{memecoin.discovered_tokens}** token(s) · "
                 f"**{memecoin.latest_profile_observations}** profile(s) · "
                 f"**{memecoin.latest_pool_observations}** pool snapshot(s)."
+            ),
+            (
+                "Most recent profile: "
+                f"`{memecoin.latest_profile_observed_at.isoformat()}`"
+                if memecoin.latest_profile_observed_at is not None
+                else "Most recent profile: —"
+            ),
+            (
+                "Most recent pool snapshot: "
+                f"`{memecoin.latest_pool_observed_at.isoformat()}`"
+                if memecoin.latest_pool_observed_at is not None
+                else "Most recent pool snapshot: —"
             ),
             "",
             (
