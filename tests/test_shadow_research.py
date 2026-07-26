@@ -468,6 +468,57 @@ class ShadowResearchTests(unittest.TestCase):
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
+    def test_fast_prediction_rejects_settlement_after_recorded_deadline(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-LATE",
+            "kalshi",
+            "FAST-LATE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expiration = self.now + timedelta(hours=1)
+        self.store.append_event(
+            self.event(
+                "fast-late-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-LATE-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "fast-late-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            )
+        )
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
+        deadline = expiration + timedelta(minutes=15)
+        self.store.append_event(
+            self.event(
+                "fast-late-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {"result": "yes", "event_ticker": "FAST-LATE-EVENT"},
+                event_time=deadline + timedelta(seconds=1),
+            )
+        )
+
+        scored = self.runner.score_available(as_of=deadline + timedelta(seconds=1))
+
+        self.assertEqual(scored.appended, 0)
+        self.assertEqual(scored.due_unmatched, 1)
+
     def test_option_forecast_scores_only_at_the_full_horizon(self):
         option = Instrument(
             "alpaca:option:AAPL260918C00200000",

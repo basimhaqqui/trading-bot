@@ -788,6 +788,9 @@ class IngestionTests(unittest.TestCase):
     def test_checked_in_prediction_plan_excludes_mve_and_tracks_outcomes(self):
         plan = load_plan("config/shadow-ingestion.json")
         open_job = next(job for job in plan.jobs if job.job_id == "kalshi-open-markets")
+        fast_job = next(
+            job for job in plan.jobs if job.job_id == "kalshi-fast-settling-markets"
+        )
         outcome_job = next(
             job for job in plan.jobs if job.job_id == "kalshi-forecast-outcomes"
         )
@@ -798,6 +801,9 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(open_job.mve_filter, "exclude")
         self.assertEqual(open_job.close_lookahead_hours, 48)
         self.assertEqual(open_job.cursor_mode, "restart")
+        self.assertEqual(fast_job.mve_filter, "exclude")
+        self.assertEqual(fast_job.close_lookahead_hours, 2)
+        self.assertEqual(fast_job.cursor_mode, "restart")
         self.assertEqual(outcome_job.dataset, "forecast_outcomes")
         self.assertEqual(outcome_job.cursor_mode, "restart")
         self.assertEqual(latest_job.cursor_mode, "restart")

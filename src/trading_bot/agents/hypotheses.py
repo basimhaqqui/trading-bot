@@ -146,7 +146,7 @@ PREDICTION_FAST_SETTLEMENT_HYPOTHESIS = Hypothesis(
     invalidation_conditions=(
         "market probabilities do not beat the fixed neutral benchmark out of sample",
         "results disappear when one event ticker or resolution period is removed",
-        "expected-expiration changes or delayed finalization explain apparent performance",
+        "expected-expiration changes or finalization after the pre-recorded settlement deadline explain apparent performance",
         "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
     ),
     proposed_at=PREDICTION_FAST_PROPOSED_AT,

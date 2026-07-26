@@ -18,6 +18,7 @@ from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
     FastPredictionSettlementSpecialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
+    fast_prediction_settlement_deadline,
     prediction_forecast_target_time,
     prediction_expected_expiration_time,
     prediction_occurrence_time,
@@ -863,9 +864,14 @@ class ShadowResearchRunner:
         self, forecast: Forecast, as_of: datetime
     ) -> ForecastScore | None:
         target_time: datetime | None = None
+        settlement_deadline: datetime | None = None
         if forecast.specialist_id in TIMING_GUARDED_PREDICTION_SPECIALISTS:
             target_time = prediction_forecast_target_time(forecast)
             if target_time is None or target_time <= forecast.generated_at:
+                return None
+        if forecast.specialist_id == FastPredictionSettlementSpecialist.agent_id:
+            settlement_deadline = fast_prediction_settlement_deadline(forecast)
+            if settlement_deadline is None or settlement_deadline < target_time:
                 return None
         events = self.store.events_available_at(
             as_of,
@@ -880,6 +886,8 @@ class ShadowResearchRunner:
                 or event.event_time < forecast.generated_at
                 or result not in {"yes", "no"}
             ):
+                continue
+            if settlement_deadline is not None and event.event_time > settlement_deadline:
                 continue
             return score_binary_forecast(
                 forecast,

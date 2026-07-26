@@ -580,6 +580,10 @@ class SpecialistTests(unittest.TestCase):
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
         self.assertEqual(forecast.values["state"], "executable_market_prior")
         self.assertEqual(forecast.valid_until, self.now + timedelta(hours=1))
+        self.assertEqual(
+            forecast.values["settlement_deadline"],
+            (self.now + timedelta(hours=1, minutes=15)).isoformat(),
+        )
         for field, value in (
             ("can_close_early", True),
             ("settlement_timer_seconds", 901),
