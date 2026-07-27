@@ -12,13 +12,15 @@
       "job_id": "solana-finalized-mint-authorities",
       "venue": "solana",
       "dataset": "mint_authorities",
-      "limit": 25
+      "limit": 25,
+      "activation_profile": "solana_read_only_rpc"
     },
     {
       "job_id": "solana-finalized-holder-concentrations",
       "venue": "solana",
       "dataset": "holder_concentrations",
-      "limit": 10
+      "limit": 10,
+      "activation_profile": "solana_read_only_rpc"
     },
     {
       "job_id": "kalshi-open-markets",

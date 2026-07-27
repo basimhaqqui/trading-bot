@@ -256,14 +256,15 @@ transaction, or venue order. Every observation is explicitly recorded as
 transfer-behavior, and simulated round-trip evidence exists. The policy's authority and
 extension gates follow Solana's primary token documentation.
 
-The shared public Solana endpoint is deliberately the default, but it is rate-limited and
-not reliable for this scheduled research lane. An operator may add a dedicated **read-only**
-mainnet endpoint as the GitHub Actions secret `SOLANA_READ_ONLY_RPC_URL`; it must be HTTPS and
-may include the provider's path or query credential. The value is never rendered in logs. The
-transport remains pinned to that endpoint's host, refuses redirects and userinfo, and permits
-only `getMultipleAccounts`, `getTokenLargestAccounts`, and `getTokenSupply`. Configuring it
-does not change any safety gate or grant wallet, signing, transaction, forecast, or order
-authority.
+The shared public Solana endpoint is deliberately not used by the scheduled research plan:
+it is rate-limited and cannot provide reliable prospective evidence. The two Solana safety-read
+jobs use the `solana_read_only_rpc` activation profile and remain health-neutral
+`waiting_credentials` jobs until an operator adds a dedicated **read-only** mainnet endpoint as
+the GitHub Actions secret `SOLANA_READ_ONLY_RPC_URL`. The endpoint must be HTTPS and may include
+the provider's path or query credential; its value is never rendered in logs. The transport
+remains pinned to that endpoint's host, refuses redirects and userinfo, and permits only
+`getMultipleAccounts`, `getTokenLargestAccounts`, and `getTokenSupply`. Configuring it does not
+change any safety gate or grant wallet, signing, transaction, forecast, or order authority.
 
 Run the token and pool safety evaluator without a wallet, RPC connection, or signed
 transaction:
@@ -387,7 +388,7 @@ An aggregate cannot become a candidate while any observed horizon cohort has few
 
 The checked-in `config/economic-costs.json` uses a conservative 120 bps Coinbase retail taker round trip before additional spread, slippage, and latency; prediction fees use Kalshi's July 7, 2026 general schedule; perpetual forecasts use their point-in-time spot/perpetual execution bound. Every surviving trade is rerun at twice the complete assumed cost. Results are normalized research returns, not an allocation or portfolio-sizing recommendation.
 
-Alpaca jobs use the `alpaca_market_data` activation profile. Without both read-only environment values they appear as `waiting_credentials`, remain health-neutral, and never construct a network collector. With both values present they become required health-gated jobs and collect paired option-chain snapshots and underlying stock bars.
+Alpaca jobs use the `alpaca_market_data` activation profile, while Solana memecoin safety reads use `solana_read_only_rpc`. Without their read-only environment values they appear as `waiting_credentials`, remain health-neutral, and never construct a network collector. With values present they become required health-gated jobs; Alpaca collects paired option-chain snapshots and underlying stock bars, and Solana collects the bounded on-chain safety observations.
 
 The deployment-ready workflow is installed at `.github/workflows/shadow-ingestion.yml` and runs at minutes 7, 22, 37, and 52 of every hour once this project is in a GitHub repository. This leaves a seven-minute collection buffer after each fifteen-minute candle close. It restores the most recent cache, serializes overlapping runs, validates the plan, collects and researches, and publishes a combined operational scorecard. The scorecard reports market coverage, ingestion health, forecast evidence, per-strategy pending and overdue outcomes, prediction-calibration cohort readiness, cost-adjusted eligibility, and execution-audit counts. GitHub annotations flag failures, credentials waiting, and newly qualified candidates. Approximately once every 48 runs it retains the Markdown and JSON scorecards for 90 days and creates a verified SQLite snapshot retained for seven days. A manual run creates those artifacts only when `create_recovery_checkpoint` is selected. GitHub marks the workflow failed when any active job is missing, more than 90 minutes stale, or has a latest failed run.
 
