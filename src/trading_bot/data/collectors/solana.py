@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from time import sleep
 from typing import Mapping, Protocol
+from urllib.parse import urlsplit
 
 from trading_bot.core.schemas import MarketEvent, MarketEventType
 from trading_bot.core.serialization import require_aware, utc_now
@@ -23,6 +25,7 @@ class SolanaMintAuthorityCollector:
 
     venue = "solana"
     RPC_URL = "https://api.mainnet-beta.solana.com"
+    READ_ONLY_RPC_URL_ENV = "SOLANA_READ_ONLY_RPC_URL"
     RPC_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/getmultipleaccounts"
     LARGEST_ACCOUNTS_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/gettokenlargestaccounts"
     TOKEN_SUPPLY_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/gettokensupply"
@@ -65,11 +68,38 @@ class SolanaMintAuthorityCollector:
     )
     _BASE58_ALPHABET = frozenset("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 
-    def __init__(self, transport: SolanaAccountTransport | None = None) -> None:
-        self.transport = transport or ReadOnlyJsonRpcTransport(
-            self.RPC_URL,
-            "api.mainnet-beta.solana.com",
+    def __init__(
+        self,
+        transport: SolanaAccountTransport | None = None,
+        *,
+        environment: Mapping[str, str] | None = None,
+    ) -> None:
+        self.transport = transport or self._read_only_transport(environment)
+
+    @classmethod
+    def _read_only_transport(
+        cls, environment: Mapping[str, str] | None = None
+    ) -> ReadOnlyJsonRpcTransport:
+        values = os.environ if environment is None else environment
+        configured_endpoint = values.get(cls.READ_ONLY_RPC_URL_ENV, "").strip()
+        endpoint = configured_endpoint or cls.RPC_URL
+        parts = urlsplit(endpoint)
+        if (
+            parts.scheme != "https"
+            or parts.hostname is None
+            or parts.port not in (None, 443)
+            or parts.username is not None
+            or parts.password is not None
+            or parts.fragment
+        ):
+            raise ValueError(
+                f"{cls.READ_ONLY_RPC_URL_ENV} must be an HTTPS endpoint without userinfo"
+            )
+        return ReadOnlyJsonRpcTransport(
+            endpoint,
+            parts.hostname,
             frozenset({"getMultipleAccounts", "getTokenLargestAccounts", "getTokenSupply"}),
+            allow_endpoint_path=bool(configured_endpoint),
         )
 
     def collect_mint_authorities(

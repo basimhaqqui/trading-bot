@@ -58,6 +58,44 @@ class ReadOnlyHttpTransportTests(unittest.TestCase):
                 frozenset({"sendTransaction"}),
             )
 
+    def test_json_rpc_provider_endpoint_requires_explicit_opt_in(self):
+        endpoint = "https://mainnet.provider.example/v1/key?api-key=secret"
+        with self.assertRaises(ValueError):
+            ReadOnlyJsonRpcTransport(
+                endpoint,
+                "mainnet.provider.example",
+                frozenset({"getTokenSupply"}),
+            )
+        transport = ReadOnlyJsonRpcTransport(
+            endpoint,
+            "mainnet.provider.example",
+            frozenset({"getTokenSupply"}),
+            allow_endpoint_path=True,
+        )
+        self.assertEqual(transport.allowed_host, "mainnet.provider.example")
+
+    @patch("trading_bot.data.http.build_opener")
+    def test_json_rpc_failure_does_not_echo_provider_endpoint(self, build_opener):
+        endpoint = "https://mainnet.provider.example/v1/key?api-key=secret"
+        build_opener.return_value.open.side_effect = HTTPError(
+            endpoint,
+            400,
+            "Bad Request",
+            Message(),
+            None,
+        )
+        transport = ReadOnlyJsonRpcTransport(
+            endpoint,
+            "mainnet.provider.example",
+            frozenset({"getTokenSupply"}),
+            allow_endpoint_path=True,
+        )
+        with self.assertRaises(ReadOnlyHttpError) as error:
+            transport.call("getTokenSupply", ["mint", {"commitment": "finalized"}])
+        self.assertIn("mainnet.provider.example", str(error.exception))
+        self.assertNotIn("api-key", str(error.exception))
+        self.assertNotIn("secret", str(error.exception))
+
     @patch("trading_bot.data.http.build_opener")
     def test_array_response_remains_bounded_to_read_only_get(self, build_opener):
         response = MagicMock()

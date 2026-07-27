@@ -172,6 +172,25 @@ class CollectorTests(unittest.TestCase):
         self.assertIn("freeze_authority_active", event.payload["safety_reasons"])
         self.assertFalse(event.payload["wallet_or_transaction_authority"])
 
+    def test_solana_read_only_provider_endpoint_is_host_pinned(self):
+        collector = SolanaMintAuthorityCollector(
+            environment={
+                "SOLANA_READ_ONLY_RPC_URL": (
+                    "https://mainnet.provider.example/v1/tenant?api-key=secret"
+                )
+            }
+        )
+        transport = collector.transport
+        self.assertEqual(transport.allowed_host, "mainnet.provider.example")
+        self.assertEqual(
+            transport.allowed_methods,
+            frozenset({"getMultipleAccounts", "getTokenLargestAccounts", "getTokenSupply"}),
+        )
+        with self.assertRaisesRegex(ValueError, "HTTPS endpoint"):
+            SolanaMintAuthorityCollector(
+                environment={"SOLANA_READ_ONLY_RPC_URL": "http://provider.example"}
+            )
+
     def test_solana_token_2022_transfer_controls_are_structurally_observed_and_blocked(self):
         address = "11111111111111111111111111111111"
         mint = bytearray(82)
