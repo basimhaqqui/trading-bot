@@ -221,22 +221,30 @@ class ReadOnlyJsonRpcTransport:
     max_attempts: int = 3
     retry_backoff_seconds: float = 0.5
     max_retry_after_seconds: float = 5.0
+    allow_endpoint_path: bool = False
 
     _RETRYABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
 
     def __post_init__(self) -> None:
         parts = urlsplit(self.base_url)
+        endpoint_path_allowed = self.allow_endpoint_path
         if (
             parts.scheme != "https"
             or parts.hostname != self.allowed_host
             or parts.port not in (None, 443)
             or parts.username is not None
             or parts.password is not None
-            or parts.path not in ("", "/")
-            or parts.query
             or parts.fragment
+            or (not endpoint_path_allowed and parts.path not in ("", "/"))
+            or (not endpoint_path_allowed and parts.query)
         ):
             raise ValueError("base_url must be an HTTPS JSON-RPC origin on the allowed host")
+        if not isinstance(endpoint_path_allowed, bool):
+            raise ValueError("allow_endpoint_path must be boolean")
+        if endpoint_path_allowed and (
+            len(parts.path) > 2048 or len(parts.query) > 4096
+        ):
+            raise ValueError("JSON-RPC endpoint path or query exceeds the safety limit")
         if not self.allowed_methods or any(
             method
             not in {
@@ -289,14 +297,15 @@ class ReadOnlyJsonRpcTransport:
             except HTTPError as exc:
                 if exc.code not in self._RETRYABLE_HTTP_STATUS or attempt + 1 >= self.max_attempts:
                     raise ReadOnlyHttpError(
-                        f"read-only JSON-RPC call failed for {self.allowed_host}: {exc}"
+                        f"read-only JSON-RPC call failed for {self.allowed_host}: HTTP {exc.code}"
                     ) from exc
                 retry_after = exc.headers.get("Retry-After") if exc.headers is not None else None
                 sleep(self._retry_delay(attempt, retry_after))
             except (URLError, TimeoutError) as exc:
                 if attempt + 1 >= self.max_attempts:
                     raise ReadOnlyHttpError(
-                        f"read-only JSON-RPC call failed for {self.allowed_host}: {exc}"
+                        f"read-only JSON-RPC call failed for {self.allowed_host}: "
+                        f"{type(exc).__name__}"
                     ) from exc
                 sleep(self._retry_delay(attempt))
         if response_body is None:

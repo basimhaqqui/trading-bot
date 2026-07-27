@@ -25,6 +25,7 @@ jobs:
     env:
       ALPACA_MARKET_DATA_KEY_ID: ${{ secrets.ALPACA_MARKET_DATA_KEY_ID }}
       ALPACA_MARKET_DATA_SECRET_KEY: ${{ secrets.ALPACA_MARKET_DATA_SECRET_KEY }}
+      SOLANA_READ_ONLY_RPC_URL: ${{ secrets.SOLANA_READ_ONLY_RPC_URL }}
     steps:
       - uses: actions/checkout@v6
 
