@@ -109,9 +109,14 @@ class FakeKalshiCollector:
 class FakeSolanaCollector:
     def __init__(self):
         self.addresses = ()
+        self.holder_addresses = ()
 
     def collect_mint_authorities(self, addresses, **kwargs):
         self.addresses = addresses
+        return CollectionBatch("solana")
+
+    def collect_holder_concentrations(self, addresses, **kwargs):
+        self.holder_addresses = addresses
         return CollectionBatch("solana")
 
 
@@ -219,6 +224,28 @@ class IngestionTests(unittest.TestCase):
         records = runner.run_plan(ShadowIngestionPlan("fixture", (job,)), collected_at=self.now)
         self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
         self.assertEqual(collector.addresses, (mint,))
+
+    def test_solana_holder_concentration_jobs_are_bounded_and_select_discovered_mints(self):
+        job = ObservationJob("holder-concentrations", "solana", "holder_concentrations", limit=25)
+        self.assertEqual(job.limit, 25)
+        with self.assertRaisesRegex(ValueError, "cannot exceed 25"):
+            ObservationJob("too-many-holders", "solana", "holder_concentrations", limit=26)
+        mint = "11111111111111111111111111111111"
+        instrument = Instrument(
+            f"dexscreener:memecoin:solana:{mint}",
+            "dexscreener",
+            mint,
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        collector = FakeSolanaCollector()
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+        records = runner.run_plan(ShadowIngestionPlan("fixture", (job,)), collected_at=self.now)
+        self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
+        self.assertEqual(collector.holder_addresses, (mint,))
 
     def test_solana_transfer_control_reads_upgrade_v1_before_refreshing_v2(self):
         v1_mint = "11111111111111111111111111111111"

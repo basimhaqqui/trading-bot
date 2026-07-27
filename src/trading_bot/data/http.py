@@ -238,7 +238,13 @@ class ReadOnlyJsonRpcTransport:
         ):
             raise ValueError("base_url must be an HTTPS JSON-RPC origin on the allowed host")
         if not self.allowed_methods or any(
-            method not in {"getAccountInfo", "getMultipleAccounts"}
+            method
+            not in {
+                "getAccountInfo",
+                "getMultipleAccounts",
+                "getTokenLargestAccounts",
+                "getTokenSupply",
+            }
             for method in self.allowed_methods
         ):
             raise ValueError("JSON-RPC methods must be an explicit read-only allowlist")

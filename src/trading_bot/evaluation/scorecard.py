@@ -100,10 +100,12 @@ class MemecoinResearchSummary:
     latest_pool_observations: int
     latest_authority_observations: int
     transfer_control_observations: int
+    holder_concentration_observations: int
     latest_profile_observed_at: datetime | None
     latest_pool_observed_at: datetime | None
     latest_authority_observed_at: datetime | None
     latest_transfer_control_observed_at: datetime | None
+    latest_holder_concentration_observed_at: datetime | None
     blocked_unverified_tokens: int
     safety_eligible_tokens: int
     missing_hard_gates: tuple[str, ...]
@@ -566,10 +568,12 @@ def _memecoin_research_summary(
     pools = 0
     authorities = 0
     transfer_controls = 0
+    holder_concentrations = 0
     latest_profile_observed_at: datetime | None = None
     latest_pool_observed_at: datetime | None = None
     latest_authority_observed_at: datetime | None = None
     latest_transfer_control_observed_at: datetime | None = None
+    latest_holder_concentration_observed_at: datetime | None = None
     for (instrument_id, category), (observed_at, _, payload) in latest.items():
         by_token.setdefault(instrument_id, []).append(payload)
         if category == "profile":
@@ -583,7 +587,7 @@ def _memecoin_research_summary(
             pools += 1
             if latest_pool_observed_at is None or observed_at > latest_pool_observed_at:
                 latest_pool_observed_at = observed_at
-        else:
+        elif category == "authority":
             authorities += 1
             if latest_authority_observed_at is None or observed_at > latest_authority_observed_at:
                 latest_authority_observed_at = observed_at
@@ -594,6 +598,14 @@ def _memecoin_research_summary(
                     or observed_at > latest_transfer_control_observed_at
                 ):
                     latest_transfer_control_observed_at = observed_at
+        else:
+            if payload.get("holder_concentration_observed") is True:
+                holder_concentrations += 1
+                if (
+                    latest_holder_concentration_observed_at is None
+                    or observed_at > latest_holder_concentration_observed_at
+                ):
+                    latest_holder_concentration_observed_at = observed_at
     blocked = 0
     eligible = 0
     missing: set[str] = set()
@@ -620,10 +632,12 @@ def _memecoin_research_summary(
         pools,
         authorities,
         transfer_controls,
+        holder_concentrations,
         latest_profile_observed_at,
         latest_pool_observed_at,
         latest_authority_observed_at,
         latest_transfer_control_observed_at,
+        latest_holder_concentration_observed_at,
         blocked,
         eligible,
         tuple(sorted(missing)),
@@ -640,6 +654,8 @@ def _memecoin_observation_category(source: str) -> str | None:
         "solana-rpc-get-multiple-accounts-finalized-v2",
     }:
         return "authority"
+    if source == "solana-rpc-token-holder-concentration-finalized-v1":
+        return "holder_concentration"
     return None
 
 
@@ -1138,7 +1154,8 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"**{memecoin.latest_profile_observations}** profile(s) · "
                 f"**{memecoin.latest_pool_observations}** pool snapshot(s) · "
                 f"**{memecoin.latest_authority_observations}** finalized authority observation(s) · "
-                f"**{memecoin.transfer_control_observations}** transfer-control parse(s)."
+                f"**{memecoin.transfer_control_observations}** transfer-control parse(s) · "
+                f"**{memecoin.holder_concentration_observations}** holder-concentration observation(s)."
             ),
             (
                 "Most recent profile: "
@@ -1163,6 +1180,12 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"`{memecoin.latest_transfer_control_observed_at.isoformat()}`"
                 if memecoin.latest_transfer_control_observed_at is not None
                 else "Most recent transfer-control parse: —"
+            ),
+            (
+                "Most recent holder-concentration observation: "
+                f"`{memecoin.latest_holder_concentration_observed_at.isoformat()}`"
+                if memecoin.latest_holder_concentration_observed_at is not None
+                else "Most recent holder-concentration observation: —"
             ),
             "",
             (

@@ -104,7 +104,6 @@ class DailyScorecardTests(unittest.TestCase):
                 ingested_at=self.now - timedelta(minutes=5),
             )
         )
-
     def test_scorecard_combines_coverage_health_and_credential_alerts(self):
         self.append_public_run()
         self.append_crypto_event()
@@ -253,6 +252,23 @@ class DailyScorecardTests(unittest.TestCase):
                 ingested_at=self.now - timedelta(minutes=4),
             )
         )
+        holder_payload = {
+            **payload,
+            "holder_concentration_observed": True,
+        }
+        self.store.append_event(
+            MarketEvent(
+                "holder-concentration-observation",
+                MarketEventType.ONCHAIN_STATE,
+                "solana",
+                instrument.instrument_id,
+                self.now - timedelta(minutes=3),
+                self.now - timedelta(minutes=3),
+                "solana-rpc-token-holder-concentration-finalized-v1",
+                holder_payload,
+                ingested_at=self.now - timedelta(minutes=3),
+            )
+        )
         plan = ShadowIngestionPlan(
             "scorecard-plan",
             (ObservationJob("coinbase-products", "coinbase", "products"),),
@@ -283,6 +299,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(memecoin.latest_pool_observations, 1)
         self.assertEqual(memecoin.latest_authority_observations, 1)
         self.assertEqual(memecoin.transfer_control_observations, 1)
+        self.assertEqual(memecoin.holder_concentration_observations, 1)
         self.assertEqual(
             memecoin.latest_profile_observed_at, self.now - timedelta(minutes=5)
         )
@@ -295,14 +312,14 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(
             memecoin.latest_transfer_control_observed_at, self.now - timedelta(minutes=4)
         )
+        self.assertEqual(
+            memecoin.latest_holder_concentration_observed_at, self.now - timedelta(minutes=3)
+        )
         self.assertEqual(memecoin.blocked_unverified_tokens, 1)
         self.assertEqual(memecoin.safety_eligible_tokens, 0)
         self.assertEqual(
             memecoin.missing_hard_gates,
-            (
-                "holder concentration",
-                "round-trip simulation",
-            ),
+            ("round-trip simulation",),
         )
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Pre-registered research lanes", markdown)
@@ -313,6 +330,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("Most recent pool snapshot", markdown)
         self.assertIn("finalized authority observation", markdown)
         self.assertIn("transfer-control parse", markdown)
+        self.assertIn("holder-concentration observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
