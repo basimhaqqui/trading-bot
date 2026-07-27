@@ -106,6 +106,15 @@ class FakeKalshiCollector:
         return CollectionBatch("kalshi")
 
 
+class FakeSolanaCollector:
+    def __init__(self):
+        self.addresses = ()
+
+    def collect_mint_authorities(self, addresses, **kwargs):
+        self.addresses = addresses
+        return CollectionBatch("solana")
+
+
 class IngestionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -184,6 +193,32 @@ class IngestionTests(unittest.TestCase):
             ObservationJob(
                 "symbol-profile", "dexscreener", "token_profiles", symbol="SOL"
             )
+
+    def test_solana_authority_jobs_are_bounded_and_select_discovered_mints(self):
+        job = ObservationJob("mint-authorities", "solana", "mint_authorities", limit=25)
+        self.assertEqual(job.limit, 25)
+        with self.assertRaisesRegex(ValueError, "cannot exceed 25"):
+            ObservationJob("too-many-authorities", "solana", "mint_authorities", limit=26)
+        with self.assertRaisesRegex(ValueError, "do not accept a symbol"):
+            ObservationJob(
+                "symbol-authorities", "solana", "mint_authorities", symbol="SOL", limit=25
+            )
+        mint = "11111111111111111111111111111111"
+        instrument = Instrument(
+            f"dexscreener:memecoin:solana:{mint}",
+            "dexscreener",
+            mint,
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        collector = FakeSolanaCollector()
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+        records = runner.run_plan(ShadowIngestionPlan("fixture", (job,)), collected_at=self.now)
+        self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
+        self.assertEqual(collector.addresses, (mint,))
 
     def test_cycle_records_degraded_data_without_execution_access(self):
         instrument = Instrument(

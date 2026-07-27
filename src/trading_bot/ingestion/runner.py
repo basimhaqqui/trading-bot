@@ -33,6 +33,7 @@ from trading_bot.data.collectors import (
     CoinbaseCollector,
     DexscreenerCollector,
     KalshiCollector,
+    SolanaMintAuthorityCollector,
 )
 from trading_bot.data.schemas import CollectionBatch, DataQualityDiagnostic, DiagnosticSeverity
 from trading_bot.evaluation.outcomes import forecast_outcome_target_time
@@ -273,6 +274,22 @@ class ShadowIngestionRunner:
                         request_cursor,
                         tickers=tickers,
                     )
+            elif job.venue == "solana" and job.dataset == "mint_authorities":
+                token_addresses = self._pending_solana_mint_addresses(
+                    collected_at or started_at, job.limit
+                )
+                if not token_addresses:
+                    batch = CollectionBatch(
+                        "solana", metadata={"pending_mint_authority_addresses": 0}
+                    )
+                else:
+                    batch = collect_job(
+                        collector,
+                        job,
+                        collected_at,
+                        request_cursor,
+                        token_addresses=token_addresses,
+                    )
             else:
                 batch = collect_job(
                     collector,
@@ -446,6 +463,31 @@ class ShadowIngestionRunner:
                 return close
         return None
 
+    def _pending_solana_mint_addresses(self, as_of: datetime, limit: int) -> tuple[str, ...]:
+        """Select unobserved, then oldest-observed, discovered Solana mints.
+
+        This is a read-only fairness queue.  It never turns a discovery into a
+        forecast or intent and uses only the existing public instrument symbols.
+        """
+        candidates: list[tuple[datetime | None, str]] = []
+        for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
+            if instrument.venue != "dexscreener":
+                continue
+            events = self.store.events_available_at(
+                as_of,
+                instrument_id=instrument.instrument_id,
+                event_type=MarketEventType.ONCHAIN_STATE,
+            )
+            authority_observations = [
+                event
+                for event in events
+                if event.source == "solana-rpc-get-multiple-accounts-finalized-v1"
+            ]
+            latest = max((event.available_at for event in authority_observations), default=None)
+            candidates.append((latest, instrument.symbol))
+        candidates.sort(key=lambda item: (item[0] is not None, item[0] or as_of, item[1]))
+        return tuple(address for _, address in candidates[:limit])
+
 
 def default_collector_factory(venue: str, dataset: str) -> object:
     if venue == "kalshi":
@@ -454,6 +496,8 @@ def default_collector_factory(venue: str, dataset: str) -> object:
         return CoinbaseCollector()
     if venue == "dexscreener":
         return DexscreenerCollector()
+    if venue == "solana" and dataset == "mint_authorities":
+        return SolanaMintAuthorityCollector()
     if venue == "alpaca":
         key_id = os.getenv("ALPACA_MARKET_DATA_KEY_ID", "")
         secret_key = os.getenv("ALPACA_MARKET_DATA_SECRET_KEY", "")
@@ -470,6 +514,7 @@ def collect_job(
     cursor: str | None = None,
     *,
     tickers: tuple[str, ...] = (),
+    token_addresses: tuple[str, ...] = (),
     option_reference_price: float | None = None,
 ) -> CollectionBatch:
     if job.venue == "kalshi":
@@ -540,6 +585,10 @@ def collect_job(
             collected_at=collected_at,
             limit=job.limit,
             include_pool_observations=job.include_pool_observations,
+        )
+    if job.venue == "solana" and job.dataset == "mint_authorities":
+        return collector.collect_mint_authorities(  # type: ignore[attr-defined,no-any-return]
+            token_addresses, collected_at=collected_at
         )
     if job.venue == "alpaca":
         if job.dataset == "chain" and job.symbol:

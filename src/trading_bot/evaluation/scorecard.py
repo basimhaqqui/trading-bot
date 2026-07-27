@@ -98,8 +98,10 @@ class MemecoinResearchSummary:
     discovered_tokens: int
     latest_profile_observations: int
     latest_pool_observations: int
+    latest_authority_observations: int
     latest_profile_observed_at: datetime | None
     latest_pool_observed_at: datetime | None
+    latest_authority_observed_at: datetime | None
     blocked_unverified_tokens: int
     safety_eligible_tokens: int
     missing_hard_gates: tuple[str, ...]
@@ -529,7 +531,7 @@ def _memecoin_research_summary(
             WHERE instruments.asset_class = ?
               AND event.event_type = ?
               AND event.available_at <= ?
-              AND event.venue = 'dexscreener'
+              AND event.venue IN ('dexscreener', 'solana')
             ORDER BY event.instrument_id, event.available_at, event.event_id
             """,
             (
@@ -560,8 +562,10 @@ def _memecoin_research_summary(
     by_token: dict[str, list[Mapping[str, object]]] = {}
     profiles = 0
     pools = 0
+    authorities = 0
     latest_profile_observed_at: datetime | None = None
     latest_pool_observed_at: datetime | None = None
+    latest_authority_observed_at: datetime | None = None
     for (instrument_id, category), (observed_at, _, payload) in latest.items():
         by_token.setdefault(instrument_id, []).append(payload)
         if category == "profile":
@@ -571,10 +575,14 @@ def _memecoin_research_summary(
                 or observed_at > latest_profile_observed_at
             ):
                 latest_profile_observed_at = observed_at
-        else:
+        elif category == "pool":
             pools += 1
             if latest_pool_observed_at is None or observed_at > latest_pool_observed_at:
                 latest_pool_observed_at = observed_at
+        else:
+            authorities += 1
+            if latest_authority_observed_at is None or observed_at > latest_authority_observed_at:
+                latest_authority_observed_at = observed_at
     blocked = 0
     eligible = 0
     missing: set[str] = set()
@@ -599,8 +607,10 @@ def _memecoin_research_summary(
         len(by_token),
         profiles,
         pools,
+        authorities,
         latest_profile_observed_at,
         latest_pool_observed_at,
+        latest_authority_observed_at,
         blocked,
         eligible,
         tuple(sorted(missing)),
@@ -612,6 +622,8 @@ def _memecoin_observation_category(source: str) -> str | None:
         return "profile"
     if source == "dexscreener-public-token-pairs-v1":
         return "pool"
+    if source == "solana-rpc-get-multiple-accounts-finalized-v1":
+        return "authority"
     return None
 
 
@@ -1108,7 +1120,8 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
             (
                 f"Recorded public discoveries: **{memecoin.discovered_tokens}** token(s) · "
                 f"**{memecoin.latest_profile_observations}** profile(s) · "
-                f"**{memecoin.latest_pool_observations}** pool snapshot(s)."
+                f"**{memecoin.latest_pool_observations}** pool snapshot(s) · "
+                f"**{memecoin.latest_authority_observations}** finalized authority observation(s)."
             ),
             (
                 "Most recent profile: "
@@ -1121,6 +1134,12 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"`{memecoin.latest_pool_observed_at.isoformat()}`"
                 if memecoin.latest_pool_observed_at is not None
                 else "Most recent pool snapshot: —"
+            ),
+            (
+                "Most recent finalized authority observation: "
+                f"`{memecoin.latest_authority_observed_at.isoformat()}`"
+                if memecoin.latest_authority_observed_at is not None
+                else "Most recent finalized authority observation: —"
             ),
             "",
             (

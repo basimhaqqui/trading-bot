@@ -202,3 +202,116 @@ def _validate_json_shape(
             _validate_json_shape(item, depth=depth + 1, budget=budget)
         return
     raise ReadOnlyHttpError(f"unsupported JSON value: {type(value).__name__}")
+
+
+@dataclass(frozen=True)
+class ReadOnlyJsonRpcTransport:
+    """A bounded JSON-RPC reader restricted to explicitly allowlisted methods.
+
+    JSON-RPC uses POST even for read methods.  Keeping the method allowlist on
+    this transport prevents a collector from accidentally reaching signing,
+    transaction, or other state-changing RPC methods.
+    """
+
+    base_url: str
+    allowed_host: str
+    allowed_methods: frozenset[str]
+    timeout_seconds: float = 10.0
+    max_response_bytes: int = 5_000_000
+    max_attempts: int = 3
+    retry_backoff_seconds: float = 0.5
+    max_retry_after_seconds: float = 5.0
+
+    _RETRYABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
+
+    def __post_init__(self) -> None:
+        parts = urlsplit(self.base_url)
+        if (
+            parts.scheme != "https"
+            or parts.hostname != self.allowed_host
+            or parts.port not in (None, 443)
+            or parts.username is not None
+            or parts.password is not None
+            or parts.path not in ("", "/")
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError("base_url must be an HTTPS JSON-RPC origin on the allowed host")
+        if not self.allowed_methods or any(
+            method not in {"getAccountInfo", "getMultipleAccounts"}
+            for method in self.allowed_methods
+        ):
+            raise ValueError("JSON-RPC methods must be an explicit read-only allowlist")
+        if (
+            self.timeout_seconds <= 0
+            or self.max_response_bytes < 1
+            or not 1 <= self.max_attempts <= 5
+            or not 0 <= self.retry_backoff_seconds <= 10
+            or not 0 <= self.max_retry_after_seconds <= 60
+        ):
+            raise ValueError("transport limits are invalid")
+
+    def call(self, method: str, params: list[object]) -> JsonObject:
+        if method not in self.allowed_methods:
+            raise ValueError(f"JSON-RPC method is not allowed by this read-only transport: {method}")
+        if not isinstance(params, list):
+            raise ValueError("JSON-RPC params must be a list")
+        _validate_json_shape(params)
+        request_payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        body = json.dumps(request_payload, separators=(",", ":")).encode("utf-8")
+        if len(body) > 100_000:
+            raise ValueError("JSON-RPC request exceeds the read-only size limit")
+        request = Request(
+            self.base_url,
+            data=body,
+            headers={
+                "Accept": "application/json",
+                "Cache-Control": "no-cache",
+                "Content-Type": "application/json",
+                "User-Agent": "trading-bot-observer/0.3",
+            },
+            method="POST",
+        )
+        response_body: bytes | None = None
+        for attempt in range(self.max_attempts):
+            try:
+                with build_opener(_NoRedirects()).open(
+                    request, timeout=self.timeout_seconds
+                ) as response:
+                    response_body = response.read(self.max_response_bytes + 1)
+                break
+            except HTTPError as exc:
+                if exc.code not in self._RETRYABLE_HTTP_STATUS or attempt + 1 >= self.max_attempts:
+                    raise ReadOnlyHttpError(
+                        f"read-only JSON-RPC call failed for {self.allowed_host}: {exc}"
+                    ) from exc
+                retry_after = exc.headers.get("Retry-After") if exc.headers is not None else None
+                sleep(self._retry_delay(attempt, retry_after))
+            except (URLError, TimeoutError) as exc:
+                if attempt + 1 >= self.max_attempts:
+                    raise ReadOnlyHttpError(
+                        f"read-only JSON-RPC call failed for {self.allowed_host}: {exc}"
+                    ) from exc
+                sleep(self._retry_delay(attempt))
+        if response_body is None:
+            raise ReadOnlyHttpError(f"read-only JSON-RPC call failed for {self.allowed_host}")
+        if len(response_body) > self.max_response_bytes:
+            raise ReadOnlyHttpError("JSON-RPC response exceeded configured size limit")
+        try:
+            payload = json.loads(response_body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ReadOnlyHttpError("JSON-RPC response was not valid JSON") from exc
+        _validate_json_shape(payload)
+        if not isinstance(payload, dict):
+            raise ReadOnlyHttpError("JSON-RPC response must be an object")
+        return payload
+
+    def _retry_delay(self, attempt: int, retry_after: str | None = None) -> float:
+        if retry_after is not None:
+            try:
+                requested = float(retry_after)
+            except (TypeError, ValueError):
+                requested = -1
+            if requested >= 0:
+                return min(requested, self.max_retry_after_seconds)
+        return min(self.retry_backoff_seconds * (2**attempt), self.max_retry_after_seconds)

@@ -235,6 +235,20 @@ class DailyScorecardTests(unittest.TestCase):
                     ingested_at=self.now - timedelta(minutes=5),
                 )
             )
+        authority_payload = {**payload, "onchain_authorities_observed": True}
+        self.store.append_event(
+            MarketEvent(
+                "authority-observation",
+                MarketEventType.ONCHAIN_STATE,
+                "solana",
+                instrument.instrument_id,
+                self.now - timedelta(minutes=4),
+                self.now - timedelta(minutes=4),
+                "solana-rpc-get-multiple-accounts-finalized-v1",
+                authority_payload,
+                ingested_at=self.now - timedelta(minutes=4),
+            )
+        )
         plan = ShadowIngestionPlan(
             "scorecard-plan",
             (ObservationJob("coinbase-products", "coinbase", "products"),),
@@ -263,11 +277,15 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(memecoin.discovered_tokens, 1)
         self.assertEqual(memecoin.latest_profile_observations, 1)
         self.assertEqual(memecoin.latest_pool_observations, 1)
+        self.assertEqual(memecoin.latest_authority_observations, 1)
         self.assertEqual(
             memecoin.latest_profile_observed_at, self.now - timedelta(minutes=5)
         )
         self.assertEqual(
             memecoin.latest_pool_observed_at, self.now - timedelta(minutes=5)
+        )
+        self.assertEqual(
+            memecoin.latest_authority_observed_at, self.now - timedelta(minutes=4)
         )
         self.assertEqual(memecoin.blocked_unverified_tokens, 1)
         self.assertEqual(memecoin.safety_eligible_tokens, 0)
@@ -275,7 +293,6 @@ class DailyScorecardTests(unittest.TestCase):
             memecoin.missing_hard_gates,
             (
                 "holder concentration",
-                "onchain authorities",
                 "round-trip simulation",
                 "transfer behavior",
             ),
@@ -287,6 +304,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("Memecoin shadow research", markdown)
         self.assertIn("Recorded public discoveries", markdown)
         self.assertIn("Most recent pool snapshot", markdown)
+        self.assertIn("finalized authority observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
