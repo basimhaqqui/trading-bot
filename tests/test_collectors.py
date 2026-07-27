@@ -34,6 +34,8 @@ class FakeSolanaTransport:
 
     def call(self, method, params):
         self.calls.append((method, params))
+        if method in self.response:
+            return self.response[method]
         return self.response
 
 
@@ -247,6 +249,63 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(event.payload["transfer_behavior_observed"])
         self.assertIn("transfer_behavior_unobserved", event.payload["safety_reasons"])
         self.assertEqual(event.payload["safety_status"], "blocked_unverified")
+
+    def test_solana_holder_concentration_is_finalized_and_remains_blocked(self):
+        address = "11111111111111111111111111111111"
+        transport = FakeSolanaTransport(
+            {
+                "getTokenLargestAccounts": {
+                    "result": {
+                        "context": {"slot": 126},
+                        "value": [{"amount": "700"}, {"amount": "200"}],
+                    }
+                },
+                "getTokenSupply": {
+                    "result": {"context": {"slot": 126}, "value": {"amount": "1000"}}
+                },
+            }
+        )
+
+        batch = SolanaMintAuthorityCollector(transport).collect_holder_concentrations(
+            (address,), collected_at=self.collected
+        )
+
+        self.assertEqual(
+            transport.calls,
+            [
+                ("getTokenLargestAccounts", [address, {"commitment": "finalized"}]),
+                ("getTokenSupply", [address, {"commitment": "finalized"}]),
+            ],
+        )
+        event = batch.events[0]
+        self.assertEqual(event.source, "solana-rpc-token-holder-concentration-finalized-v1")
+        self.assertTrue(event.payload["holder_concentration_observed"])
+        self.assertEqual(event.payload["top_holder_share_bps"], 7000)
+        self.assertEqual(event.payload["top_twenty_holder_share_bps"], 9000)
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
+        self.assertIn("round_trip_simulation_unobserved", event.payload["safety_reasons"])
+        self.assertFalse(event.payload["wallet_or_transaction_authority"])
+
+    def test_solana_holder_concentration_fails_closed_on_slot_mismatch(self):
+        address = "11111111111111111111111111111111"
+        transport = FakeSolanaTransport(
+            {
+                "getTokenLargestAccounts": {
+                    "result": {"context": {"slot": 126}, "value": [{"amount": "700"}]}
+                },
+                "getTokenSupply": {
+                    "result": {"context": {"slot": 127}, "value": {"amount": "1000"}}
+                },
+            }
+        )
+
+        event = SolanaMintAuthorityCollector(transport).collect_holder_concentrations(
+            (address,), collected_at=self.collected
+        ).events[0]
+
+        self.assertFalse(event.payload["holder_concentration_observed"])
+        self.assertIsNone(event.payload["top_holder_share_bps"])
+        self.assertIn("holder_concentration_unobserved", event.payload["safety_reasons"])
 
     def test_kalshi_contract_trades_and_book_preserve_availability(self):
         transport = FakeTransport(

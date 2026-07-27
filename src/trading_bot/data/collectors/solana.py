@@ -23,6 +23,8 @@ class SolanaMintAuthorityCollector:
     venue = "solana"
     RPC_URL = "https://api.mainnet-beta.solana.com"
     RPC_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/getmultipleaccounts"
+    LARGEST_ACCOUNTS_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/gettokenlargestaccounts"
+    TOKEN_SUPPLY_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/gettokensupply"
     TOKEN_DOCUMENTATION_URL = "https://solana.com/docs/tokens/basics"
     SOLANA_CHAIN = "solana"
     MAX_ADDRESSES = 25
@@ -61,7 +63,7 @@ class SolanaMintAuthorityCollector:
         self.transport = transport or ReadOnlyJsonRpcTransport(
             self.RPC_URL,
             "api.mainnet-beta.solana.com",
-            frozenset({"getMultipleAccounts"}),
+            frozenset({"getMultipleAccounts", "getTokenLargestAccounts", "getTokenSupply"}),
         )
 
     def collect_mint_authorities(
@@ -109,6 +111,106 @@ class SolanaMintAuthorityCollector:
                 "finalized_slot": context["slot"],
                 "wallet_or_transaction_authority": False,
             },
+        )
+
+    def collect_holder_concentrations(
+        self,
+        token_addresses: tuple[str, ...],
+        *,
+        collected_at: datetime | None = None,
+    ) -> CollectionBatch:
+        """Record bounded finalized holder concentration without identifying holders.
+
+        The two documented RPC reads must report the same finalized slot before
+        concentration is marked observed. This avoids presenting a supply and
+        holder list from different ledger states as a single snapshot.
+        """
+        if not token_addresses or len(token_addresses) > self.MAX_ADDRESSES:
+            raise ValueError(f"token_addresses must contain 1 to {self.MAX_ADDRESSES} addresses")
+        if len(set(token_addresses)) != len(token_addresses):
+            raise ValueError("token_addresses must be unique")
+        if any(not _is_solana_pubkey(address) for address in token_addresses):
+            raise ValueError("token_addresses must be base58 Solana public keys")
+        received_at = require_aware(collected_at, "collected_at") if collected_at else utc_now()
+        events = tuple(
+            self._holder_concentration_event(address, received_at) for address in token_addresses
+        )
+        return CollectionBatch(
+            self.venue,
+            events=events,
+            metadata={
+                "requested_addresses": len(token_addresses),
+                "wallet_or_transaction_authority": False,
+            },
+        )
+
+    def _holder_concentration_event(
+        self, token_address: str, received_at: datetime
+    ) -> MarketEvent:
+        largest_response = self.transport.call(
+            "getTokenLargestAccounts", [token_address, {"commitment": "finalized"}]
+        )
+        supply_response = self.transport.call(
+            "getTokenSupply", [token_address, {"commitment": "finalized"}]
+        )
+        largest = _parse_largest_accounts(largest_response)
+        supply = _parse_token_supply(supply_response)
+        observed = (
+            largest is not None
+            and supply is not None
+            and largest.slot == supply.slot
+            and supply.amount > 0
+            and largest.top_amount <= supply.amount
+            and sum(largest.amounts) <= supply.amount
+        )
+        top_share_bps = (
+            largest.top_amount * 10_000 // supply.amount if observed and largest is not None and supply is not None else None
+        )
+        top_twenty_share_bps = (
+            sum(largest.amounts) * 10_000 // supply.amount
+            if observed and largest is not None and supply is not None
+            else None
+        )
+        reasons = [
+            "onchain_authorities_unobserved",
+            "transfer_behavior_unobserved",
+            "round_trip_simulation_unobserved",
+        ]
+        if not observed:
+            reasons.insert(1, "holder_concentration_unobserved")
+        payload = {
+            "chain_id": self.SOLANA_CHAIN,
+            "token_address": token_address,
+            "finalized_slot": largest.slot if observed and largest is not None else None,
+            "largest_accounts_finalized_slot": largest.slot if largest is not None else None,
+            "supply_finalized_slot": supply.slot if supply is not None else None,
+            "holder_concentration_observed": observed,
+            "reported_largest_accounts": len(largest.amounts) if largest is not None else 0,
+            "top_holder_share_bps": top_share_bps,
+            "top_twenty_holder_share_bps": top_twenty_share_bps,
+            "source_methods": ("getTokenLargestAccounts", "getTokenSupply"),
+            "largest_accounts_documentation_url": self.LARGEST_ACCOUNTS_DOCUMENTATION_URL,
+            "token_supply_documentation_url": self.TOKEN_SUPPLY_DOCUMENTATION_URL,
+            "observation_received_at": received_at.isoformat(),
+            "safety_status": "blocked_unverified",
+            "safety_reasons": tuple(reasons),
+            "wallet_or_transaction_authority": False,
+            "forecast_created": False,
+            "shadow_intent_created": False,
+        }
+        return MarketEvent(
+            stable_event_id(
+                "solana:holder-concentration-observation",
+                {"token_address": token_address, "payload": payload},
+            ),
+            MarketEventType.ONCHAIN_STATE,
+            self.venue,
+            f"dexscreener:memecoin:{self.SOLANA_CHAIN}:{token_address}",
+            received_at,
+            received_at,
+            "solana-rpc-token-holder-concentration-finalized-v1",
+            payload,
+            ingested_at=received_at,
         )
 
     def _authority_event(
@@ -234,6 +336,65 @@ class _MintAccountObservation:
     non_transferable_active: bool
     transfer_fee_config_active: bool
     default_account_frozen: bool
+
+
+@dataclass(frozen=True)
+class _LargestAccountsObservation:
+    slot: int
+    amounts: tuple[int, ...]
+
+    @property
+    def top_amount(self) -> int:
+        return max(self.amounts, default=0)
+
+
+@dataclass(frozen=True)
+class _TokenSupplyObservation:
+    slot: int
+    amount: int
+
+
+def _parse_largest_accounts(response: Mapping[str, object]) -> _LargestAccountsObservation | None:
+    result = response.get("result")
+    if not isinstance(result, Mapping):
+        return None
+    context = result.get("context")
+    values = result.get("value")
+    if not isinstance(context, Mapping) or not isinstance(context.get("slot"), int):
+        return None
+    if not isinstance(values, list) or not values:
+        return None
+    amounts: list[int] = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            return None
+        amount = _parse_nonnegative_amount(value.get("amount"))
+        if amount is None:
+            return None
+        amounts.append(amount)
+    return _LargestAccountsObservation(context["slot"], tuple(amounts))
+
+
+def _parse_token_supply(response: Mapping[str, object]) -> _TokenSupplyObservation | None:
+    result = response.get("result")
+    if not isinstance(result, Mapping):
+        return None
+    context = result.get("context")
+    value = result.get("value")
+    if not isinstance(context, Mapping) or not isinstance(context.get("slot"), int):
+        return None
+    if not isinstance(value, Mapping):
+        return None
+    amount = _parse_nonnegative_amount(value.get("amount"))
+    if amount is None:
+        return None
+    return _TokenSupplyObservation(context["slot"], amount)
+
+
+def _parse_nonnegative_amount(value: object) -> int | None:
+    if not isinstance(value, str) or not value.isdecimal():
+        return None
+    return int(value)
 
 
 def _parse_mint_account(raw_account: object) -> _MintAccountObservation | None:

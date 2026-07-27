@@ -43,11 +43,11 @@ class ReadOnlyHttpTransportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             transport.get_json("//evil.example/steal")
 
-    def test_json_rpc_transport_only_allows_explicit_account_reads(self):
+    def test_json_rpc_transport_only_allows_explicit_read_methods(self):
         transport = ReadOnlyJsonRpcTransport(
             "https://api.mainnet-beta.solana.com",
             "api.mainnet-beta.solana.com",
-            frozenset({"getMultipleAccounts"}),
+            frozenset({"getMultipleAccounts", "getTokenLargestAccounts", "getTokenSupply"}),
         )
         with self.assertRaisesRegex(ValueError, "not allowed"):
             transport.call("sendTransaction", [])
