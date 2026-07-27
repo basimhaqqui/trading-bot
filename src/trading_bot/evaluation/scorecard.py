@@ -30,7 +30,11 @@ from trading_bot.evaluation.reporting import (
     EdgeStatus,
     EvaluationGateConfig,
 )
-from trading_bot.evaluation.shadow import FastPredictionEligibilitySummary, ShadowResearchRunner
+from trading_bot.evaluation.shadow import (
+    FastPredictionEligibilitySummary,
+    IntradayMomentumEligibilitySummary,
+    ShadowResearchRunner,
+)
 from trading_bot.evaluation.scoring import ForecastScore
 from trading_bot.ingestion.health import IngestionHealthReport, ingestion_health
 from trading_bot.ingestion.plan import ShadowIngestionPlan
@@ -187,6 +191,7 @@ class DailyScorecard:
     strategy_outcome_queues: tuple[StrategyOutcomeQueue, ...]
     prediction_calibration: PredictionCalibrationReadiness
     fast_prediction_eligibility: FastPredictionEligibilitySummary
+    intraday_momentum_eligibility: IntradayMomentumEligibilitySummary
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -323,7 +328,9 @@ def build_daily_scorecard(
         as_of,
     )
     prediction_calibration = _prediction_calibration_readiness(path, as_of)
-    fast_prediction_eligibility = ShadowResearchRunner(store, audit).fast_prediction_eligibility(
+    shadow_research = ShadowResearchRunner(store, audit)
+    fast_prediction_eligibility = shadow_research.fast_prediction_eligibility(as_of=as_of)
+    intraday_momentum_eligibility = shadow_research.intraday_momentum_eligibility(
         as_of=as_of
     )
     alerts = _build_alerts(
@@ -343,6 +350,7 @@ def build_daily_scorecard(
         strategy_outcome_queues,
         prediction_calibration,
         fast_prediction_eligibility,
+        intraday_momentum_eligibility,
         health,
         alerts,
     )
@@ -393,6 +401,13 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"executable={scorecard.fast_prediction_eligibility.executable_markets} "
             f"unforecasted_events={scorecard.fast_prediction_eligibility.unforecasted_event_candidates} "
             f"selected={scorecard.fast_prediction_eligibility.selected_events}"
+        ),
+        (
+            "intraday_momentum_eligibility: "
+            f"observed={scorecard.intraday_momentum_eligibility.observed_instruments} "
+            f"fresh={scorecard.intraday_momentum_eligibility.fresh_instruments} "
+            f"lookback={scorecard.intraday_momentum_eligibility.adequate_lookback_instruments} "
+            f"signals={scorecard.intraday_momentum_eligibility.signal_instruments}"
         ),
         (
             "memecoin_research: "
@@ -1061,6 +1076,21 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"**{fast.executable_markets}** executable → "
                 f"**{fast.unforecasted_event_candidates}** unforecasted events → "
                 f"**{fast.selected_events}** selected."
+            ),
+        ]
+    )
+    intraday = scorecard.intraday_momentum_eligibility
+    lines.extend(
+        [
+            "",
+            "### Fifteen-minute crypto momentum eligibility",
+            "",
+            (
+                "Current, fixed-parameter funnel (not evidence): "
+                f"**{intraday.observed_instruments}** observed instruments → "
+                f"**{intraday.fresh_instruments}** fresh → "
+                f"**{intraday.adequate_lookback_instruments}** with eight completed bars → "
+                f"**{intraday.signal_instruments}** current fixed-threshold signal(s)."
             ),
         ]
     )

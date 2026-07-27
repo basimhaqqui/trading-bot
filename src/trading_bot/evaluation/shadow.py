@@ -90,6 +90,14 @@ class FastPredictionEligibilitySummary:
 
 
 @dataclass(frozen=True)
+class IntradayMomentumEligibilitySummary:
+    observed_instruments: int
+    fresh_instruments: int
+    adequate_lookback_instruments: int
+    signal_instruments: int
+
+
+@dataclass(frozen=True)
 class ShadowResearchConfig:
     max_prediction_forecasts: int = 25
     max_prediction_history: int = 250
@@ -559,6 +567,74 @@ class ShadowResearchRunner:
         as_of = require_aware(as_of, "as_of")
         _, summary = self._fast_prediction_selection(as_of)
         return summary
+
+    def intraday_momentum_eligibility(
+        self, *, as_of: datetime
+    ) -> IntradayMomentumEligibilitySummary:
+        """Return the current fixed-parameter crypto funnel without recording forecasts."""
+        as_of = require_aware(as_of, "as_of")
+        specialist = CryptoIntradayMomentumSpecialist()
+        observed = 0
+        fresh = 0
+        adequate = 0
+        candidates: list[_Candidate] = []
+        for instrument in self.store.instruments(asset_class=AssetClass.CRYPTO):
+            bars = self.store.events_available_at(
+                as_of,
+                instrument_id=instrument.instrument_id,
+                event_type=MarketEventType.BAR,
+            )
+            latest_by_bar = {}
+            for event in bars:
+                if _finite_float(event.payload.get("granularity_seconds")) != (
+                    specialist.config.granularity_seconds
+                ):
+                    continue
+                existing = latest_by_bar.get(event.event_time)
+                if existing is None or (event.available_at, event.event_id) > (
+                    existing.available_at,
+                    existing.event_id,
+                ):
+                    latest_by_bar[event.event_time] = event
+            if not latest_by_bar:
+                continue
+            observed += 1
+            latest = max(
+                latest_by_bar.values(),
+                key=lambda item: (item.event_time, item.available_at, item.event_id),
+            )
+            if as_of - latest.available_at > specialist.config.max_receipt_age:
+                continue
+            fresh += 1
+            if len(latest_by_bar) < specialist.config.lookback_bars:
+                continue
+            adequate += 1
+            candidates.append(
+                _Candidate(
+                    specialist,
+                    instrument.instrument_id,
+                    (),
+                    latest.available_at,
+                )
+            )
+        replay = ReplayEngine(self.store)
+        signals = sum(
+            bool(
+                replay.run(
+                    candidate.specialist,
+                    instrument_id=candidate.instrument_id,
+                    related_instrument_ids=candidate.related_instrument_ids,
+                    decision_times=(candidate.decision_time,),
+                ).forecasts
+            )
+            for candidate in candidates
+        )
+        return IntradayMomentumEligibilitySummary(
+            observed,
+            fresh,
+            adequate,
+            signals,
+        )
 
     def _fast_prediction_selection(
         self, as_of: datetime
