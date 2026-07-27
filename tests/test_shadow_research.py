@@ -464,7 +464,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v1"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v2"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 

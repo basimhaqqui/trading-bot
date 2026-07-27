@@ -10,7 +10,7 @@ from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.hypotheses import (
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
     PREDICTION_CALIBRATION_HYPOTHESIS,
-    PREDICTION_FAST_SETTLEMENT_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -246,10 +246,10 @@ class FastPredictionSettlementConfig:
 class FastPredictionSettlementSpecialist:
     """Pre-registered, unadjusted short-horizon Kalshi calibration baseline."""
 
-    agent_id = "prediction-market-fast-settlement-baseline-v1"
-    model_version = "baseline-v1"
+    agent_id = "prediction-market-fast-settlement-baseline-v2"
+    model_version = "baseline-v2"
     supported_asset_classes = frozenset({AssetClass.PREDICTION})
-    hypothesis = PREDICTION_FAST_SETTLEMENT_HYPOTHESIS
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS
 
     def __init__(self, config: FastPredictionSettlementConfig | None = None) -> None:
         self.config = config or FastPredictionSettlementConfig()
