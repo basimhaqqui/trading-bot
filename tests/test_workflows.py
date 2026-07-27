@@ -35,6 +35,12 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertNotIn('if [[ "$EVENT_NAME" == "workflow_dispatch"', workflow)
         self.assertIn("retention-days: 7", workflow)
 
+    def test_deployment_template_matches_the_live_shadow_workflow(self):
+        workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+        deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
+
+        self.assertEqual(deployment, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
