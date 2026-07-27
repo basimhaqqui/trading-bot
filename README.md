@@ -238,9 +238,10 @@ operations sandbox, not an option strategy or proof of profitable volatility for
 
 The scheduled shadow plan collects at most 25 public Solana token-profile discoveries per
 cycle from Dexscreener. For that bounded discovery set it also makes one documented,
-read-only batch request for the most-liquid public pool snapshot per token. Both the raw
-profile and raw pool payload retain their exact receipt time. These observations cannot
-create a safety snapshot, forecast, shadow intent, wallet, RPC connection, signed
+read-only batch request for the most-liquid public pool snapshot per token and at most 25
+finalized mint-authority account reads. The authority reader is restricted to Solana's
+documented `getMultipleAccounts` method, and rejects transaction or signing methods. These
+observations cannot create a safety snapshot, forecast, shadow intent, wallet, signed
 transaction, or venue order. Every observation is explicitly recorded as
 `blocked_unverified` until separate, point-in-time authority, holder-concentration,
 transfer-behavior, and simulated round-trip evidence exists. The policy's authority and

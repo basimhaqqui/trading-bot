@@ -9,6 +9,12 @@
       "include_pool_observations": true
     },
     {
+      "job_id": "solana-finalized-mint-authorities",
+      "venue": "solana",
+      "dataset": "mint_authorities",
+      "limit": 25
+    },
+    {
       "job_id": "kalshi-open-markets",
       "venue": "kalshi",
       "dataset": "markets",

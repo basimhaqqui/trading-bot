@@ -3,7 +3,11 @@ from email.message import Message
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 
-from trading_bot.data.http import ReadOnlyHttpError, ReadOnlyHttpTransport
+from trading_bot.data.http import (
+    ReadOnlyHttpError,
+    ReadOnlyHttpTransport,
+    ReadOnlyJsonRpcTransport,
+)
 
 
 class ReadOnlyHttpTransportTests(unittest.TestCase):
@@ -38,6 +42,21 @@ class ReadOnlyHttpTransportTests(unittest.TestCase):
             transport.get_json("https://evil.example/steal")
         with self.assertRaises(ValueError):
             transport.get_json("//evil.example/steal")
+
+    def test_json_rpc_transport_only_allows_explicit_account_reads(self):
+        transport = ReadOnlyJsonRpcTransport(
+            "https://api.mainnet-beta.solana.com",
+            "api.mainnet-beta.solana.com",
+            frozenset({"getMultipleAccounts"}),
+        )
+        with self.assertRaisesRegex(ValueError, "not allowed"):
+            transport.call("sendTransaction", [])
+        with self.assertRaises(ValueError):
+            ReadOnlyJsonRpcTransport(
+                "https://api.mainnet-beta.solana.com",
+                "api.mainnet-beta.solana.com",
+                frozenset({"sendTransaction"}),
+            )
 
     @patch("trading_bot.data.http.build_opener")
     def test_array_response_remains_bounded_to_read_only_get(self, build_opener):

@@ -1,4 +1,5 @@
 import unittest
+import base64
 from datetime import datetime, timedelta, timezone
 
 from trading_bot.core.schemas import AssetClass, MarketEventType
@@ -8,6 +9,7 @@ from trading_bot.data.collectors.coinbase import CoinbaseCollector
 from trading_bot.data.collectors.dexscreener import DexscreenerCollector
 from trading_bot.data.collectors.common import CollectorPayloadError
 from trading_bot.data.collectors.kalshi import KalshiCollector
+from trading_bot.data.collectors.solana import SolanaMintAuthorityCollector
 from trading_bot.data.schemas import DiagnosticCode
 
 
@@ -23,6 +25,16 @@ class FakeTransport:
     def get_json_array(self, path, *, query=None):
         self.calls.append((path, query or {}))
         return self.responses[path]
+
+
+class FakeSolanaTransport:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    def call(self, method, params):
+        self.calls.append((method, params))
+        return self.response
 
 
 class CollectorTests(unittest.TestCase):
@@ -118,6 +130,42 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(pool_event.payload["forecast_created"])
         self.assertFalse(pool_event.payload["shadow_intent_created"])
         self.assertEqual(batch.metadata["pool_observations_seen"], 1)
+
+    def test_solana_finalized_authority_observation_stays_safety_blocked(self):
+        address = "11111111111111111111111111111111"
+        mint = bytearray(82)
+        mint[0:4] = (0).to_bytes(4, "little")
+        mint[46:50] = (1).to_bytes(4, "little")
+        transport = FakeSolanaTransport(
+            {
+                "result": {
+                    "context": {"slot": 123},
+                    "value": [
+                        {
+                            "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                            "data": [base64.b64encode(mint).decode("ascii"), "base64"],
+                        }
+                    ],
+                }
+            }
+        )
+
+        batch = SolanaMintAuthorityCollector(transport).collect_mint_authorities(
+            (address,), collected_at=self.collected
+        )
+
+        self.assertEqual(
+            transport.calls,
+            [("getMultipleAccounts", [[address], {"commitment": "finalized", "encoding": "base64"}])],
+        )
+        event = batch.events[0]
+        self.assertEqual(event.venue, "solana")
+        self.assertTrue(event.payload["onchain_authorities_observed"])
+        self.assertFalse(event.payload["mint_authority_active"])
+        self.assertTrue(event.payload["freeze_authority_active"])
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
+        self.assertIn("freeze_authority_active", event.payload["safety_reasons"])
+        self.assertFalse(event.payload["wallet_or_transaction_authority"])
 
     def test_kalshi_contract_trades_and_book_preserve_availability(self):
         transport = FakeTransport(
