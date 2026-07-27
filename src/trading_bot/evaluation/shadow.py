@@ -498,23 +498,13 @@ class ShadowResearchRunner:
                 current.event_id,
             ):
                 latest_books[book.instrument_id] = book
-        latest_rules: dict[str, MarketEvent] = {}
+        rules_by_instrument: dict[str, list[MarketEvent]] = {}
         for event in self.store.events_available_at(
             as_of, event_type=MarketEventType.CONTRACT_RULE
         ):
             if event.instrument_id not in instrument_ids:
                 continue
-            current = latest_rules.get(event.instrument_id)
-            if current is None or (
-                event.available_at,
-                event.event_time,
-                event.event_id,
-            ) > (
-                current.available_at,
-                current.event_time,
-                current.event_id,
-            ):
-                latest_rules[event.instrument_id] = event
+            rules_by_instrument.setdefault(event.instrument_id, []).append(event)
         settled_by_event: dict[str, list[MarketEvent]] = {}
         open_by_event: dict[str, tuple[datetime, Instrument, float, float]] = {}
         for instrument in instruments:
@@ -533,8 +523,22 @@ class ShadowResearchRunner:
                 settled_by_event.setdefault(event_key, []).append(settlement)
                 continue
             book = latest_books.get(instrument.instrument_id)
-            rule = latest_rules.get(instrument.instrument_id)
-            if book is None or rule is None:
+            if book is None:
+                continue
+            eligible_rules = [
+                rule
+                for rule in rules_by_instrument.get(instrument.instrument_id, ())
+                if rule.available_at <= book.available_at
+            ]
+            rule = (
+                max(
+                    eligible_rules,
+                    key=lambda item: (item.available_at, item.event_time, item.event_id),
+                )
+                if eligible_rules
+                else None
+            )
+            if rule is None:
                 continue
             decision_time = book.available_at
             if as_of - decision_time > specialist.config.max_book_age:

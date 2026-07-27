@@ -263,6 +263,51 @@ class ShadowResearchTests(unittest.TestCase):
             settlement_time + timedelta(minutes=5),
         )
 
+    def test_prediction_selection_never_uses_rule_after_book_availability(self):
+        market = Instrument(
+            "kalshi:prediction:LATE-RULE",
+            "kalshi",
+            "LATE-RULE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        book_time = self.now - timedelta(minutes=5)
+        for event in (
+            self.event(
+                "original-short-horizon-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "rules_primary": "Named public source.",
+                    "event_ticker": "LATE-RULE-EVENT",
+                    "occurrence_datetime": (self.now + timedelta(minutes=30)).isoformat(),
+                },
+                event_time=book_time - timedelta(minutes=1),
+            ),
+            self.event(
+                "book-before-rule-update",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=book_time,
+            ),
+            self.event(
+                "later-long-horizon-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "rules_primary": "Named public source.",
+                    "event_ticker": "LATE-RULE-EVENT",
+                    "occurrence_datetime": (self.now + timedelta(hours=2)).isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            ),
+        ):
+            self.store.append_event(event)
+
+        self.assertEqual(self.runner._prediction_candidates(self.now), [])
+
     def test_prediction_history_cap_balances_independent_events(self):
         self.add_prediction_history()
         occurrence = self.now - timedelta(hours=2)
