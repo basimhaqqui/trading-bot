@@ -7,6 +7,7 @@ BASELINE_PROPOSED_AT = datetime(2026, 7, 21, tzinfo=timezone.utc)
 PREDICTION_V3_PROPOSED_AT = datetime(2026, 7, 23, tzinfo=timezone.utc)
 PREDICTION_V4_PROPOSED_AT = datetime(2026, 7, 23, 1, 35, tzinfo=timezone.utc)
 CRYPTO_INTRADAY_PROPOSED_AT = datetime(2026, 7, 26, 11, 35, tzinfo=timezone.utc)
+CRYPTO_INTRADAY_V2_PROPOSED_AT = datetime(2026, 7, 27, 5, 57, tzinfo=timezone.utc)
 PREDICTION_FAST_V1_PROPOSED_AT = datetime(2026, 7, 26, 13, 10, tzinfo=timezone.utc)
 PREDICTION_FAST_V2_PROPOSED_AT = datetime(2026, 7, 27, tzinfo=timezone.utc)
 
@@ -239,6 +240,38 @@ CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS = Hypothesis(
 )
 
 
+CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS = Hypothesis(
+    hypothesis_id="crypto-intraday-momentum-baseline-v2",
+    family="crypto-intraday-momentum",
+    market=AssetClass.CRYPTO,
+    mechanism=(
+        "A fixed fraction of the average log return across the previous eight completed "
+        "fifteen-minute bars may persist into the next bar in continuously traded, liquid "
+        "crypto markets. To keep a market-wide outcome cluster independent while avoiding "
+        "ingestion-order selection, each target time is assigned before evaluation to one "
+        "fixed Coinbase symbol by a deterministic SHA-256 rule; an absent signal is not "
+        "replaced by another symbol."
+    ),
+    target="next completed fifteen-minute close-to-close return",
+    horizon="one fifteen-minute bar",
+    information_set=(
+        "the previous eight completed Coinbase fifteen-minute OHLCV bars",
+        "their original exchange timestamps and first observed availability",
+        "a fixed 0.25 shrinkage of average trailing log return",
+        "a fixed one percent absolute forecast cap",
+        "a fixed ten-symbol Coinbase universe",
+        "a target-time SHA-256 assignment to one universe symbol before signal evaluation",
+    ),
+    invalidation_conditions=(
+        "momentum forecasts do not beat a zero-return benchmark out of sample",
+        "results fail delayed or shuffled-prediction controls",
+        "market-wide blocks, serial dependence, or one instrument explain the result",
+        "returns do not survive fees, spread, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=CRYPTO_INTRADAY_V2_PROPOSED_AT,
+)
+
+
 BASELINE_HYPOTHESES = (
     PERPETUAL_FUNDING_HYPOTHESIS,
     OPTIONS_VOLATILITY_HYPOTHESIS,
@@ -248,6 +281,7 @@ BASELINE_HYPOTHESES = (
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
+    CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
 )
 
 
@@ -278,5 +312,8 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
     ),
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS.hypothesis_id: (
         "crypto-intraday-momentum-baseline",
+    ),
+    CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS.hypothesis_id: (
+        "crypto-intraday-momentum-baseline-v2",
     ),
 }

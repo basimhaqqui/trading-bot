@@ -1,5 +1,5 @@
 {
-  "version": "public-shadow-costs-v5",
+  "version": "public-shadow-costs-v6",
   "models": [
     {
       "model_id": "coinbase-advanced-retail-taker-round-trip-v1",
@@ -30,6 +30,18 @@
       "basis": "static_bps",
       "source_url": "https://help.coinbase.com/en/exchange/trading-and-funding/exchange-fees",
       "effective_date": "2026-07-26",
+      "fee_bps": 120.0,
+      "spread_bps": 20.0,
+      "slippage_bps": 20.0,
+      "latency_bps": 10.0
+    },
+    {
+      "model_id": "coinbase-advanced-retail-intraday-round-trip-v2",
+      "specialist_id": "crypto-intraday-momentum-baseline-v2",
+      "kind": "return",
+      "basis": "static_bps",
+      "source_url": "https://help.coinbase.com/en/exchange/trading-and-funding/exchange-fees",
+      "effective_date": "2026-07-27",
       "fee_bps": 120.0,
       "spread_bps": 20.0,
       "slippage_bps": 20.0,

@@ -52,6 +52,7 @@ Project build: `[##################] 18/18 (100%)`
 - Fail-closed handling for missing cost models, missing executable fields, and forecast types without defensible payoff mappings.
 - A fixed-parameter twenty-bar breakout specialist that only emits on completed bars with adequate volume and predicts one source bar ahead.
 - A fixed-parameter fifteen-minute crypto momentum specialist that uses eight completed bars, predicts exactly one bar ahead, and clusters every asset sharing a target time into one market-wide outcome.
+- A separately preregistered v2 of that intraday lane that assigns each target-time cluster to one fixed Coinbase symbol with SHA-256 before signal evaluation, so no result can depend on which instrument arrived last; it never substitutes another symbol when the assigned signal is absent.
 - Semantic candle deduplication that preserves first receipt time while storing later venue revisions as new immutable versions.
 - A host-pinned Alpaca paper client that cannot address the live Trading API host.
 - Read-only paper account, buying-power, position, and order synchronization.

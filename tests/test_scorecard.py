@@ -433,9 +433,12 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(funnel.fresh_instruments, 1)
         self.assertEqual(funnel.adequate_lookback_instruments, 1)
         self.assertEqual(funnel.signal_instruments, 1)
+        self.assertEqual(funnel.v2_assigned_instruments, 0)
+        self.assertEqual(funnel.v2_signal_instruments, 0)
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Fifteen-minute crypto momentum eligibility", markdown)
         self.assertIn("eight completed bars", markdown)
+        self.assertIn("v2 fixed-assignment funnel", markdown)
 
     def test_scorecard_separates_future_and_due_unscored_forecasts(self):
         self.append_public_run()

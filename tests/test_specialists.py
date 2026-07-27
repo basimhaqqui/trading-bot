@@ -5,7 +5,10 @@ from pathlib import Path
 
 from trading_bot.agents.base import ReplayContext
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
-from trading_bot.agents.crypto_momentum import CryptoIntradayMomentumSpecialist
+from trading_bot.agents.crypto_momentum import (
+    CryptoIntradayMomentumSpecialist,
+    CryptoIntradayMomentumV2Specialist,
+)
 from trading_bot.agents.option_volatility import OptionVolatilitySpecialist
 from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
@@ -847,6 +850,17 @@ class SpecialistTests(unittest.TestCase):
             CryptoRangeBreakoutSpecialist().evaluate(
                 ReplayContext(self.now, instrument, tuple(events))
             )
+        )
+
+    def test_intraday_v2_assigns_target_time_to_one_fixed_symbol(self):
+        target = datetime(2026, 7, 27, 6, 15, tzinfo=timezone.utc)
+        selected = CryptoIntradayMomentumV2Specialist.selected_symbol(target)
+
+        self.assertIn(
+            selected, CryptoIntradayMomentumV2Specialist.assignment_universe
+        )
+        self.assertEqual(
+            selected, CryptoIntradayMomentumV2Specialist.selected_symbol(target)
         )
 
 
