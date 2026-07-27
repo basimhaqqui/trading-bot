@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from datetime import datetime
+from time import sleep
 from typing import Mapping, Protocol
 
 from trading_bot.core.schemas import MarketEvent, MarketEventType
@@ -28,6 +29,10 @@ class SolanaMintAuthorityCollector:
     TOKEN_DOCUMENTATION_URL = "https://solana.com/docs/tokens/basics"
     SOLANA_CHAIN = "solana"
     MAX_ADDRESSES = 25
+    # Keep the bounded pair of finalized account reads paced on the shared
+    # public endpoint. This is operational backpressure only: it neither
+    # changes the selected addresses nor treats a partial observation as safe.
+    HOLDER_REQUEST_SPACING_SECONDS = 0.3
     TOKEN_PROGRAM_IDS = frozenset(
         {
             "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -132,12 +137,14 @@ class SolanaMintAuthorityCollector:
         if any(not _is_solana_pubkey(address) for address in token_addresses):
             raise ValueError("token_addresses must be base58 Solana public keys")
         received_at = require_aware(collected_at, "collected_at") if collected_at else utc_now()
-        events = tuple(
-            self._holder_concentration_event(address, received_at) for address in token_addresses
-        )
+        events = []
+        for index, address in enumerate(token_addresses):
+            events.append(self._holder_concentration_event(address, received_at))
+            if index + 1 < len(token_addresses):
+                sleep(self.HOLDER_REQUEST_SPACING_SECONDS)
         return CollectionBatch(
             self.venue,
-            events=events,
+            events=tuple(events),
             metadata={
                 "requested_addresses": len(token_addresses),
                 "wallet_or_transaction_authority": False,

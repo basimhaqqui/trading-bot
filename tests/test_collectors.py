@@ -1,6 +1,7 @@
 import unittest
 import base64
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from trading_bot.core.schemas import AssetClass, MarketEventType
 from trading_bot.data.collectors.alpaca import AlpacaOptionsCollector
@@ -285,6 +286,34 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(event.payload["safety_status"], "blocked_unverified")
         self.assertIn("round_trip_simulation_unobserved", event.payload["safety_reasons"])
         self.assertFalse(event.payload["wallet_or_transaction_authority"])
+
+    @patch("trading_bot.data.collectors.solana.sleep")
+    def test_solana_holder_reads_are_paced_without_widening_the_bound(self, sleep):
+        addresses = (
+            "11111111111111111111111111111111",
+            "22222222222222222222222222222222",
+        )
+        transport = FakeSolanaTransport(
+            {
+                "getTokenLargestAccounts": {
+                    "result": {
+                        "context": {"slot": 126},
+                        "value": [{"amount": "700"}],
+                    }
+                },
+                "getTokenSupply": {
+                    "result": {"context": {"slot": 126}, "value": {"amount": "1000"}}
+                },
+            }
+        )
+
+        batch = SolanaMintAuthorityCollector(transport).collect_holder_concentrations(
+            addresses, collected_at=self.collected
+        )
+
+        self.assertEqual(len(batch.events), 2)
+        self.assertEqual(len(transport.calls), 4)
+        sleep.assert_called_once_with(SolanaMintAuthorityCollector.HOLDER_REQUEST_SPACING_SECONDS)
 
     def test_solana_holder_concentration_fails_closed_on_slot_mismatch(self):
         address = "11111111111111111111111111111111"
