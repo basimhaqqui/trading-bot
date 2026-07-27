@@ -263,6 +263,51 @@ class ShadowResearchTests(unittest.TestCase):
             settlement_time + timedelta(minutes=5),
         )
 
+    def test_prediction_selection_never_uses_rule_after_book_availability(self):
+        market = Instrument(
+            "kalshi:prediction:LATE-RULE",
+            "kalshi",
+            "LATE-RULE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        book_time = self.now - timedelta(minutes=5)
+        for event in (
+            self.event(
+                "original-short-horizon-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "rules_primary": "Named public source.",
+                    "event_ticker": "LATE-RULE-EVENT",
+                    "occurrence_datetime": (self.now + timedelta(minutes=30)).isoformat(),
+                },
+                event_time=book_time - timedelta(minutes=1),
+            ),
+            self.event(
+                "book-before-rule-update",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=book_time,
+            ),
+            self.event(
+                "later-long-horizon-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "rules_primary": "Named public source.",
+                    "event_ticker": "LATE-RULE-EVENT",
+                    "occurrence_datetime": (self.now + timedelta(hours=2)).isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            ),
+        ):
+            self.store.append_event(event)
+
+        self.assertEqual(self.runner._prediction_candidates(self.now), [])
+
     def test_prediction_history_cap_balances_independent_events(self):
         self.add_prediction_history()
         occurrence = self.now - timedelta(hours=2)
@@ -469,6 +514,64 @@ class ShadowResearchTests(unittest.TestCase):
             forecast.specialist_id, "prediction-market-fast-settlement-baseline-v3"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
+
+    def test_fast_prediction_selection_never_uses_rule_after_book_availability(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-LATE-RULE",
+            "kalshi",
+            "FAST-LATE-RULE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        book_time = self.now - timedelta(minutes=5)
+        expiration = self.now + timedelta(hours=1)
+        for event in (
+            self.event(
+                "fast-original-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-LATE-RULE-EVENT",
+                    "status": "active",
+                    "can_close_early": True,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                },
+                event_time=book_time - timedelta(minutes=1),
+            ),
+            self.event(
+                "fast-book-before-rule-update",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=book_time,
+            ),
+            self.event(
+                "fast-later-rule-update",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-LATE-RULE-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            ),
+        ):
+            self.store.append_event(event)
+
+        candidates = self.runner._fast_prediction_candidates(self.now)
+        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
+
+        self.assertEqual(candidates, [])
+        self.assertEqual(eligibility.paired_markets, 1)
+        self.assertEqual(eligibility.fresh_book_markets, 1)
+        self.assertEqual(eligibility.active_markets, 1)
+        self.assertEqual(eligibility.fixed_close_markets, 0)
+        self.assertEqual(eligibility.selected_events, 0)
 
     def test_fast_prediction_rejects_settlement_after_recorded_deadline(self):
         market = Instrument(
