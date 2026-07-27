@@ -337,6 +337,62 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(lane.scores, 1)
         self.assertEqual(lane.latest_forecast_at, generated_at)
 
+    def test_scorecard_reports_fixed_intraday_momentum_funnel(self):
+        self.append_public_run()
+        instrument = Instrument(
+            "coinbase:product:BTC-USD",
+            "coinbase",
+            "BTC-USD",
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        available_at = self.now - timedelta(minutes=5)
+        for index in range(8):
+            close = 100 + index
+            event_time = self.now - timedelta(minutes=15 * (8 - index))
+            self.store.append_event(
+                MarketEvent(
+                    f"btc-fifteen-minute-{index}",
+                    MarketEventType.BAR,
+                    "coinbase",
+                    instrument.instrument_id,
+                    event_time,
+                    available_at,
+                    "fixture",
+                    {
+                        "open": close - 0.5,
+                        "high": close + 0.5,
+                        "low": close - 1,
+                        "close": close,
+                        "volume": 10 + index,
+                        "granularity_seconds": 900,
+                    },
+                    ingested_at=available_at,
+                )
+            )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        funnel = scorecard.intraday_momentum_eligibility
+        self.assertEqual(funnel.observed_instruments, 1)
+        self.assertEqual(funnel.fresh_instruments, 1)
+        self.assertEqual(funnel.adequate_lookback_instruments, 1)
+        self.assertEqual(funnel.signal_instruments, 1)
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("Fifteen-minute crypto momentum eligibility", markdown)
+        self.assertIn("eight completed bars", markdown)
+
     def test_scorecard_separates_future_and_due_unscored_forecasts(self):
         self.append_public_run()
         plan = ShadowIngestionPlan(
