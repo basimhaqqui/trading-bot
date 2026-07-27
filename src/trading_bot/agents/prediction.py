@@ -347,18 +347,26 @@ class FastPredictionSettlementV3Specialist(FastPredictionSettlementSpecialist):
 
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
-    event_ticker = settlement.payload.get("event_ticker")
+    event_ticker = prediction_settlement_event_ticker(settlement)
     if not isinstance(occurrence, str) or not occurrence:
         raw_market = settlement.payload.get("raw_market")
         if isinstance(raw_market, dict):
             occurrence = raw_market.get("occurrence_datetime")
-            if not isinstance(event_ticker, str) or not event_ticker:
-                event_ticker = raw_market.get("event_ticker")
     if isinstance(event_ticker, str) and event_ticker:
         return f"event:{event_ticker}"
     if isinstance(occurrence, str) and occurrence:
         return f"occurrence:{occurrence}"
     return f"instrument:{settlement.instrument_id}"
+
+
+def prediction_settlement_event_ticker(settlement: MarketEvent) -> str | None:
+    """Return the venue event identity attached to a finalized settlement, if present."""
+    event_ticker = settlement.payload.get("event_ticker")
+    if not isinstance(event_ticker, str) or not event_ticker:
+        raw_market = settlement.payload.get("raw_market")
+        if isinstance(raw_market, dict):
+            event_ticker = raw_market.get("event_ticker")
+    return event_ticker if isinstance(event_ticker, str) and event_ticker else None
 
 
 def prediction_settlement_occurrence_time(
