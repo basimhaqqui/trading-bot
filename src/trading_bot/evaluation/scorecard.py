@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from trading_bot.agents.hypotheses import (
     BASELINE_HYPOTHESES,
@@ -36,7 +36,7 @@ from trading_bot.evaluation.shadow import (
     ShadowResearchRunner,
 )
 from trading_bot.evaluation.scoring import ForecastScore
-from trading_bot.ingestion.health import IngestionHealthReport, ingestion_health
+from trading_bot.ingestion.health import JobHealth, IngestionHealthReport, ingestion_health
 from trading_bot.ingestion.plan import ShadowIngestionPlan
 from trading_bot.execution.operations import PaperControlStore, PaperExecutionLedger
 
@@ -679,13 +679,13 @@ def _build_alerts(
                 f"{len(unhealthy)} ingestion job(s) need attention: {', '.join(unhealthy)}",
             )
         )
-    waiting = [job.job_id for job in health.jobs if job.status == "waiting_credentials"]
+    waiting = [job for job in health.jobs if job.status == "waiting_credentials"]
     if waiting:
         alerts.append(
             OperationalAlert(
                 "market_data_credentials_waiting",
                 AlertSeverity.WARNING,
-                f"{len(waiting)} Alpaca stock/options job(s) will activate after read-only secrets are set",
+                _waiting_credentials_message(waiting),
             )
         )
     economic_candidates = [
@@ -752,6 +752,29 @@ def _build_alerts(
             )
         )
     return tuple(alerts)
+
+
+def _waiting_credentials_message(waiting: Sequence[JobHealth]) -> str:
+    """Describe optional read-only feeds without conflating their activation needs."""
+    by_venue: dict[str, int] = {}
+    for job in waiting:
+        venue = job.venue
+        by_venue[venue] = by_venue.get(venue, 0) + 1
+    descriptions: list[str] = []
+    for venue, count in sorted(by_venue.items()):
+        if venue == "alpaca":
+            descriptions.append(f"{count} Alpaca stock/options job(s)")
+        elif venue == "solana":
+            descriptions.append(
+                f"{count} Solana safety-observation job(s) "
+                "(memecoin research remains blocked-unverified)"
+            )
+        else:
+            descriptions.append(f"{count} {venue} job(s)")
+    return (
+        f"{len(waiting)} read-only collection job(s) await activation: "
+        f"{'; '.join(descriptions)}"
+    )
 
 
 def _scorecard_status(alerts: tuple[OperationalAlert, ...]) -> ScorecardStatus:
