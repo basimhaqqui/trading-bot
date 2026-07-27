@@ -417,7 +417,9 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"observed={scorecard.intraday_momentum_eligibility.observed_instruments} "
             f"fresh={scorecard.intraday_momentum_eligibility.fresh_instruments} "
             f"lookback={scorecard.intraday_momentum_eligibility.adequate_lookback_instruments} "
-            f"signals={scorecard.intraday_momentum_eligibility.signal_instruments}"
+            f"signals={scorecard.intraday_momentum_eligibility.signal_instruments} "
+            f"v2_assigned={scorecard.intraday_momentum_eligibility.v2_assigned_instruments} "
+            f"v2_signals={scorecard.intraday_momentum_eligibility.v2_signal_instruments}"
         ),
         (
             "memecoin_research: "
@@ -1139,6 +1141,11 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"**{intraday.fresh_instruments}** fresh → "
                 f"**{intraday.adequate_lookback_instruments}** with eight completed bars → "
                 f"**{intraday.signal_instruments}** current fixed-threshold signal(s)."
+            ),
+            (
+                "Preregistered v2 fixed-assignment funnel (not evidence): "
+                f"**{intraday.v2_assigned_instruments}** target-time assigned instrument(s) → "
+                f"**{intraday.v2_signal_instruments}** fixed-threshold signal(s)."
             ),
         ]
     )

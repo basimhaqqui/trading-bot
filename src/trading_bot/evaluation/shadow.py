@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Mapping
 
 from trading_bot.agents.base import Specialist
 from trading_bot.agents.breakout import CryptoRangeBreakoutSpecialist
-from trading_bot.agents.crypto_momentum import CryptoIntradayMomentumSpecialist
+from trading_bot.agents.crypto_momentum import (
+    CryptoIntradayMomentumSpecialist,
+    CryptoIntradayMomentumV2Specialist,
+)
 from trading_bot.agents.market_math import finite_float, prediction_book
 from trading_bot.agents.option_volatility import (
     OptionVolatilitySpecialist,
@@ -95,6 +98,8 @@ class IntradayMomentumEligibilitySummary:
     fresh_instruments: int
     adequate_lookback_instruments: int
     signal_instruments: int
+    v2_assigned_instruments: int
+    v2_signal_instruments: int
 
 
 @dataclass(frozen=True)
@@ -222,6 +227,7 @@ class ShadowResearchRunner:
         candidates: list[_Candidate] = []
         candidates.extend(self._breakout_candidates(as_of))
         candidates.extend(self._intraday_momentum_candidates(as_of))
+        candidates.extend(self._intraday_momentum_v2_candidates(as_of))
         candidates.extend(self._perpetual_candidates(as_of))
         candidates.extend(self._option_candidates(as_of))
         candidates.extend(self._prediction_candidates(as_of))
@@ -278,6 +284,45 @@ class ShadowResearchRunner:
             )
             decision_time = latest.available_at
             if as_of - decision_time > specialist.config.max_receipt_age:
+                continue
+            candidates.append(
+                _Candidate(specialist, instrument.instrument_id, (), decision_time)
+            )
+        return candidates
+
+    def _intraday_momentum_v2_candidates(self, as_of: datetime) -> list[_Candidate]:
+        """Select one pre-assigned instrument per target, before signal evaluation."""
+        specialist = CryptoIntradayMomentumV2Specialist()
+        candidates: list[_Candidate] = []
+        for instrument in self.store.instruments(asset_class=AssetClass.CRYPTO):
+            if instrument.symbol.upper() not in specialist.assignment_universe:
+                continue
+            bars = self.store.events_available_at(
+                as_of,
+                instrument_id=instrument.instrument_id,
+                event_type=MarketEventType.BAR,
+            )
+            eligible = [
+                item
+                for item in bars
+                if _finite_float(item.payload.get("granularity_seconds"))
+                == specialist.config.granularity_seconds
+            ]
+            if not eligible:
+                continue
+            latest = max(
+                eligible,
+                key=lambda item: (item.event_time, item.available_at, item.event_id),
+            )
+            decision_time = latest.available_at
+            target_time = latest.event_time + timedelta(
+                seconds=specialist.config.granularity_seconds
+            )
+            if (
+                decision_time < specialist.hypothesis.proposed_at
+                or as_of - decision_time > specialist.config.max_receipt_age
+                or specialist.selected_symbol(target_time) != instrument.symbol.upper()
+            ):
                 continue
             candidates.append(
                 _Candidate(specialist, instrument.instrument_id, (), decision_time)
@@ -629,11 +674,25 @@ class ShadowResearchRunner:
             )
             for candidate in candidates
         )
+        v2_candidates = self._intraday_momentum_v2_candidates(as_of)
+        v2_signals = sum(
+            bool(
+                replay.run(
+                    candidate.specialist,
+                    instrument_id=candidate.instrument_id,
+                    related_instrument_ids=candidate.related_instrument_ids,
+                    decision_times=(candidate.decision_time,),
+                ).forecasts
+            )
+            for candidate in v2_candidates
+        )
         return IntradayMomentumEligibilitySummary(
             observed,
             fresh,
             adequate,
             signals,
+            len(v2_candidates),
+            v2_signals,
         )
 
     def _fast_prediction_selection(

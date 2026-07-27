@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from trading_bot.agents.crypto_momentum import CryptoIntradayMomentumV2Specialist
+from trading_bot.agents.hypotheses import CRYPTO_INTRADAY_V2_PROPOSED_AT
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import (
     AssetClass,
@@ -954,6 +956,105 @@ class ShadowResearchTests(unittest.TestCase):
         scored = self.runner.score_available(as_of=target_time)
 
         self.assertEqual(scored.appended, 1)
+
+    def test_intraday_v2_only_uses_its_preassigned_symbol_after_registration(self):
+        now = CRYPTO_INTRADAY_V2_PROPOSED_AT + timedelta(hours=2)
+        target_time = now + timedelta(minutes=15)
+        selected_symbol = CryptoIntradayMomentumV2Specialist.selected_symbol(target_time)
+        selected = Instrument(
+            f"coinbase:product:{selected_symbol}",
+            "coinbase",
+            selected_symbol,
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        unselected_symbol = next(
+            symbol
+            for symbol in CryptoIntradayMomentumV2Specialist.assignment_universe
+            if symbol != selected_symbol
+        )
+        unselected = Instrument(
+            f"coinbase:product:{unselected_symbol}",
+            "coinbase",
+            unselected_symbol,
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        self.store.register_instrument(selected)
+        self.store.register_instrument(unselected)
+        for instrument in (selected, unselected):
+            for index in range(8):
+                event_time = now - timedelta(minutes=(7 - index) * 15)
+                close = 100 + index
+                self.store.append_event(
+                    self.event(
+                        f"v2-{instrument.symbol}-{index}",
+                        MarketEventType.BAR,
+                        instrument,
+                        {
+                            "open": close - 0.2,
+                            "high": close + 0.2,
+                            "low": close - 0.4,
+                            "close": close,
+                            "volume": 100 + index,
+                            "granularity_seconds": 900,
+                        },
+                        event_time=event_time,
+                    )
+                )
+
+        candidates = self.runner._intraday_momentum_v2_candidates(now)
+
+        self.assertEqual(
+            [candidate.instrument_id for candidate in candidates], [selected.instrument_id]
+        )
+        self.runner.run(as_of=now)
+        v2 = [
+            forecast
+            for forecast in self.audit.forecasts()
+            if forecast.specialist_id == "crypto-intraday-momentum-baseline-v2"
+        ]
+        self.assertEqual(len(v2), 1)
+        self.assertEqual(v2[0].instrument_id, selected.instrument_id)
+
+    def test_intraday_v2_does_not_substitute_an_unassigned_symbol(self):
+        now = CRYPTO_INTRADAY_V2_PROPOSED_AT + timedelta(hours=3)
+        target_time = now + timedelta(minutes=15)
+        selected_symbol = CryptoIntradayMomentumV2Specialist.selected_symbol(target_time)
+        unselected_symbol = next(
+            symbol
+            for symbol in CryptoIntradayMomentumV2Specialist.assignment_universe
+            if symbol != selected_symbol
+        )
+        instrument = Instrument(
+            f"coinbase:product:{unselected_symbol}",
+            "coinbase",
+            unselected_symbol,
+            AssetClass.CRYPTO,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        for index in range(8):
+            event_time = now - timedelta(minutes=(7 - index) * 15)
+            close = 100 + index
+            self.store.append_event(
+                self.event(
+                    f"v2-unselected-{index}",
+                    MarketEventType.BAR,
+                    instrument,
+                    {
+                        "open": close - 0.2,
+                        "high": close + 0.2,
+                        "low": close - 0.4,
+                        "close": close,
+                        "volume": 100 + index,
+                        "granularity_seconds": 900,
+                    },
+                    event_time=event_time,
+                )
+            )
+
+        self.assertEqual(self.runner._intraday_momentum_v2_candidates(now), [])
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from trading_bot.core.experiments import (
 from trading_bot.core.schemas import AssetClass, Hypothesis
 from trading_bot.agents.hypotheses import (
     BASELINE_HYPOTHESES,
+    CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS,
 )
 
@@ -62,6 +63,10 @@ class ExperimentRegistryTests(unittest.TestCase):
         self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS)
         for hypothesis in BASELINE_HYPOTHESES:
             self.registry.register_hypothesis(hypothesis)
+
+    def test_intraday_v2_is_registered_separately_from_v1(self):
+        self.registry.register_hypothesis(CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS)
+        self.registry.register_hypothesis(CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS)
 
 
 if __name__ == "__main__":

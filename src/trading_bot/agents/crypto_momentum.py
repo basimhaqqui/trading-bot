@@ -4,10 +4,14 @@ import math
 import statistics
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 
 from trading_bot.agents.base import ReplayContext
-from trading_bot.agents.hypotheses import CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS
+from trading_bot.agents.hypotheses import (
+    CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
+    CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
+)
 from trading_bot.agents.market_math import bar_values
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEventType
 
@@ -140,3 +144,31 @@ class CryptoIntradayMomentumSpecialist:
             evidence_event_ids=evidence,
             invalidation_conditions=self.hypothesis.invalidation_conditions,
         )
+
+
+class CryptoIntradayMomentumV2Specialist(CryptoIntradayMomentumSpecialist):
+    """Prospective, deterministic representative for each market-wide outcome cluster."""
+
+    agent_id = "crypto-intraday-momentum-baseline-v2"
+    model_version = "baseline-v2"
+    hypothesis = CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS
+    assignment_universe = (
+        "BTC-USD",
+        "ETH-USD",
+        "SOL-USD",
+        "DOGE-USD",
+        "XRP-USD",
+        "ADA-USD",
+        "AVAX-USD",
+        "LINK-USD",
+        "HYPE-USD",
+        "PUMP-USD",
+    )
+
+    @classmethod
+    def selected_symbol(cls, target_time: datetime) -> str:
+        """Choose the sole eligible source from public target time, never outcomes."""
+        target_time = target_time.astimezone(timezone.utc)
+        digest = sha256(target_time.isoformat().encode("utf-8")).digest()
+        index = int.from_bytes(digest[:8], "big") % len(cls.assignment_universe)
+        return cls.assignment_universe[index]
