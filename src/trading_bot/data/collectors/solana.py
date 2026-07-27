@@ -29,10 +29,11 @@ class SolanaMintAuthorityCollector:
     TOKEN_DOCUMENTATION_URL = "https://solana.com/docs/tokens/basics"
     SOLANA_CHAIN = "solana"
     MAX_ADDRESSES = 25
-    # Keep the bounded pair of finalized account reads paced on the shared
-    # public endpoint. This is operational backpressure only: it neither
-    # changes the selected addresses nor treats a partial observation as safe.
-    HOLDER_REQUEST_SPACING_SECONDS = 0.3
+    # Public RPC documentation publishes a per-method rate limit. Pace every
+    # individual finalized read well below that limit. This is operational
+    # backpressure only: it neither changes selected addresses nor treats a
+    # partial observation as safe.
+    HOLDER_REQUEST_SPACING_SECONDS = 0.5
     TOKEN_PROGRAM_IDS = frozenset(
         {
             "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -157,6 +158,7 @@ class SolanaMintAuthorityCollector:
         largest_response = self.transport.call(
             "getTokenLargestAccounts", [token_address, {"commitment": "finalized"}]
         )
+        sleep(self.HOLDER_REQUEST_SPACING_SECONDS)
         supply_response = self.transport.call(
             "getTokenSupply", [token_address, {"commitment": "finalized"}]
         )

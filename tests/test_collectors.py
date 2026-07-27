@@ -313,7 +313,14 @@ class CollectorTests(unittest.TestCase):
 
         self.assertEqual(len(batch.events), 2)
         self.assertEqual(len(transport.calls), 4)
-        sleep.assert_called_once_with(SolanaMintAuthorityCollector.HOLDER_REQUEST_SPACING_SECONDS)
+        self.assertEqual(
+            sleep.call_args_list,
+            [
+                unittest.mock.call(SolanaMintAuthorityCollector.HOLDER_REQUEST_SPACING_SECONDS),
+                unittest.mock.call(SolanaMintAuthorityCollector.HOLDER_REQUEST_SPACING_SECONDS),
+                unittest.mock.call(SolanaMintAuthorityCollector.HOLDER_REQUEST_SPACING_SECONDS),
+            ],
+        )
 
     def test_solana_holder_concentration_fails_closed_on_slot_mismatch(self):
         address = "11111111111111111111111111111111"
