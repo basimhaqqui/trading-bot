@@ -67,6 +67,7 @@ class SpecialistEvaluation:
     raw_scores: int
     independent_outcomes: int
     unique_instruments: int
+    largest_instrument_share: float | None
     mean_loss: float | None
     mean_benchmark_loss: float | None
     loss_ratio: float | None
@@ -451,6 +452,7 @@ def _evaluate_group(
             None,
             None,
             None,
+            None,
             (f"needs {config.min_independent_outcomes} outcome clusters",),
         )
 
@@ -529,6 +531,7 @@ def _evaluate_group(
         len(raw_observations),
         len(observations),
         unique_instruments,
+        largest_instrument_share,
         mean_loss,
         mean_benchmark,
         loss_ratio,

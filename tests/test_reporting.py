@@ -276,6 +276,7 @@ class ReportingTests(unittest.TestCase):
         group = report.groups[0]
         self.assertEqual(group.independent_outcomes, 40)
         self.assertEqual(group.unique_instruments, 1)
+        self.assertEqual(group.largest_instrument_share, 1.0)
         self.assertEqual(group.status, EdgeStatus.COLLECTING)
         self.assertIn(
             "needs outcomes from at least 2 instruments",
@@ -322,6 +323,7 @@ class ReportingTests(unittest.TestCase):
 
         group = report.groups[0]
         self.assertEqual(group.unique_instruments, 2)
+        self.assertEqual(group.largest_instrument_share, 0.8)
         self.assertEqual(group.status, EdgeStatus.CANDIDATE)
 
     def test_same_session_option_contracts_are_one_outcome_cluster(self):
