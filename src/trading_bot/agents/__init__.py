@@ -13,6 +13,7 @@ from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
     FastPredictionSettlementSpecialist,
+    FastPredictionSettlementV3Specialist,
     PredictionMarketCalibrationSpecialist,
 )
 
@@ -25,4 +26,5 @@ __all__ = [
     "PredictionMarketCalibrationSpecialist",
     "AdjustedPredictionMarketCalibrationSpecialist",
     "FastPredictionSettlementSpecialist",
+    "FastPredictionSettlementV3Specialist",
 ]

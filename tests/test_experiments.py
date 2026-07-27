@@ -13,6 +13,8 @@ from trading_bot.agents.hypotheses import (
     BASELINE_HYPOTHESES,
     CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
 )
 
 
@@ -59,8 +61,10 @@ class ExperimentRegistryTests(unittest.TestCase):
         with self.assertRaises(ExperimentConflictError):
             self.registry.register_hypothesis(changed)
 
-    def test_fast_settlement_v2_preserves_the_registered_v1_record(self):
+    def test_fast_settlement_versions_preserve_prior_registered_records(self):
         self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS)
+        self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS)
+        self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS)
         for hypothesis in BASELINE_HYPOTHESES:
             self.registry.register_hypothesis(hypothesis)
 

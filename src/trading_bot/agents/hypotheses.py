@@ -10,6 +10,7 @@ CRYPTO_INTRADAY_PROPOSED_AT = datetime(2026, 7, 26, 11, 35, tzinfo=timezone.utc)
 CRYPTO_INTRADAY_V2_PROPOSED_AT = datetime(2026, 7, 27, 5, 57, tzinfo=timezone.utc)
 PREDICTION_FAST_V1_PROPOSED_AT = datetime(2026, 7, 26, 13, 10, tzinfo=timezone.utc)
 PREDICTION_FAST_V2_PROPOSED_AT = datetime(2026, 7, 27, tzinfo=timezone.utc)
+PREDICTION_FAST_V3_PROPOSED_AT = datetime(2026, 7, 27, 6, 25, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -185,6 +186,38 @@ PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-fast-settlement-baseline-v3",
+    family="prediction-market-fast-settlement",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "The executable probability of a short-dated, active binary market is a fixed "
+        "baseline for its finalized settlement. This lane is intentionally unadjusted: "
+        "it collects prospective calibration evidence without borrowing from the longer "
+        "one-to-eight-hour cohort. A settlement is eligible only when its recorded "
+        "finalization timestamp falls between the forecast's pre-recorded expected "
+        "expiration and its pre-recorded settlement deadline."
+    ),
+    target="binary finalized settlement probability",
+    horizon="20 minutes to two hours until Kalshi expected expiration",
+    information_set=(
+        "current executable yes and no bids",
+        "Kalshi event ticker and expected expiration time",
+        "active market status with early closing disabled",
+        "a settlement timer no longer than fifteen minutes",
+        "a pre-declared maximum executable spread of ten cents",
+        "the pre-recorded expected-expiration plus settlement-timer label window",
+    ),
+    invalidation_conditions=(
+        "market probabilities do not beat the fixed neutral benchmark out of sample",
+        "results disappear when one event ticker or resolution period is removed",
+        "the required settlement label window leaves insufficient independent outcomes",
+        "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_FAST_V3_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -279,6 +312,7 @@ BASELINE_HYPOTHESES = (
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
@@ -306,6 +340,9 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
     ),
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS.hypothesis_id: (
         "prediction-market-fast-settlement-baseline-v2",
+    ),
+    PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v3",
     ),
     CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
         "crypto-range-breakout-continuation-baseline",

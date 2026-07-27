@@ -20,6 +20,7 @@ from trading_bot.agents.perpetual import PerpetualFundingBasisSpecialist
 from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
     FastPredictionSettlementSpecialist,
+    FastPredictionSettlementV3Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     prediction_forecast_target_time,
@@ -698,7 +699,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementSpecialist()
+        specialist = FastPredictionSettlementV3Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -1004,7 +1005,10 @@ class ShadowResearchRunner:
             target_time = prediction_forecast_target_time(forecast)
             if target_time is None or target_time <= forecast.generated_at:
                 return None
-        if forecast.specialist_id == FastPredictionSettlementSpecialist.agent_id:
+        if forecast.specialist_id in {
+            FastPredictionSettlementSpecialist.agent_id,
+            FastPredictionSettlementV3Specialist.agent_id,
+        }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
                 return None
@@ -1023,6 +1027,11 @@ class ShadowResearchRunner:
             ):
                 continue
             if settlement_deadline is not None and event.event_time > settlement_deadline:
+                continue
+            if (
+                forecast.specialist_id == FastPredictionSettlementV3Specialist.agent_id
+                and event.event_time < target_time
+            ):
                 continue
             return score_binary_forecast(
                 forecast,

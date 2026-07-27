@@ -466,7 +466,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v2"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v3"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -520,6 +520,58 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.due_unmatched, 1)
+
+    def test_fast_prediction_v3_rejects_settlement_before_expected_expiration(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-EARLY",
+            "kalshi",
+            "FAST-EARLY",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expiration = self.now + timedelta(hours=1)
+        self.store.append_event(
+            self.event(
+                "fast-early-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-EARLY-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "fast-early-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            )
+        )
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
+        self.store.append_event(
+            self.event(
+                "fast-early-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {"result": "yes", "event_ticker": "FAST-EARLY-EVENT"},
+                event_time=expiration - timedelta(seconds=1),
+            )
+        )
+
+        scored = self.runner.score_available(as_of=expiration - timedelta(seconds=1))
+
+        self.assertEqual(scored.appended, 0)
+        self.assertEqual(scored.due_unmatched, 0)
+        due = self.runner.score_available(as_of=expiration)
+        self.assertEqual(due.due_unmatched, 1)
 
     def test_option_forecast_scores_only_at_the_full_horizon(self):
         option = Instrument(
