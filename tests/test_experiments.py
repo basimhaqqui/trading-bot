@@ -9,6 +9,10 @@ from trading_bot.core.experiments import (
     ExperimentStatus,
 )
 from trading_bot.core.schemas import AssetClass, Hypothesis
+from trading_bot.agents.hypotheses import (
+    BASELINE_HYPOTHESES,
+    PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS,
+)
 
 
 class ExperimentRegistryTests(unittest.TestCase):
@@ -53,6 +57,11 @@ class ExperimentRegistryTests(unittest.TestCase):
         )
         with self.assertRaises(ExperimentConflictError):
             self.registry.register_hypothesis(changed)
+
+    def test_fast_settlement_v2_preserves_the_registered_v1_record(self):
+        self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS)
+        for hypothesis in BASELINE_HYPOTHESES:
+            self.registry.register_hypothesis(hypothesis)
 
 
 if __name__ == "__main__":

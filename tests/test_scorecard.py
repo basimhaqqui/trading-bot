@@ -251,7 +251,7 @@ class DailyScorecardTests(unittest.TestCase):
         fast = next(
             item
             for item in scorecard.research_lanes
-            if item.specialist_id == "prediction-market-fast-settlement-baseline-v1"
+            if item.specialist_id == "prediction-market-fast-settlement-baseline-v2"
         )
         self.assertEqual(fast.forecasts, 0)
         self.assertEqual(fast.scores, 0)
@@ -282,7 +282,7 @@ class DailyScorecardTests(unittest.TestCase):
         )
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Pre-registered research lanes", markdown)
-        self.assertIn("prediction-market-fast-settlement-baseline-v1", markdown)
+        self.assertIn("prediction-market-fast-settlement-baseline-v2", markdown)
         self.assertIn("Fast-settlement prediction eligibility", markdown)
         self.assertIn("Memecoin shadow research", markdown)
         self.assertIn("Recorded public discoveries", markdown)
