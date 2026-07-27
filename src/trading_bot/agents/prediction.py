@@ -11,6 +11,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS,
     PREDICTION_CALIBRATION_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -336,6 +337,14 @@ class FastPredictionSettlementSpecialist:
         )
 
 
+class FastPredictionSettlementV3Specialist(FastPredictionSettlementSpecialist):
+    """Prospective fast lane with a preregistered settlement label window."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v3"
+    model_version = "baseline-v3"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = settlement.payload.get("event_ticker")
@@ -429,5 +438,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         PredictionMarketCalibrationSpecialist.agent_id,
         AdjustedPredictionMarketCalibrationSpecialist.agent_id,
         FastPredictionSettlementSpecialist.agent_id,
+        FastPredictionSettlementV3Specialist.agent_id,
     }
 )

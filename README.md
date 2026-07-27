@@ -39,6 +39,7 @@ Project build: `[##################] 18/18 (100%)`
 - Raw, feed-tagged Alpaca equity bars for point-in-time realized-volatility measurement.
 - Readiness reporting that refuses repeated polls as independent funding observations and rejects post-settlement books as calibration labels.
 - Automatic, capped shadow candidate selection for perpetual funding, option volatility, and prediction-market calibration.
+- A separately preregistered fast-settlement prediction lane that clusters related Kalshi strikes by event ticker and scores only public finalization timestamps inside each forecast's immutable expected-expiration-to-settlement-deadline window.
 - Deterministic forecast deduplication and outcome matching that cannot score a label before it became available.
 - Next-distinct-period funding scores, full-horizon option volatility scores, and public-settlement prediction scores.
 - Outcome-clustered walk-forward reports that keep repeated forecasts for one result from inflating sample size.
