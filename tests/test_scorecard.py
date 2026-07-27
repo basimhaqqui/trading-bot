@@ -146,6 +146,46 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("alpaca-spy-options", markdown)
         self.assertIn("::warning", render_github_alerts(scorecard))
 
+    def test_scorecard_distinguishes_solana_read_only_activation_from_alpaca(self):
+        self.append_public_run()
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob("coinbase-products", "coinbase", "products"),
+                ObservationJob(
+                    "alpaca-spy-options",
+                    "alpaca",
+                    "chain",
+                    symbol="SPY",
+                    activation_profile="alpaca_market_data",
+                ),
+                ObservationJob(
+                    "solana-holder-concentrations",
+                    "solana",
+                    "holder_concentrations",
+                    limit=10,
+                    activation_profile="solana_read_only_rpc",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "market_data_credentials_waiting"
+        )
+        self.assertIn("1 Alpaca stock/options job(s)", alert.message)
+        self.assertIn("1 Solana safety-observation job(s)", alert.message)
+        self.assertIn("blocked-unverified", alert.message)
+
     def test_unhealthy_ingestion_emits_error_annotation(self):
         plan = ShadowIngestionPlan(
             "missing-plan",
