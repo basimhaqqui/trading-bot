@@ -220,6 +220,38 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
         self.assertEqual(collector.addresses, (mint,))
 
+    def test_solana_transfer_control_reads_upgrade_v1_before_refreshing_v2(self):
+        v1_mint = "11111111111111111111111111111111"
+        v2_mint = "22222222222222222222222222222222"
+        for mint, source in (
+            (v1_mint, "solana-rpc-get-multiple-accounts-finalized-v1"),
+            (v2_mint, "solana-rpc-get-multiple-accounts-finalized-v2"),
+        ):
+            instrument = Instrument(
+                f"dexscreener:memecoin:solana:{mint}",
+                "dexscreener",
+                mint,
+                AssetClass.MEMECOIN,
+                "USD",
+            )
+            self.store.register_instrument(instrument)
+            self.store.append_event(
+                MarketEvent(
+                    f"authority-{mint[0]}",
+                    MarketEventType.ONCHAIN_STATE,
+                    "solana",
+                    instrument.instrument_id,
+                    self.now - timedelta(minutes=5),
+                    self.now - timedelta(minutes=5),
+                    source,
+                    {"safety_status": "blocked_unverified"},
+                    ingested_at=self.now - timedelta(minutes=5),
+                )
+            )
+        runner = ShadowIngestionRunner(self.store, self.ledger)
+
+        self.assertEqual(runner._pending_solana_mint_addresses(self.now, 1), (v1_mint,))
+
     def test_cycle_records_degraded_data_without_execution_access(self):
         instrument = Instrument(
             "coinbase:product:BTC-USD",

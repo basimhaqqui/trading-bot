@@ -163,9 +163,90 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(event.payload["onchain_authorities_observed"])
         self.assertFalse(event.payload["mint_authority_active"])
         self.assertTrue(event.payload["freeze_authority_active"])
+        self.assertTrue(event.payload["transfer_behavior_observed"])
+        self.assertFalse(event.payload["token_2022_extensions_observed"])
         self.assertEqual(event.payload["safety_status"], "blocked_unverified")
         self.assertIn("freeze_authority_active", event.payload["safety_reasons"])
         self.assertFalse(event.payload["wallet_or_transaction_authority"])
+
+    def test_solana_token_2022_transfer_controls_are_structurally_observed_and_blocked(self):
+        address = "11111111111111111111111111111111"
+        mint = bytearray(82)
+
+        def extension(extension_type, value):
+            return (
+                extension_type.to_bytes(2, "little")
+                + len(value).to_bytes(2, "little")
+                + value
+            )
+
+        mint.extend(extension(12, b"\x01" * 32))
+        mint.extend(extension(14, b"\x00" * 32 + b"\x02" * 32))
+        mint.extend(extension(26, b"\x03" * 32 + b"\x01"))
+        mint.extend(extension(6, b"\x02"))
+        mint.extend(extension(9, b""))
+        mint.extend(extension(999, b"\x00"))
+        transport = FakeSolanaTransport(
+            {
+                "result": {
+                    "context": {"slot": 124},
+                    "value": [
+                        {
+                            "owner": "TokenzQdBNbLqP5VEhdk7u6RRsJbMpbB5R2r7mS1rG",
+                            "data": [base64.b64encode(mint).decode("ascii"), "base64"],
+                        }
+                    ],
+                }
+            }
+        )
+
+        event = SolanaMintAuthorityCollector(transport).collect_mint_authorities(
+            (address,), collected_at=self.collected
+        ).events[0]
+
+        self.assertEqual(event.source, "solana-rpc-get-multiple-accounts-finalized-v2")
+        self.assertTrue(event.payload["onchain_authorities_observed"])
+        self.assertTrue(event.payload["transfer_behavior_observed"])
+        self.assertTrue(event.payload["token_2022_extensions_observed"])
+        self.assertEqual(event.payload["token_2022_extension_types"], (12, 14, 26, 6, 9, 999))
+        self.assertEqual(event.payload["unknown_token_2022_extension_types"], (999,))
+        self.assertTrue(event.payload["permanent_delegate_active"])
+        self.assertTrue(event.payload["transfer_hook_active"])
+        self.assertTrue(event.payload["pausable_active"])
+        self.assertTrue(event.payload["transfers_currently_paused"])
+        self.assertTrue(event.payload["non_transferable_active"])
+        self.assertTrue(event.payload["default_account_frozen"])
+        self.assertIn("transfer_hook_active", event.payload["safety_reasons"])
+        self.assertIn("default_token_accounts_frozen", event.payload["safety_reasons"])
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
+        self.assertFalse(event.payload["wallet_or_transaction_authority"])
+
+    def test_solana_malformed_transfer_control_fails_closed(self):
+        address = "11111111111111111111111111111111"
+        mint = bytearray(82)
+        mint.extend((12).to_bytes(2, "little") + (31).to_bytes(2, "little") + b"\x01" * 31)
+        transport = FakeSolanaTransport(
+            {
+                "result": {
+                    "context": {"slot": 125},
+                    "value": [
+                        {
+                            "owner": "TokenzQdBNbLqP5VEhdk7u6RRsJbMpbB5R2r7mS1rG",
+                            "data": [base64.b64encode(mint).decode("ascii"), "base64"],
+                        }
+                    ],
+                }
+            }
+        )
+
+        event = SolanaMintAuthorityCollector(transport).collect_mint_authorities(
+            (address,), collected_at=self.collected
+        ).events[0]
+
+        self.assertFalse(event.payload["onchain_authorities_observed"])
+        self.assertFalse(event.payload["transfer_behavior_observed"])
+        self.assertIn("transfer_behavior_unobserved", event.payload["safety_reasons"])
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
 
     def test_kalshi_contract_trades_and_book_preserve_availability(self):
         transport = FakeTransport(

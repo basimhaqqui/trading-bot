@@ -464,12 +464,12 @@ class ShadowIngestionRunner:
         return None
 
     def _pending_solana_mint_addresses(self, as_of: datetime, limit: int) -> tuple[str, ...]:
-        """Select unobserved, then oldest-observed, discovered Solana mints.
+        """Select mints missing v2 transfer-control reads, then oldest-observed.
 
         This is a read-only fairness queue.  It never turns a discovery into a
         forecast or intent and uses only the existing public instrument symbols.
         """
-        candidates: list[tuple[datetime | None, str]] = []
+        candidates: list[tuple[bool, datetime | None, str]] = []
         for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
             if instrument.venue != "dexscreener":
                 continue
@@ -481,12 +481,22 @@ class ShadowIngestionRunner:
             authority_observations = [
                 event
                 for event in events
-                if event.source == "solana-rpc-get-multiple-accounts-finalized-v1"
+                if event.source
+                in {
+                    "solana-rpc-get-multiple-accounts-finalized-v1",
+                    "solana-rpc-get-multiple-accounts-finalized-v2",
+                }
             ]
+            has_transfer_control_read = any(
+                event.source == "solana-rpc-get-multiple-accounts-finalized-v2"
+                for event in authority_observations
+            )
             latest = max((event.available_at for event in authority_observations), default=None)
-            candidates.append((latest, instrument.symbol))
-        candidates.sort(key=lambda item: (item[0] is not None, item[0] or as_of, item[1]))
-        return tuple(address for _, address in candidates[:limit])
+            candidates.append((has_transfer_control_read, latest, instrument.symbol))
+        candidates.sort(
+            key=lambda item: (item[0], item[1] is not None, item[1] or as_of, item[2])
+        )
+        return tuple(address for _, _, address in candidates[:limit])
 
 
 def default_collector_factory(venue: str, dataset: str) -> object:

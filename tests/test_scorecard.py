@@ -235,7 +235,11 @@ class DailyScorecardTests(unittest.TestCase):
                     ingested_at=self.now - timedelta(minutes=5),
                 )
             )
-        authority_payload = {**payload, "onchain_authorities_observed": True}
+        authority_payload = {
+            **payload,
+            "onchain_authorities_observed": True,
+            "transfer_behavior_observed": True,
+        }
         self.store.append_event(
             MarketEvent(
                 "authority-observation",
@@ -244,7 +248,7 @@ class DailyScorecardTests(unittest.TestCase):
                 instrument.instrument_id,
                 self.now - timedelta(minutes=4),
                 self.now - timedelta(minutes=4),
-                "solana-rpc-get-multiple-accounts-finalized-v1",
+                "solana-rpc-get-multiple-accounts-finalized-v2",
                 authority_payload,
                 ingested_at=self.now - timedelta(minutes=4),
             )
@@ -278,6 +282,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(memecoin.latest_profile_observations, 1)
         self.assertEqual(memecoin.latest_pool_observations, 1)
         self.assertEqual(memecoin.latest_authority_observations, 1)
+        self.assertEqual(memecoin.transfer_control_observations, 1)
         self.assertEqual(
             memecoin.latest_profile_observed_at, self.now - timedelta(minutes=5)
         )
@@ -287,6 +292,9 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(
             memecoin.latest_authority_observed_at, self.now - timedelta(minutes=4)
         )
+        self.assertEqual(
+            memecoin.latest_transfer_control_observed_at, self.now - timedelta(minutes=4)
+        )
         self.assertEqual(memecoin.blocked_unverified_tokens, 1)
         self.assertEqual(memecoin.safety_eligible_tokens, 0)
         self.assertEqual(
@@ -294,7 +302,6 @@ class DailyScorecardTests(unittest.TestCase):
             (
                 "holder concentration",
                 "round-trip simulation",
-                "transfer behavior",
             ),
         )
         markdown = render_scorecard(scorecard, "markdown")
@@ -305,6 +312,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("Recorded public discoveries", markdown)
         self.assertIn("Most recent pool snapshot", markdown)
         self.assertIn("finalized authority observation", markdown)
+        self.assertIn("transfer-control parse", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):

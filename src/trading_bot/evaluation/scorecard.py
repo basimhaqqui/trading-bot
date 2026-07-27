@@ -99,9 +99,11 @@ class MemecoinResearchSummary:
     latest_profile_observations: int
     latest_pool_observations: int
     latest_authority_observations: int
+    transfer_control_observations: int
     latest_profile_observed_at: datetime | None
     latest_pool_observed_at: datetime | None
     latest_authority_observed_at: datetime | None
+    latest_transfer_control_observed_at: datetime | None
     blocked_unverified_tokens: int
     safety_eligible_tokens: int
     missing_hard_gates: tuple[str, ...]
@@ -563,9 +565,11 @@ def _memecoin_research_summary(
     profiles = 0
     pools = 0
     authorities = 0
+    transfer_controls = 0
     latest_profile_observed_at: datetime | None = None
     latest_pool_observed_at: datetime | None = None
     latest_authority_observed_at: datetime | None = None
+    latest_transfer_control_observed_at: datetime | None = None
     for (instrument_id, category), (observed_at, _, payload) in latest.items():
         by_token.setdefault(instrument_id, []).append(payload)
         if category == "profile":
@@ -583,6 +587,13 @@ def _memecoin_research_summary(
             authorities += 1
             if latest_authority_observed_at is None or observed_at > latest_authority_observed_at:
                 latest_authority_observed_at = observed_at
+            if payload.get("transfer_behavior_observed") is True:
+                transfer_controls += 1
+                if (
+                    latest_transfer_control_observed_at is None
+                    or observed_at > latest_transfer_control_observed_at
+                ):
+                    latest_transfer_control_observed_at = observed_at
     blocked = 0
     eligible = 0
     missing: set[str] = set()
@@ -608,9 +619,11 @@ def _memecoin_research_summary(
         profiles,
         pools,
         authorities,
+        transfer_controls,
         latest_profile_observed_at,
         latest_pool_observed_at,
         latest_authority_observed_at,
+        latest_transfer_control_observed_at,
         blocked,
         eligible,
         tuple(sorted(missing)),
@@ -622,7 +635,10 @@ def _memecoin_observation_category(source: str) -> str | None:
         return "profile"
     if source == "dexscreener-public-token-pairs-v1":
         return "pool"
-    if source == "solana-rpc-get-multiple-accounts-finalized-v1":
+    if source in {
+        "solana-rpc-get-multiple-accounts-finalized-v1",
+        "solana-rpc-get-multiple-accounts-finalized-v2",
+    }:
         return "authority"
     return None
 
@@ -1121,7 +1137,8 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"Recorded public discoveries: **{memecoin.discovered_tokens}** token(s) · "
                 f"**{memecoin.latest_profile_observations}** profile(s) · "
                 f"**{memecoin.latest_pool_observations}** pool snapshot(s) · "
-                f"**{memecoin.latest_authority_observations}** finalized authority observation(s)."
+                f"**{memecoin.latest_authority_observations}** finalized authority observation(s) · "
+                f"**{memecoin.transfer_control_observations}** transfer-control parse(s)."
             ),
             (
                 "Most recent profile: "
@@ -1140,6 +1157,12 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"`{memecoin.latest_authority_observed_at.isoformat()}`"
                 if memecoin.latest_authority_observed_at is not None
                 else "Most recent finalized authority observation: —"
+            ),
+            (
+                "Most recent transfer-control parse: "
+                f"`{memecoin.latest_transfer_control_observed_at.isoformat()}`"
+                if memecoin.latest_transfer_control_observed_at is not None
+                else "Most recent transfer-control parse: —"
             ),
             "",
             (
