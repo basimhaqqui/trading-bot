@@ -113,6 +113,8 @@ class StrategySummary:
     forecasts: int
     outcomes: int
     required_outcomes: int
+    unique_instruments: int
+    largest_instrument_share: float | None
     mean_improvement: float | None
     lower_confidence_bound: float | None
     win_rate: float | None
@@ -287,6 +289,8 @@ def build_daily_scorecard(
             item.forecasts,
             item.independent_outcomes,
             min_outcomes,
+            item.unique_instruments,
+            _finite(item.largest_instrument_share),
             _finite(item.mean_improvement),
             _finite(item.lower_confidence_bound),
             _finite(item.win_rate),
@@ -1190,12 +1194,12 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
             "",
             "### Strategy evidence",
             "",
-            "| Specialist | Score | Status | Locked decision | Outcomes | Improvement | Lower bound | Win rate |",
-            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
+            "| Specialist | Score | Status | Locked decision | Outcomes | Instruments | Largest share | Improvement | Lower bound | Win rate |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     if not scorecard.strategies:
-        lines.append("| none | — | collecting | — | 0 | — | — | — |")
+        lines.append("| none | — | collecting | — | 0 | 0 | — | — | — | — |")
     for item in scorecard.strategies:
         locked = "—"
         if item.locked_status is not None:
@@ -1206,7 +1210,8 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
         lines.append(
             f"| `{item.specialist_id}` | {item.kind} | **{item.status.value}** | "
             f"{locked} | "
-            f"{item.outcomes}/{item.required_outcomes} | {_number(item.mean_improvement)} | "
+            f"{item.outcomes}/{item.required_outcomes} | {item.unique_instruments} | "
+            f"{_percent(item.largest_instrument_share)} | {_number(item.mean_improvement)} | "
             f"{_number(item.lower_confidence_bound)} | {_percent(item.win_rate)} |"
         )
     lines.extend(
