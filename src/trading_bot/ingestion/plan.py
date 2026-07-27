@@ -28,6 +28,7 @@ ACTIVATION_PROFILES = {
         "ALPACA_MARKET_DATA_KEY_ID",
         "ALPACA_MARKET_DATA_SECRET_KEY",
     ),
+    "solana_read_only_rpc": ("SOLANA_READ_ONLY_RPC_URL",),
 }
 CURSOR_MODES = {"resume", "restart"}
 
@@ -127,6 +128,8 @@ class ObservationJob:
             raise ValueError("unsupported activation profile")
         if self.activation_profile == "alpaca_market_data" and self.venue != "alpaca":
             raise ValueError("alpaca_market_data activation is only valid for Alpaca jobs")
+        if self.activation_profile == "solana_read_only_rpc" and self.venue != "solana":
+            raise ValueError("solana_read_only_rpc activation is only valid for Solana jobs")
         if self.cursor_mode not in CURSOR_MODES:
             raise ValueError("cursor_mode must be resume or restart")
         restartable = {

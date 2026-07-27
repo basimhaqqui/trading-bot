@@ -26,6 +26,7 @@ from trading_bot.agents.prediction import (
     prediction_forecast_target_time,
     prediction_expected_expiration_time,
     prediction_occurrence_time,
+    prediction_settlement_event_ticker,
     prediction_settlement_event_key,
     prediction_settlement_occurrence_time,
 )
@@ -1012,6 +1013,12 @@ class ShadowResearchRunner:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
                 return None
+        expected_event_ticker = forecast.values.get("event_ticker")
+        if (
+            forecast.specialist_id == FastPredictionSettlementV3Specialist.agent_id
+            and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
+        ):
+            return None
         events = self.store.events_available_at(
             as_of,
             instrument_id=forecast.instrument_id,
@@ -1030,7 +1037,10 @@ class ShadowResearchRunner:
                 continue
             if (
                 forecast.specialist_id == FastPredictionSettlementV3Specialist.agent_id
-                and event.event_time < target_time
+                and (
+                    event.event_time < target_time
+                    or prediction_settlement_event_ticker(event) != expected_event_ticker
+                )
             ):
                 continue
             return score_binary_forecast(

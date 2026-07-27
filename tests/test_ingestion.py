@@ -963,6 +963,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(holder_job.venue, "solana")
         self.assertEqual(holder_job.dataset, "holder_concentrations")
         self.assertEqual(holder_job.limit, 10)
+        self.assertEqual(holder_job.activation_profile, "solana_read_only_rpc")
 
     def test_alpaca_activation_requires_both_read_only_environment_values(self):
         job = ObservationJob(
@@ -988,6 +989,28 @@ class IngestionTests(unittest.TestCase):
             )
         )
 
+    def test_solana_activation_requires_dedicated_read_only_endpoint(self):
+        job = ObservationJob(
+            "holder-concentrations",
+            "solana",
+            "holder_concentrations",
+            limit=10,
+            activation_profile="solana_read_only_rpc",
+        )
+        self.assertFalse(job.is_active({}))
+        self.assertEqual(
+            job.missing_activation_environment({}),
+            ("SOLANA_READ_ONLY_RPC_URL",),
+        )
+        self.assertTrue(job.is_active({"SOLANA_READ_ONLY_RPC_URL": "https://rpc.example"}))
+        with self.assertRaisesRegex(ValueError, "only valid for Solana"):
+            ObservationJob(
+                "wrong-venue",
+                "coinbase",
+                "products",
+                activation_profile="solana_read_only_rpc",
+            )
+
     def test_runner_skips_credential_gated_jobs_without_constructing_collector(self):
         plan = ShadowIngestionPlan(
             "credential-gated",
@@ -1010,6 +1033,36 @@ class IngestionTests(unittest.TestCase):
         )
         with patch.dict("os.environ", {}, clear=True):
             self.assertEqual(runner.run_plan(plan, collected_at=self.now), ())
+
+    def test_missing_solana_rpc_does_not_block_other_observation_jobs(self):
+        plan = ShadowIngestionPlan(
+            "mixed-optional-observation",
+            (
+                ObservationJob(
+                    "solana-holders",
+                    "solana",
+                    "holder_concentrations",
+                    limit=10,
+                    activation_profile="solana_read_only_rpc",
+                ),
+                ObservationJob("coinbase-products", "coinbase", "products"),
+            ),
+        )
+        coinbase = FakeCoinbaseCollector(CollectionBatch("coinbase"))
+
+        def factory(venue, dataset):
+            if venue == "solana":
+                self.fail("inactive Solana collector must not be constructed")
+            self.assertEqual((venue, dataset), ("coinbase", "products"))
+            return coinbase
+
+        runner = ShadowIngestionRunner(self.store, self.ledger, collector_factory=factory)
+        with patch.dict("os.environ", {}, clear=True):
+            records = runner.run_plan(plan, collected_at=self.now)
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].job_id, "coinbase-products")
+        self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
 
     def test_kalshi_jobs_receive_resumed_cursor(self):
         collector = FakeKalshiCollector()

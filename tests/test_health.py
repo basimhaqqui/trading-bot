@@ -130,6 +130,24 @@ class IngestionHealthTests(unittest.TestCase):
         self.assertIn("ALPACA_MARKET_DATA_KEY_ID", report.jobs[0].reasons[0])
         self.assertIn("waiting_credentials", render_health(report, "markdown"))
 
+    def test_missing_solana_rpc_is_visible_without_failing_health(self):
+        plan = ShadowIngestionPlan(
+            "optional-chain-observation",
+            (
+                ObservationJob(
+                    "solana-holders",
+                    "solana",
+                    "holder_concentrations",
+                    limit=10,
+                    activation_profile="solana_read_only_rpc",
+                ),
+            ),
+        )
+        report = ingestion_health(self.path, plan, as_of=self.now, environment={})
+        self.assertTrue(report.healthy)
+        self.assertEqual(report.jobs[0].status, "waiting_credentials")
+        self.assertIn("SOLANA_READ_ONLY_RPC_URL", report.jobs[0].reasons[0])
+
 
 if __name__ == "__main__":
     unittest.main()
