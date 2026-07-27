@@ -954,6 +954,16 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(latest_job.cursor_mode, "restart")
         self.assertEqual(latest_job.mve_filter, "exclude")
 
+    def test_checked_in_holder_concentration_batch_stays_below_public_rpc_capacity(self):
+        plan = load_plan("config/shadow-ingestion.json")
+        holder_job = next(
+            job for job in plan.jobs if job.job_id == "solana-finalized-holder-concentrations"
+        )
+
+        self.assertEqual(holder_job.venue, "solana")
+        self.assertEqual(holder_job.dataset, "holder_concentrations")
+        self.assertEqual(holder_job.limit, 10)
+
     def test_alpaca_activation_requires_both_read_only_environment_values(self):
         job = ObservationJob(
             "options",
