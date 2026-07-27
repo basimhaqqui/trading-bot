@@ -11,6 +11,16 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_cron, workflow)
         self.assertIn(expected_cron, deployment)
 
+    def test_live_shadow_workflow_passes_the_read_only_solana_endpoint(self):
+        workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+        deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
+
+        expected_binding = (
+            "SOLANA_READ_ONLY_RPC_URL: ${{ secrets.SOLANA_READ_ONLY_RPC_URL }}"
+        )
+        self.assertIn(expected_binding, workflow)
+        self.assertIn(expected_binding, deployment)
+
     def test_manual_recovery_artifacts_are_opt_in(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
