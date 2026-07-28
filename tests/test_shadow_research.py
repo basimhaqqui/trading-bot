@@ -511,7 +511,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v3"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v4"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -624,7 +624,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.due_unmatched, 1)
 
-    def test_fast_prediction_v3_rejects_settlement_before_expected_expiration(self):
+    def test_fast_prediction_v4_rejects_settlement_before_expected_expiration(self):
         market = Instrument(
             "kalshi:prediction:FAST-EARLY",
             "kalshi",
@@ -676,7 +676,7 @@ class ShadowResearchTests(unittest.TestCase):
         due = self.runner.score_available(as_of=expiration)
         self.assertEqual(due.due_unmatched, 1)
 
-    def test_fast_prediction_v3_rejects_settlement_from_a_different_event(self):
+    def test_fast_prediction_v4_rejects_settlement_from_a_different_event(self):
         market = Instrument(
             "kalshi:prediction:FAST-MISMATCH",
             "kalshi",

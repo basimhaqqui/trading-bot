@@ -12,6 +12,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_CALIBRATION_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -345,6 +346,14 @@ class FastPredictionSettlementV3Specialist(FastPredictionSettlementSpecialist):
     hypothesis = PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS
 
 
+class FastPredictionSettlementV4Specialist(FastPredictionSettlementV3Specialist):
+    """Prospective fast lane that advances the public market-list cursor."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v4"
+    model_version = "baseline-v4"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -447,5 +456,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         AdjustedPredictionMarketCalibrationSpecialist.agent_id,
         FastPredictionSettlementSpecialist.agent_id,
         FastPredictionSettlementV3Specialist.agent_id,
+        FastPredictionSettlementV4Specialist.agent_id,
     }
 )

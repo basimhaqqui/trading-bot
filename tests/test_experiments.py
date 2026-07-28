@@ -15,6 +15,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS,
 )
 
 
@@ -65,6 +66,7 @@ class ExperimentRegistryTests(unittest.TestCase):
         self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS)
         self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS)
         self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS)
+        self.registry.register_hypothesis(PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS)
         for hypothesis in BASELINE_HYPOTHESES:
             self.registry.register_hypothesis(hypothesis)
 

@@ -949,7 +949,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(fast_job.mve_filter, "exclude")
         self.assertEqual(fast_job.limit, 1000)
         self.assertIsNone(fast_job.close_lookahead_hours)
-        self.assertEqual(fast_job.cursor_mode, "restart")
+        self.assertEqual(fast_job.cursor_mode, "resume")
         self.assertEqual(outcome_job.dataset, "forecast_outcomes")
         self.assertEqual(outcome_job.cursor_mode, "restart")
         self.assertEqual(latest_job.cursor_mode, "restart")

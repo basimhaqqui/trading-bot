@@ -21,6 +21,7 @@ from trading_bot.agents.prediction import (
     AdjustedPredictionMarketCalibrationSpecialist,
     FastPredictionSettlementSpecialist,
     FastPredictionSettlementV3Specialist,
+    FastPredictionSettlementV4Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     prediction_forecast_target_time,
@@ -704,7 +705,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV3Specialist()
+        specialist = FastPredictionSettlementV4Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -1023,13 +1024,18 @@ class ShadowResearchRunner:
         if forecast.specialist_id in {
             FastPredictionSettlementSpecialist.agent_id,
             FastPredictionSettlementV3Specialist.agent_id,
+            FastPredictionSettlementV4Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
                 return None
         expected_event_ticker = forecast.values.get("event_ticker")
         if (
-            forecast.specialist_id == FastPredictionSettlementV3Specialist.agent_id
+            forecast.specialist_id
+            in {
+                FastPredictionSettlementV3Specialist.agent_id,
+                FastPredictionSettlementV4Specialist.agent_id,
+            }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
             return None
@@ -1050,7 +1056,11 @@ class ShadowResearchRunner:
             if settlement_deadline is not None and event.event_time > settlement_deadline:
                 continue
             if (
-                forecast.specialist_id == FastPredictionSettlementV3Specialist.agent_id
+                forecast.specialist_id
+                in {
+                    FastPredictionSettlementV3Specialist.agent_id,
+                    FastPredictionSettlementV4Specialist.agent_id,
+                }
                 and (
                     event.event_time < target_time
                     or prediction_settlement_event_ticker(event) != expected_event_ticker
