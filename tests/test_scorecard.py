@@ -373,6 +373,72 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("holder-concentration observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
+    def test_scorecard_explains_when_fast_lane_lacks_fixed_close_markets(self):
+        self.append_public_run()
+        market = Instrument(
+            "kalshi:prediction:EARLY-CLOSE",
+            "kalshi",
+            "EARLY-CLOSE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        for event_id, event_type, payload in (
+            (
+                "early-close-rule",
+                MarketEventType.CONTRACT_RULE,
+                {
+                    "event_ticker": "EARLY-CLOSE-EVENT",
+                    "status": "active",
+                    "can_close_early": True,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": (
+                        self.now + timedelta(hours=1)
+                    ).isoformat(),
+                },
+            ),
+            (
+                "early-close-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+            ),
+        ):
+            self.store.append_event(
+                MarketEvent(
+                    event_id,
+                    event_type,
+                    "kalshi",
+                    market.instrument_id,
+                    self.now - timedelta(minutes=5),
+                    self.now - timedelta(minutes=5),
+                    "fixture",
+                    payload,
+                    ingested_at=self.now - timedelta(minutes=5),
+                )
+            )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "fast_prediction_fixed_close_unavailable"
+        )
+        self.assertEqual(alert.severity, AlertSeverity.INFO)
+        self.assertIn("can_close_early=false", alert.message)
+        self.assertEqual(scorecard.fast_prediction_eligibility.active_markets, 1)
+        self.assertEqual(scorecard.fast_prediction_eligibility.fixed_close_markets, 0)
+
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
         self.append_public_run()
         generated_at = self.now - timedelta(hours=1)
