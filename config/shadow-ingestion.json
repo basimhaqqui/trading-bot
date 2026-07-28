@@ -37,10 +37,9 @@
       "venue": "kalshi",
       "dataset": "markets",
       "status": "open",
-      "limit": 250,
+      "limit": 1000,
       "cursor_mode": "restart",
-      "mve_filter": "exclude",
-      "close_lookahead_hours": 2
+      "mve_filter": "exclude"
     },
     {
       "job_id": "kalshi-recent-settlements",
