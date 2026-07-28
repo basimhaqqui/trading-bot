@@ -344,7 +344,13 @@ def build_daily_scorecard(
         as_of=as_of
     )
     alerts = _build_alerts(
-        health, strategies, economics, totals, paper, outcome_queue
+        health,
+        strategies,
+        economics,
+        totals,
+        paper,
+        outcome_queue,
+        fast_prediction_eligibility,
     )
     return DailyScorecard(
         as_of,
@@ -668,6 +674,7 @@ def _build_alerts(
     totals: SystemTotals,
     paper: PaperOperationsSummary,
     outcome_queue: OutcomeQueueSummary,
+    fast_prediction_eligibility: FastPredictionEligibilitySummary,
 ) -> tuple[OperationalAlert, ...]:
     alerts: list[OperationalAlert] = []
     unhealthy = [job.job_id for job in health.jobs if not job.healthy]
@@ -741,6 +748,21 @@ def _build_alerts(
                 "outcomes_awaiting_settlement",
                 AlertSeverity.INFO,
                 f"{outcome_queue.due_unmatched} due forecast(s) await a public outcome; oldest target {oldest}",
+            )
+        )
+    if (
+        fast_prediction_eligibility.active_markets
+        and not fast_prediction_eligibility.fixed_close_markets
+    ):
+        alerts.append(
+            OperationalAlert(
+                "fast_prediction_fixed_close_unavailable",
+                AlertSeverity.INFO,
+                (
+                    f"{fast_prediction_eligibility.active_markets} active fast-settlement "
+                    "market(s) lacked the preregistered can_close_early=false "
+                    "constraint; no fast-lane forecast was selected"
+                ),
             )
         )
     if not alerts:
