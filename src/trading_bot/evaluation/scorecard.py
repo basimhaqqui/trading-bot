@@ -185,6 +185,15 @@ class PredictionCalibrationReadiness:
 
 
 @dataclass(frozen=True)
+class RapidCryptoCadenceSummary:
+    job_ids: tuple[str, ...]
+    observed_cycles: int
+    latest_started_at: datetime | None
+    largest_gap_minutes: float | None
+    max_allowed_gap_minutes: float
+
+
+@dataclass(frozen=True)
 class DailyScorecard:
     generated_at: datetime
     status: ScorecardStatus
@@ -200,6 +209,7 @@ class DailyScorecard:
     prediction_calibration: PredictionCalibrationReadiness
     fast_prediction_eligibility: FastPredictionEligibilitySummary
     intraday_momentum_eligibility: IntradayMomentumEligibilitySummary
+    rapid_crypto_cadence: RapidCryptoCadenceSummary
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -343,6 +353,7 @@ def build_daily_scorecard(
     intraday_momentum_eligibility = shadow_research.intraday_momentum_eligibility(
         as_of=as_of
     )
+    rapid_crypto_cadence = _rapid_crypto_cadence(path, plan)
     alerts = _build_alerts(
         health,
         strategies,
@@ -351,6 +362,7 @@ def build_daily_scorecard(
         paper,
         outcome_queue,
         fast_prediction_eligibility,
+        rapid_crypto_cadence,
     )
     return DailyScorecard(
         as_of,
@@ -367,6 +379,7 @@ def build_daily_scorecard(
         prediction_calibration,
         fast_prediction_eligibility,
         intraday_momentum_eligibility,
+        rapid_crypto_cadence,
         health,
         alerts,
     )
@@ -426,6 +439,14 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"signals={scorecard.intraday_momentum_eligibility.signal_instruments} "
             f"v2_assigned={scorecard.intraday_momentum_eligibility.v2_assigned_instruments} "
             f"v2_signals={scorecard.intraday_momentum_eligibility.v2_signal_instruments}"
+        ),
+        (
+            "rapid_crypto_cadence: "
+            f"jobs={len(scorecard.rapid_crypto_cadence.job_ids)} "
+            f"cycles={scorecard.rapid_crypto_cadence.observed_cycles} "
+            f"largest_gap_minutes="
+            f"{scorecard.rapid_crypto_cadence.largest_gap_minutes} "
+            f"bound_minutes={scorecard.rapid_crypto_cadence.max_allowed_gap_minutes}"
         ),
         (
             "memecoin_research: "
@@ -675,6 +696,7 @@ def _build_alerts(
     paper: PaperOperationsSummary,
     outcome_queue: OutcomeQueueSummary,
     fast_prediction_eligibility: FastPredictionEligibilitySummary,
+    rapid_crypto_cadence: RapidCryptoCadenceSummary,
 ) -> tuple[OperationalAlert, ...]:
     alerts: list[OperationalAlert] = []
     unhealthy = [job.job_id for job in health.jobs if not job.healthy]
@@ -751,6 +773,23 @@ def _build_alerts(
             )
         )
     if (
+        rapid_crypto_cadence.largest_gap_minutes is not None
+        and rapid_crypto_cadence.largest_gap_minutes
+        > rapid_crypto_cadence.max_allowed_gap_minutes
+    ):
+        alerts.append(
+            OperationalAlert(
+                "rapid_crypto_observation_cadence_gap",
+                AlertSeverity.WARNING,
+                (
+                    "rapid crypto observation gap "
+                    f"{rapid_crypto_cadence.largest_gap_minutes:.1f} minutes exceeds "
+                    f"the {rapid_crypto_cadence.max_allowed_gap_minutes:.0f}-minute "
+                    "collection bound; missed cycles are not prospective evidence"
+                ),
+            )
+        )
+    if (
         fast_prediction_eligibility.active_markets
         and not fast_prediction_eligibility.fixed_close_markets
     ):
@@ -774,6 +813,68 @@ def _build_alerts(
             )
         )
     return tuple(alerts)
+
+
+def _rapid_crypto_cadence(
+    path: str | Path,
+    plan: ShadowIngestionPlan,
+    *,
+    max_gap: timedelta = timedelta(minutes=30),
+) -> RapidCryptoCadenceSummary:
+    """Report observed gaps for the fixed fifteen-minute crypto collection lane.
+
+    This is operational telemetry only: it never fills a missing candle, produces a
+    forecast, or changes any evidence or eligibility threshold.
+    """
+    if max_gap <= timedelta(0):
+        raise ValueError("rapid crypto cadence bound must be positive")
+    job_ids = tuple(
+        job.job_id
+        for job in plan.jobs
+        if job.enabled
+        and job.venue == "coinbase"
+        and job.dataset == "candles"
+        and job.granularity == "FIFTEEN_MINUTE"
+    )
+    if not job_ids:
+        return RapidCryptoCadenceSummary(
+            (), 0, None, None, max_gap.total_seconds() / 60
+        )
+
+    observed_at: list[datetime] = []
+    cycle_counts: list[int] = []
+    gaps: list[float] = []
+    with sqlite3.connect(path) as connection:
+        for job_id in job_ids:
+            rows = connection.execute(
+                """
+                SELECT started_at
+                FROM ingestion_runs
+                WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
+                ORDER BY started_at ASC, rowid ASC
+                """,
+                (
+                    plan.name,
+                    job_id,
+                    "success",
+                    "degraded",
+                ),
+            ).fetchall()
+            timestamps = [parse_datetime(str(row[0])) for row in rows]
+            cycle_counts.append(len(timestamps))
+            if timestamps:
+                observed_at.append(timestamps[-1])
+            gaps.extend(
+                (later - earlier).total_seconds() / 60
+                for earlier, later in zip(timestamps, timestamps[1:])
+            )
+    return RapidCryptoCadenceSummary(
+        job_ids,
+        min(cycle_counts, default=0),
+        min(observed_at) if len(observed_at) == len(job_ids) else None,
+        max(gaps, default=None),
+        max_gap.total_seconds() / 60,
+    )
 
 
 def _waiting_credentials_message(waiting: Sequence[JobHealth]) -> str:
@@ -1191,6 +1292,31 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 "Preregistered v2 fixed-assignment funnel (not evidence): "
                 f"**{intraday.v2_assigned_instruments}** target-time assigned instrument(s) → "
                 f"**{intraday.v2_signal_instruments}** fixed-threshold signal(s)."
+            ),
+        ]
+    )
+    cadence = scorecard.rapid_crypto_cadence
+    latest_cycle = (
+        f"`{cadence.latest_started_at.isoformat()}`"
+        if cadence.latest_started_at is not None
+        else "—"
+    )
+    largest_gap = (
+        f"{cadence.largest_gap_minutes:.1f} minutes"
+        if cadence.largest_gap_minutes is not None
+        else "insufficient history"
+    )
+    lines.extend(
+        [
+            "",
+            "### Rapid crypto collection cadence",
+            "",
+            (
+                f"Fixed fifteen-minute jobs: **{len(cadence.job_ids)}** · "
+                f"shared observed cycles: **{cadence.observed_cycles}** · "
+                f"latest shared cycle: {latest_cycle} · "
+                f"largest observed gap: **{largest_gap}** "
+                f"(bound: {cadence.max_allowed_gap_minutes:.0f} minutes)."
             ),
         ]
     )

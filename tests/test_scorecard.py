@@ -104,6 +104,23 @@ class DailyScorecardTests(unittest.TestCase):
                 ingested_at=self.now - timedelta(minutes=5),
             )
         )
+
+    def append_rapid_crypto_run(self, run_id, started_at):
+        self.ingestion.append(
+            IngestionRunRecord(
+                run_id,
+                "scorecard-plan",
+                "coinbase-btc-fifteen-minute-candles",
+                "coinbase",
+                "candles",
+                IngestionRunStatus.SUCCESS,
+                started_at,
+                started_at + timedelta(seconds=1),
+                1,
+                1,
+            )
+        )
+
     def test_scorecard_combines_coverage_health_and_credential_alerts(self):
         self.append_public_run()
         self.append_crypto_event()
@@ -185,6 +202,47 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("1 Alpaca stock/options job(s)", alert.message)
         self.assertIn("1 Solana safety-observation job(s)", alert.message)
         self.assertIn("blocked-unverified", alert.message)
+
+    def test_scorecard_warns_when_rapid_crypto_observation_cycles_are_gapped(self):
+        self.append_rapid_crypto_run("rapid-early", self.now - timedelta(minutes=50))
+        self.append_rapid_crypto_run("rapid-late", self.now - timedelta(minutes=5))
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        cadence = scorecard.rapid_crypto_cadence
+        self.assertEqual(cadence.job_ids, ("coinbase-btc-fifteen-minute-candles",))
+        self.assertEqual(cadence.observed_cycles, 2)
+        self.assertEqual(cadence.latest_started_at, self.now - timedelta(minutes=5))
+        self.assertEqual(cadence.largest_gap_minutes, 45.0)
+        self.assertEqual(cadence.max_allowed_gap_minutes, 30.0)
+        alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "rapid_crypto_observation_cadence_gap"
+        )
+        self.assertEqual(alert.severity, AlertSeverity.WARNING)
+        self.assertIn("45.0 minutes", alert.message)
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("Rapid crypto collection cadence", markdown)
+        self.assertIn("largest observed gap: **45.0 minutes**", markdown)
 
     def test_unhealthy_ingestion_emits_error_annotation(self):
         plan = ShadowIngestionPlan(
