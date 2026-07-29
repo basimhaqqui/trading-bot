@@ -140,7 +140,7 @@ jobs:
           retention-days: 7
 
       - name: Upload daily scorecard
-        if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/reports/daily-scorecard.json') != '' }}
+        if: ${{ always() && hashFiles('var/reports/daily-scorecard.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: daily-scorecard
