@@ -54,6 +54,17 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertNotIn('if [[ "$EVENT_NAME" == "workflow_dispatch"', workflow)
         self.assertIn("retention-days: 7", workflow)
 
+    def test_scorecards_are_retained_even_when_a_continuity_gate_fails(self):
+        workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+
+        upload = workflow.split("- name: Upload daily scorecard", 1)[1].split(
+            "- name: Save next-cycle state", 1
+        )[0]
+        self.assertIn("if: ${{ always()", upload)
+        self.assertIn("hashFiles('var/reports/daily-scorecard.json')", upload)
+        self.assertNotIn("steps.recovery.outputs.create", upload)
+        self.assertIn("retention-days: 90", upload)
+
     def test_deployment_template_matches_the_live_shadow_workflow(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
