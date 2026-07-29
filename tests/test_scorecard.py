@@ -21,8 +21,10 @@ from trading_bot.evaluation.costs import (
 )
 from trading_bot.evaluation.scorecard import (
     AlertSeverity,
+    RapidCryptoCadenceSummary,
     ScorecardStatus,
     build_daily_scorecard,
+    rapid_lane_continuity_passes,
     render_github_alerts,
     render_scorecard,
 )
@@ -263,6 +265,19 @@ class DailyScorecardTests(unittest.TestCase):
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Rapid crypto collection cadence", markdown)
         self.assertIn("largest observed gap: **45.0 minutes**", markdown)
+        self.assertFalse(rapid_lane_continuity_passes(cadence))
+
+    def test_rapid_lane_continuity_requires_an_observed_gap_within_bound(self):
+        cadence = RapidCryptoCadenceSummary(
+            ("coinbase-btc-fifteen-minute-candles",),
+            96,
+            self.now,
+            15.0,
+            30.0,
+            24.0,
+        )
+
+        self.assertTrue(rapid_lane_continuity_passes(cadence))
 
     def test_scorecard_excludes_manual_cycles_from_rapid_continuity(self):
         self.ingestion.append(

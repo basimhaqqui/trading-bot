@@ -22,6 +22,14 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_origin, workflow)
         self.assertIn(expected_origin, deployment)
 
+    def test_scheduled_runs_fail_when_rapid_evidence_continuity_is_broken(self):
+        workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+        deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
+
+        expected_flag = "--fail-on-rapid-continuity"
+        self.assertIn(expected_flag, workflow)
+        self.assertIn(expected_flag, deployment)
+
     def test_live_shadow_workflow_passes_the_read_only_solana_endpoint(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()

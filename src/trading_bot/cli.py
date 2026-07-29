@@ -88,6 +88,7 @@ from trading_bot.evaluation.shadow import ShadowResearchResult, ShadowResearchRu
 from trading_bot.evaluation.scorecard import (
     ScorecardStatus,
     build_daily_scorecard,
+    rapid_lane_continuity_passes,
     render_github_alerts,
     render_scorecard,
 )
@@ -188,6 +189,11 @@ def _parser() -> argparse.ArgumentParser:
     scorecard.add_argument("--json-output", help="optional machine-readable scorecard path")
     scorecard.add_argument("--emit-github-alerts", action="store_true")
     scorecard.add_argument("--fail-on-critical", action="store_true")
+    scorecard.add_argument(
+        "--fail-on-rapid-continuity",
+        action="store_true",
+        help="fail when either rapid evidence lane lacks an observed in-bound cadence window",
+    )
     paper_status = subparsers.add_parser(
         "paper-status", help="read Alpaca paper account state without placing orders"
     )
@@ -858,6 +864,14 @@ def _daily_scorecard(path: Path, args: argparse.Namespace) -> int:
         if alerts:
             print(alerts)
     if args.fail_on_critical and scorecard.status is ScorecardStatus.CRITICAL:
+        return 1
+    if args.fail_on_rapid_continuity and not all(
+        rapid_lane_continuity_passes(cadence)
+        for cadence in (
+            scorecard.rapid_crypto_cadence,
+            scorecard.fast_prediction_cadence,
+        )
+    ):
         return 1
     return 0
 

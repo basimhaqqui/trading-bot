@@ -107,7 +107,8 @@ jobs:
             --format markdown \
             --output var/reports/daily-scorecard.md \
             --json-output var/reports/daily-scorecard.json \
-            --emit-github-alerts
+            --emit-github-alerts \
+            ${{ github.event_name == 'schedule' && '--fail-on-rapid-continuity' || '' }}
           cat var/reports/daily-scorecard.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Select recovery checkpoint

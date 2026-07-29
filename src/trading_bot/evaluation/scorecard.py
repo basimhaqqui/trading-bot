@@ -227,6 +227,17 @@ class DailyScorecard:
     alerts: tuple[OperationalAlert, ...]
 
 
+def rapid_lane_continuity_passes(
+    cadence: RapidCryptoCadenceSummary | FastPredictionCadenceSummary,
+) -> bool:
+    """Return whether a rapid lane has an observed, in-bound telemetry window."""
+    return (
+        cadence.observed_cycles > 0
+        and cadence.largest_gap_minutes is not None
+        and cadence.largest_gap_minutes <= cadence.max_allowed_gap_minutes
+    )
+
+
 def build_daily_scorecard(
     path: str | Path,
     plan: ShadowIngestionPlan,

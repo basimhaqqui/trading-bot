@@ -19,6 +19,7 @@ from trading_bot.evaluation.scorecard import (
     FastPredictionCadenceSummary,
     RapidCryptoCadenceSummary,
     build_daily_scorecard,
+    rapid_lane_continuity_passes,
 )
 from trading_bot.execution.crypto_sandbox import (
     load_crypto_sandbox_config,
@@ -396,7 +397,7 @@ def _cadence_gate(
     observed = cadence.observed_cycles
     largest_gap = cadence.largest_gap_minutes
     bound = cadence.max_allowed_gap_minutes
-    passed = observed > 0 and largest_gap is not None and largest_gap <= bound
+    passed = rapid_lane_continuity_passes(cadence)
     if observed == 0 or largest_gap is None:
         detail = f"{lane} has no observed collection cycles in its telemetry window"
     elif passed:
