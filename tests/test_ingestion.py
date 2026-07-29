@@ -26,6 +26,7 @@ from trading_bot.evaluation.shadow import ShadowResearchRunner
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan, load_plan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
+    IngestionRunOrigin,
     IngestionRunStatus,
     ShadowIngestionRunner,
     collect_job,
@@ -224,6 +225,21 @@ class IngestionTests(unittest.TestCase):
         records = runner.run_plan(ShadowIngestionPlan("fixture", (job,)), collected_at=self.now)
         self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
         self.assertEqual(collector.addresses, (mint,))
+
+    def test_runner_records_explicit_cycle_origin(self):
+        job = ObservationJob("products", "coinbase", "products")
+        collector = FakeCoinbaseCollector(CollectionBatch("coinbase"))
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+
+        record = runner.run_plan(
+            ShadowIngestionPlan("fixture", (job,)),
+            collected_at=self.now,
+            origin=IngestionRunOrigin.SCHEDULED,
+        )[0]
+
+        self.assertEqual(record.origin, IngestionRunOrigin.SCHEDULED)
 
     def test_solana_holder_concentration_jobs_are_bounded_and_select_discovered_mints(self):
         job = ObservationJob("holder-concentrations", "solana", "holder_concentrations", limit=25)

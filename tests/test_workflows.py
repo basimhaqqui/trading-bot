@@ -11,6 +11,17 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_cron, workflow)
         self.assertIn(expected_cron, deployment)
 
+    def test_scheduled_origin_is_recorded_separately_from_manual_runs(self):
+        workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+        deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
+
+        for content in (workflow, deployment):
+            self.assertIn('COLLECTION_TRIGGER: ${{ github.event_name }}', content)
+            self.assertIn('if [[ "$COLLECTION_TRIGGER" == "schedule" ]]', content)
+            self.assertIn("origin=scheduled", content)
+            self.assertIn("origin=manual", content)
+            self.assertIn('--trigger-origin "$origin"', content)
+
     def test_live_shadow_workflow_passes_the_read_only_solana_endpoint(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()

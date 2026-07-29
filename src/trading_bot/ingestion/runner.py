@@ -51,6 +51,19 @@ class IngestionRunStatus(StrEnum):
     FAILED = "failed"
 
 
+class IngestionRunOrigin(StrEnum):
+    """Declare how an observation cycle was started.
+
+    Only explicit scheduled runs are eligible for rapid-lane cadence evidence.
+    Manual recovery and legacy records remain operational data, but do not prove
+    continuously scheduled collection.
+    """
+
+    SCHEDULED = "scheduled"
+    MANUAL = "manual"
+    UNSPECIFIED = "unspecified"
+
+
 MAX_CURSOR_LENGTH = 4096
 
 
@@ -66,6 +79,7 @@ class IngestionRunRecord:
     finished_at: datetime
     instruments_seen: int
     events_inserted: int
+    origin: IngestionRunOrigin = IngestionRunOrigin.UNSPECIFIED
     diagnostics: tuple[DataQualityDiagnostic, ...] = ()
     request_cursor: str | None = None
     next_cursor: str | None = None
@@ -80,6 +94,8 @@ class IngestionRunRecord:
             raise ValueError("ingestion run cannot finish before it starts")
         if min(self.instruments_seen, self.events_inserted) < 0:
             raise ValueError("ingestion counts cannot be negative")
+        if not isinstance(self.origin, IngestionRunOrigin):
+            raise ValueError("ingestion origin must be a recognized origin")
         if self.status is IngestionRunStatus.FAILED and not self.error_type:
             raise ValueError("failed ingestion runs require an error type")
         for field_name, cursor in (
@@ -218,20 +234,27 @@ class ShadowIngestionRunner:
         plan: ShadowIngestionPlan,
         *,
         collected_at: datetime | None = None,
+        origin: IngestionRunOrigin = IngestionRunOrigin.UNSPECIFIED,
     ) -> tuple[IngestionRunRecord, ...]:
+        if not isinstance(origin, IngestionRunOrigin):
+            raise ValueError("ingestion origin must be a recognized origin")
         collection_override = (
             require_aware(collected_at, "collected_at") if collected_at is not None else None
         )
         lock_path = self.store.path.with_suffix(self.store.path.suffix + ".shadow.lock")
         with exclusive_run_lock(lock_path):
             return tuple(
-                self._run_job(plan.name, job, collection_override)
+                self._run_job(plan.name, job, collection_override, origin)
                 for job in plan.jobs
                 if job.is_active()
             )
 
     def _run_job(
-        self, plan_name: str, job: ObservationJob, collected_at: datetime | None
+        self,
+        plan_name: str,
+        job: ObservationJob,
+        collected_at: datetime | None,
+        origin: IngestionRunOrigin,
     ) -> IngestionRunRecord:
         run_id = str(uuid.uuid4())
         started_at = utc_now()
@@ -337,6 +360,7 @@ class ShadowIngestionRunner:
                 finished_at=utc_now(),
                 instruments_seen=instruments_seen,
                 events_inserted=events_inserted,
+                origin=origin,
                 diagnostics=batch.diagnostics,
                 request_cursor=request_cursor,
                 next_cursor=batch.cursor,
@@ -354,6 +378,7 @@ class ShadowIngestionRunner:
                 finished_at=utc_now(),
                 instruments_seen=0,
                 events_inserted=0,
+                origin=origin,
                 request_cursor=request_cursor,
                 error_type=type(exc).__name__,
                 error_message=str(exc)[:2000],

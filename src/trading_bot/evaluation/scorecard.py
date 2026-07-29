@@ -39,6 +39,7 @@ from trading_bot.evaluation.shadow import (
 from trading_bot.evaluation.scoring import ForecastScore
 from trading_bot.ingestion.health import JobHealth, IngestionHealthReport, ingestion_health
 from trading_bot.ingestion.plan import ShadowIngestionPlan
+from trading_bot.ingestion.runner import IngestionRunOrigin
 from trading_bot.execution.operations import PaperControlStore, PaperExecutionLedger
 
 
@@ -926,7 +927,7 @@ def _rapid_crypto_cadence(
         for job_id in job_ids:
             rows = connection.execute(
                 """
-                SELECT started_at
+                SELECT started_at, record_json
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
                   AND started_at >= ? AND started_at <= ?
@@ -941,7 +942,11 @@ def _rapid_crypto_cadence(
                     as_of.isoformat(),
                 ),
             ).fetchall()
-            timestamps = [parse_datetime(str(row[0])) for row in rows]
+            timestamps = [
+                parse_datetime(str(row[0]))
+                for row in rows
+                if _scheduled_ingestion_record(str(row[1]))
+            ]
             cycle_counts.append(len(timestamps))
             if timestamps:
                 observed_at.append(timestamps[-1])
@@ -1002,7 +1007,7 @@ def _fast_prediction_cadence(
         for job_id in job_ids:
             rows = connection.execute(
                 """
-                SELECT started_at
+                SELECT started_at, record_json
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
                   AND started_at >= ? AND started_at <= ?
@@ -1017,7 +1022,11 @@ def _fast_prediction_cadence(
                     as_of.isoformat(),
                 ),
             ).fetchall()
-            timestamps = [parse_datetime(str(row[0])) for row in rows]
+            timestamps = [
+                parse_datetime(str(row[0]))
+                for row in rows
+                if _scheduled_ingestion_record(str(row[1]))
+            ]
             cycle_counts.append(len(timestamps))
             if timestamps:
                 observed_at.append(timestamps[-1])
@@ -1038,6 +1047,14 @@ def _fast_prediction_cadence(
         max_gap.total_seconds() / 60,
         lookback.total_seconds() / 3600,
     )
+
+
+def _scheduled_ingestion_record(record_json: str) -> bool:
+    """Fail closed for legacy and manually triggered collection records."""
+    try:
+        return json.loads(record_json).get("origin") == IngestionRunOrigin.SCHEDULED.value
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
 
 
 def _waiting_credentials_message(waiting: Sequence[JobHealth]) -> str:

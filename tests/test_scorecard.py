@@ -31,6 +31,7 @@ from trading_bot.evaluation.scoring import score_return_forecast
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
+    IngestionRunOrigin,
     IngestionRunRecord,
     IngestionRunStatus,
 )
@@ -105,7 +106,13 @@ class DailyScorecardTests(unittest.TestCase):
             )
         )
 
-    def append_rapid_crypto_run(self, run_id, started_at):
+    def append_rapid_crypto_run(
+        self,
+        run_id,
+        started_at,
+        *,
+        origin=IngestionRunOrigin.SCHEDULED,
+    ):
         self.ingestion.append(
             IngestionRunRecord(
                 run_id,
@@ -118,10 +125,17 @@ class DailyScorecardTests(unittest.TestCase):
                 started_at + timedelta(seconds=1),
                 1,
                 1,
+                origin=origin,
             )
         )
 
-    def append_fast_prediction_run(self, run_id, started_at):
+    def append_fast_prediction_run(
+        self,
+        run_id,
+        started_at,
+        *,
+        origin=IngestionRunOrigin.SCHEDULED,
+    ):
         self.ingestion.append(
             IngestionRunRecord(
                 run_id,
@@ -134,6 +148,7 @@ class DailyScorecardTests(unittest.TestCase):
                 started_at + timedelta(seconds=1),
                 1,
                 1,
+                origin=origin,
             )
         )
 
@@ -496,6 +511,48 @@ class DailyScorecardTests(unittest.TestCase):
                 for item in scorecard.alerts
             )
         )
+
+    def test_scorecard_excludes_manual_and_unattributed_cycles_from_rapid_continuity(self):
+        self.append_rapid_crypto_run(
+            "rapid-manual", self.now - timedelta(minutes=5), origin=IngestionRunOrigin.MANUAL
+        )
+        self.append_fast_prediction_run(
+            "fast-legacy", self.now - timedelta(minutes=5), origin=IngestionRunOrigin.UNSPECIFIED
+        )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+                ObservationJob(
+                    "kalshi-fast-settling-markets",
+                    "kalshi",
+                    "markets",
+                    status="open",
+                    limit=1000,
+                    cursor_mode="resume",
+                    mve_filter="exclude",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(scorecard.rapid_crypto_cadence.observed_cycles, 0)
+        self.assertIsNone(scorecard.rapid_crypto_cadence.largest_gap_minutes)
+        self.assertEqual(scorecard.fast_prediction_cadence.observed_cycles, 0)
+        self.assertIsNone(scorecard.fast_prediction_cadence.largest_gap_minutes)
 
     def test_unhealthy_ingestion_emits_error_annotation(self):
         plan = ShadowIngestionPlan(
