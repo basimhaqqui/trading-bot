@@ -89,6 +89,9 @@ class FastPredictionEligibilitySummary:
     fresh_book_markets: int
     active_markets: int
     fixed_close_markets: int
+    early_close_allowed_markets: int
+    missing_close_constraint_markets: int
+    invalid_close_constraint_markets: int
     short_timer_markets: int
     horizon_markets: int
     executable_markets: int
@@ -740,6 +743,9 @@ class ShadowResearchRunner:
         fresh_book_markets = 0
         active_markets = 0
         fixed_close_markets = 0
+        early_close_allowed_markets = 0
+        missing_close_constraint_markets = 0
+        invalid_close_constraint_markets = 0
         short_timer_markets = 0
         horizon_markets = 0
         executable_markets = 0
@@ -770,7 +776,14 @@ class ShadowResearchRunner:
             if str(rule.payload.get("status", "")).lower() != "active":
                 continue
             active_markets += 1
-            if rule.payload.get("can_close_early") is not False:
+            close_constraint = rule.payload.get("can_close_early")
+            if close_constraint is not False:
+                if close_constraint is True:
+                    early_close_allowed_markets += 1
+                elif "can_close_early" not in rule.payload:
+                    missing_close_constraint_markets += 1
+                else:
+                    invalid_close_constraint_markets += 1
                 continue
             fixed_close_markets += 1
             timer = rule.payload.get("settlement_timer_seconds")
@@ -830,6 +843,9 @@ class ShadowResearchRunner:
             fresh_book_markets,
             active_markets,
             fixed_close_markets,
+            early_close_allowed_markets,
+            missing_close_constraint_markets,
+            invalid_close_constraint_markets,
             short_timer_markets,
             horizon_markets,
             executable_markets,
