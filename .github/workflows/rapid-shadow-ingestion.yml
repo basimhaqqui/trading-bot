@@ -1,0 +1,54 @@
+name: Rapid shadow evidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "22,37,52 * * * *"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: shadow-market-observation
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Restore latest working state
+        uses: actions/cache/restore@v5
+        with:
+          path: var/trading.db
+          key: shadow-db-${{ github.run_id }}
+          restore-keys: shadow-db-
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Validate rapid observation plan
+        run: trading-bot shadow-cycle --plan config/rapid-shadow-ingestion.json --validate-only
+
+      - name: Register research baselines
+        run: trading-bot --db var/trading.db research-init
+
+      - name: Collect rapid evidence and score outcomes
+        run: >-
+          trading-bot --db var/trading.db shadow-cycle
+          --plan config/rapid-shadow-ingestion.json
+          --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+
+      - name: Save next-cycle state
+        if: ${{ always() && hashFiles('var/trading.db') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: var/trading.db
+          key: shadow-db-${{ github.run_id }}

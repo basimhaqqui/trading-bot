@@ -1,15 +1,48 @@
+import json
 import unittest
 from pathlib import Path
 
 
 class ShadowWorkflowTests(unittest.TestCase):
     def test_rapid_crypto_cadence_preserves_a_post_close_buffer(self):
-        workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
-        deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
+        full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+        rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        rapid_deployment = Path(
+            "deployment/rapid-shadow-ingestion.github-actions.yml"
+        ).read_text()
 
-        expected_cron = 'cron: "7,22,37,52 * * * *"'
-        self.assertIn(expected_cron, workflow)
-        self.assertIn(expected_cron, deployment)
+        self.assertIn('cron: "7 * * * *"', full_workflow)
+        expected_cron = 'cron: "22,37,52 * * * *"'
+        self.assertIn(expected_cron, rapid_workflow)
+        self.assertIn(expected_cron, rapid_deployment)
+        self.assertIn("timeout-minutes: 12", rapid_workflow)
+
+    def test_rapid_workflow_preserves_shared_append_only_evidence_state(self):
+        workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        plan = json.loads(Path("config/rapid-shadow-ingestion.json").read_text())
+
+        self.assertIn("group: shadow-market-observation", workflow)
+        self.assertIn("restore-keys: shadow-db-", workflow)
+        self.assertIn("actions/cache/save@v5", workflow)
+        self.assertIn("config/rapid-shadow-ingestion.json", workflow)
+        self.assertEqual(plan["name"], "public-shadow-observation")
+        self.assertEqual(
+            {job["job_id"] for job in plan["jobs"]},
+            {
+                "kalshi-fast-settling-markets",
+                "kalshi-forecast-outcomes",
+                "coinbase-btc-fifteen-minute-candles",
+                "coinbase-eth-fifteen-minute-candles",
+                "coinbase-sol-fifteen-minute-candles",
+                "coinbase-doge-fifteen-minute-candles",
+                "coinbase-xrp-fifteen-minute-candles",
+                "coinbase-ada-fifteen-minute-candles",
+                "coinbase-avax-fifteen-minute-candles",
+                "coinbase-link-fifteen-minute-candles",
+                "coinbase-hype-fifteen-minute-candles",
+                "coinbase-pump-fifteen-minute-candles",
+            },
+        )
 
     def test_only_scheduled_workflow_cycles_attest_scheduled_evidence(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
@@ -68,6 +101,14 @@ class ShadowWorkflowTests(unittest.TestCase):
     def test_deployment_template_matches_the_live_shadow_workflow(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
+
+        self.assertEqual(deployment, workflow)
+
+    def test_rapid_deployment_template_matches_the_live_workflow(self):
+        workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        deployment = Path(
+            "deployment/rapid-shadow-ingestion.github-actions.yml"
+        ).read_text()
 
         self.assertEqual(deployment, workflow)
 
