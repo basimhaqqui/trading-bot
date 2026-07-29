@@ -233,6 +233,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(cadence.latest_started_at, self.now - timedelta(minutes=5))
         self.assertEqual(cadence.largest_gap_minutes, 45.0)
         self.assertEqual(cadence.max_allowed_gap_minutes, 30.0)
+        self.assertEqual(cadence.lookback_hours, 24.0)
         alert = next(
             item
             for item in scorecard.alerts
@@ -243,6 +244,42 @@ class DailyScorecardTests(unittest.TestCase):
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Rapid crypto collection cadence", markdown)
         self.assertIn("largest observed gap: **45.0 minutes**", markdown)
+
+    def test_scorecard_ignores_remediated_rapid_crypto_gaps_outside_telemetry_window(self):
+        self.append_rapid_crypto_run("rapid-old-early", self.now - timedelta(hours=26))
+        self.append_rapid_crypto_run("rapid-old-late", self.now - timedelta(hours=25))
+        self.append_rapid_crypto_run("rapid-recent-early", self.now - timedelta(minutes=20))
+        self.append_rapid_crypto_run("rapid-recent-late", self.now - timedelta(minutes=5))
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        cadence = scorecard.rapid_crypto_cadence
+        self.assertEqual(cadence.observed_cycles, 2)
+        self.assertEqual(cadence.largest_gap_minutes, 15.0)
+        self.assertFalse(
+            any(
+                item.code == "rapid_crypto_observation_cadence_gap"
+                for item in scorecard.alerts
+            )
+        )
 
     def test_unhealthy_ingestion_emits_error_annotation(self):
         plan = ShadowIngestionPlan(

@@ -191,6 +191,7 @@ class RapidCryptoCadenceSummary:
     latest_started_at: datetime | None
     largest_gap_minutes: float | None
     max_allowed_gap_minutes: float
+    lookback_hours: float
 
 
 @dataclass(frozen=True)
@@ -353,7 +354,7 @@ def build_daily_scorecard(
     intraday_momentum_eligibility = shadow_research.intraday_momentum_eligibility(
         as_of=as_of
     )
-    rapid_crypto_cadence = _rapid_crypto_cadence(path, plan)
+    rapid_crypto_cadence = _rapid_crypto_cadence(path, plan, as_of=as_of)
     alerts = _build_alerts(
         health,
         strategies,
@@ -446,7 +447,8 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"cycles={scorecard.rapid_crypto_cadence.observed_cycles} "
             f"largest_gap_minutes="
             f"{scorecard.rapid_crypto_cadence.largest_gap_minutes} "
-            f"bound_minutes={scorecard.rapid_crypto_cadence.max_allowed_gap_minutes}"
+            f"bound_minutes={scorecard.rapid_crypto_cadence.max_allowed_gap_minutes} "
+            f"lookback_hours={scorecard.rapid_crypto_cadence.lookback_hours}"
         ),
         (
             "memecoin_research: "
@@ -819,15 +821,22 @@ def _rapid_crypto_cadence(
     path: str | Path,
     plan: ShadowIngestionPlan,
     *,
+    as_of: datetime,
     max_gap: timedelta = timedelta(minutes=30),
+    lookback: timedelta = timedelta(hours=24),
 ) -> RapidCryptoCadenceSummary:
-    """Report observed gaps for the fixed fifteen-minute crypto collection lane.
+    """Report recent gaps for the fixed fifteen-minute crypto collection lane.
 
     This is operational telemetry only: it never fills a missing candle, produces a
-    forecast, or changes any evidence or eligibility threshold.
+    forecast, or changes any evidence or eligibility threshold.  A fixed rolling
+    window prevents an old, already-remediated outage from permanently masking the
+    current collection state.
     """
     if max_gap <= timedelta(0):
         raise ValueError("rapid crypto cadence bound must be positive")
+    if lookback <= timedelta(0):
+        raise ValueError("rapid crypto cadence lookback must be positive")
+    as_of = require_aware(as_of, "as_of")
     job_ids = tuple(
         job.job_id
         for job in plan.jobs
@@ -838,7 +847,7 @@ def _rapid_crypto_cadence(
     )
     if not job_ids:
         return RapidCryptoCadenceSummary(
-            (), 0, None, None, max_gap.total_seconds() / 60
+            (), 0, None, None, max_gap.total_seconds() / 60, lookback.total_seconds() / 3600
         )
 
     observed_at: list[datetime] = []
@@ -851,6 +860,7 @@ def _rapid_crypto_cadence(
                 SELECT started_at
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
+                  AND started_at >= ?
                 ORDER BY started_at ASC, rowid ASC
                 """,
                 (
@@ -858,6 +868,7 @@ def _rapid_crypto_cadence(
                     job_id,
                     "success",
                     "degraded",
+                    (as_of - lookback).isoformat(),
                 ),
             ).fetchall()
             timestamps = [parse_datetime(str(row[0])) for row in rows]
@@ -874,6 +885,7 @@ def _rapid_crypto_cadence(
         min(observed_at) if len(observed_at) == len(job_ids) else None,
         max(gaps, default=None),
         max_gap.total_seconds() / 60,
+        lookback.total_seconds() / 3600,
     )
 
 
@@ -1316,6 +1328,7 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"shared observed cycles: **{cadence.observed_cycles}** · "
                 f"latest shared cycle: {latest_cycle} · "
                 f"largest observed gap: **{largest_gap}** "
+                f"in the trailing {cadence.lookback_hours:.0f} hours "
                 f"(bound: {cadence.max_allowed_gap_minutes:.0f} minutes)."
             ),
         ]
