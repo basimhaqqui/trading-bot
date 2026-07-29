@@ -76,7 +76,10 @@ jobs:
         run: trading-bot --db var/trading.db research-init
 
       - name: Collect and research
-        run: trading-bot --db var/trading.db shadow-cycle --plan config/shadow-ingestion.json
+        run: >-
+          trading-bot --db var/trading.db shadow-cycle
+          --plan config/shadow-ingestion.json
+          --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 
       - name: Reconcile Alpaca paper account
         if: ${{ env.ALPACA_MARKET_DATA_KEY_ID != '' && env.ALPACA_MARKET_DATA_SECRET_KEY != '' }}
@@ -104,7 +107,8 @@ jobs:
             --format markdown \
             --output var/reports/daily-scorecard.md \
             --json-output var/reports/daily-scorecard.json \
-            --emit-github-alerts
+            --emit-github-alerts \
+            ${{ github.event_name == 'schedule' && '--fail-on-rapid-continuity' || '' }}
           cat var/reports/daily-scorecard.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Select recovery checkpoint

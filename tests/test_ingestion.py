@@ -26,6 +26,7 @@ from trading_bot.evaluation.shadow import ShadowResearchRunner
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan, load_plan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
+    IngestionObservationOrigin,
     IngestionRunStatus,
     ShadowIngestionRunner,
     collect_job,
@@ -331,6 +332,37 @@ class IngestionTests(unittest.TestCase):
                 connection.execute(
                     "UPDATE ingestion_runs SET status = 'success' WHERE job_id = 'products'"
                 )
+
+    def test_cycle_persists_observation_origin_and_defaults_to_manual(self):
+        runner = ShadowIngestionRunner(
+            self.store,
+            self.ledger,
+            collector_factory=lambda venue, dataset: FakeCoinbaseCollector(
+                CollectionBatch("coinbase")
+            ),
+        )
+        plan = ShadowIngestionPlan(
+            "fixture-plan",
+            (ObservationJob("products", "coinbase", "products"),),
+        )
+
+        scheduled = runner.run_plan(
+            plan,
+            collected_at=self.now,
+            observation_origin=IngestionObservationOrigin.SCHEDULED,
+        )[0]
+        manual = runner.run_plan(plan, collected_at=self.now)[0]
+
+        self.assertIs(scheduled.observation_origin, IngestionObservationOrigin.SCHEDULED)
+        self.assertIs(manual.observation_origin, IngestionObservationOrigin.MANUAL)
+        with sqlite3.connect(self.db_path) as connection:
+            origins = [
+                json.loads(row[0])["observation_origin"]
+                for row in connection.execute(
+                    "SELECT record_json FROM ingestion_runs ORDER BY rowid ASC"
+                )
+            ]
+        self.assertEqual(origins, ["scheduled", "manual"])
 
     def test_failed_job_is_recorded_and_does_not_abort_cycle(self):
         runner = ShadowIngestionRunner(

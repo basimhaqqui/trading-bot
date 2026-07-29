@@ -88,6 +88,7 @@ from trading_bot.evaluation.shadow import ShadowResearchResult, ShadowResearchRu
 from trading_bot.evaluation.scorecard import (
     ScorecardStatus,
     build_daily_scorecard,
+    rapid_lane_continuity_passes,
     render_github_alerts,
     render_scorecard,
 )
@@ -100,6 +101,7 @@ from trading_bot.ingestion.plan import load_plan
 from trading_bot.ingestion.health import ingestion_health, render_health
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
+    IngestionObservationOrigin,
     IngestionRunStatus,
     ShadowIngestionRunner,
 )
@@ -134,6 +136,12 @@ def _parser() -> argparse.ArgumentParser:
     shadow_cycle.add_argument("--plan", required=True, help="validated ingestion plan JSON")
     shadow_cycle.add_argument(
         "--validate-only", action="store_true", help="validate and print jobs without network calls"
+    )
+    shadow_cycle.add_argument(
+        "--observation-origin",
+        choices=tuple(item.value for item in IngestionObservationOrigin),
+        default=IngestionObservationOrigin.MANUAL.value,
+        help="attest whether this cycle was invoked by the scheduled workflow (default: manual)",
     )
     subparsers.add_parser(
         "shadow-research",
@@ -181,6 +189,11 @@ def _parser() -> argparse.ArgumentParser:
     scorecard.add_argument("--json-output", help="optional machine-readable scorecard path")
     scorecard.add_argument("--emit-github-alerts", action="store_true")
     scorecard.add_argument("--fail-on-critical", action="store_true")
+    scorecard.add_argument(
+        "--fail-on-rapid-continuity",
+        action="store_true",
+        help="fail when either rapid evidence lane lacks an observed in-bound cadence window",
+    )
     paper_status = subparsers.add_parser(
         "paper-status", help="read Alpaca paper account state without placing orders"
     )
@@ -576,7 +589,13 @@ def _collect(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _shadow_cycle(path: Path, plan_path: Path, *, validate_only: bool = False) -> int:
+def _shadow_cycle(
+    path: Path,
+    plan_path: Path,
+    *,
+    validate_only: bool = False,
+    observation_origin: str = IngestionObservationOrigin.MANUAL.value,
+) -> int:
     plan = load_plan(plan_path)
     if validate_only:
         for job in plan.jobs:
@@ -590,7 +609,10 @@ def _shadow_cycle(path: Path, plan_path: Path, *, validate_only: bool = False) -
         return 0
     store, _, audit = _initialize(path)
     ledger = IngestionRunLedger(path)
-    records = ShadowIngestionRunner(store, ledger, audit=audit).run_plan(plan)
+    records = ShadowIngestionRunner(store, ledger, audit=audit).run_plan(
+        plan,
+        observation_origin=IngestionObservationOrigin(observation_origin),
+    )
     for record in records:
         print(
             f"{record.job_id}: {record.status.value} "
@@ -842,6 +864,14 @@ def _daily_scorecard(path: Path, args: argparse.Namespace) -> int:
         if alerts:
             print(alerts)
     if args.fail_on_critical and scorecard.status is ScorecardStatus.CRITICAL:
+        return 1
+    if args.fail_on_rapid_continuity and not all(
+        rapid_lane_continuity_passes(cadence)
+        for cadence in (
+            scorecard.rapid_crypto_cadence,
+            scorecard.fast_prediction_cadence,
+        )
+    ):
         return 1
     return 0
 
@@ -1120,7 +1150,10 @@ def main() -> int:
             return 0
         if args.command == "shadow-cycle":
             return _shadow_cycle(
-                path, Path(args.plan), validate_only=args.validate_only
+                path,
+                Path(args.plan),
+                validate_only=args.validate_only,
+                observation_origin=args.observation_origin,
             )
         if args.command == "shadow-research":
             return _shadow_research(path)
