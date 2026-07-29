@@ -531,8 +531,12 @@ class DailyScorecardTests(unittest.TestCase):
         )
         self.assertEqual(alert.severity, AlertSeverity.INFO)
         self.assertIn("can_close_early=false", alert.message)
+        self.assertIn("1 allow early close", alert.message)
         self.assertEqual(scorecard.fast_prediction_eligibility.active_markets, 1)
         self.assertEqual(scorecard.fast_prediction_eligibility.fixed_close_markets, 0)
+        self.assertEqual(scorecard.fast_prediction_eligibility.early_close_allowed_markets, 1)
+        self.assertEqual(scorecard.fast_prediction_eligibility.missing_close_constraint_markets, 0)
+        self.assertEqual(scorecard.fast_prediction_eligibility.invalid_close_constraint_markets, 0)
 
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
         self.append_public_run()

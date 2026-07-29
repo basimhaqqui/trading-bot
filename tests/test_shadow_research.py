@@ -534,6 +534,11 @@ class ShadowResearchTests(unittest.TestCase):
             )
         candidates = self.runner._fast_prediction_candidates(self.now)
         self.assertEqual(len(candidates), 1)
+        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
+        self.assertEqual(eligibility.fixed_close_markets, 2)
+        self.assertEqual(eligibility.early_close_allowed_markets, 0)
+        self.assertEqual(eligibility.missing_close_constraint_markets, 0)
+        self.assertEqual(eligibility.invalid_close_constraint_markets, 0)
         generated = self.runner.generate_forecasts(as_of=self.now)
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
@@ -598,6 +603,56 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(eligibility.fresh_book_markets, 1)
         self.assertEqual(eligibility.active_markets, 1)
         self.assertEqual(eligibility.fixed_close_markets, 0)
+        self.assertEqual(eligibility.selected_events, 0)
+
+    def test_fast_prediction_eligibility_attributes_close_constraint_rejections(self):
+        close_constraints = (
+            ("EARLY", {"can_close_early": True}),
+            ("MISSING", {}),
+            ("INVALID", {"can_close_early": "false"}),
+        )
+        for suffix, constraint in close_constraints:
+            market = Instrument(
+                f"kalshi:prediction:FAST-{suffix}",
+                "kalshi",
+                f"FAST-{suffix}",
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(market)
+            rule_payload = {
+                "event_ticker": f"FAST-{suffix}-EVENT",
+                "status": "active",
+                "settlement_timer_seconds": 900,
+                "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+                **constraint,
+            }
+            self.store.append_event(
+                self.event(
+                    f"fast-{suffix.lower()}-rule",
+                    MarketEventType.CONTRACT_RULE,
+                    market,
+                    rule_payload,
+                    event_time=self.now - timedelta(minutes=2),
+                )
+            )
+            self.store.append_event(
+                self.event(
+                    f"fast-{suffix.lower()}-book",
+                    MarketEventType.BOOK_SNAPSHOT,
+                    market,
+                    {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                    event_time=self.now - timedelta(minutes=1),
+                )
+            )
+
+        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
+
+        self.assertEqual(eligibility.active_markets, 3)
+        self.assertEqual(eligibility.fixed_close_markets, 0)
+        self.assertEqual(eligibility.early_close_allowed_markets, 1)
+        self.assertEqual(eligibility.missing_close_constraint_markets, 1)
+        self.assertEqual(eligibility.invalid_close_constraint_markets, 1)
         self.assertEqual(eligibility.selected_events, 0)
 
     def test_fast_prediction_rejects_settlement_after_recorded_deadline(self):
