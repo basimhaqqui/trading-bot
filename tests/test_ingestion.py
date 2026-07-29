@@ -248,6 +248,37 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
         self.assertEqual(collector.holder_addresses, (mint,))
 
+    def test_solana_safety_jobs_skip_invalid_discovery_addresses_without_blocking_valid_mints(self):
+        valid_mint = "11111111111111111111111111111111"
+        invalid_mint = "untrusted-profile-address"
+        for mint in (invalid_mint, valid_mint):
+            self.store.register_instrument(
+                Instrument(
+                    f"dexscreener:memecoin:solana:{mint}",
+                    "dexscreener",
+                    mint,
+                    AssetClass.MEMECOIN,
+                    "USD",
+                )
+            )
+        collector = FakeSolanaCollector()
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+        plan = ShadowIngestionPlan(
+            "fixture",
+            (
+                ObservationJob("authorities", "solana", "mint_authorities", limit=25),
+                ObservationJob("holders", "solana", "holder_concentrations", limit=25),
+            ),
+        )
+
+        records = runner.run_plan(plan, collected_at=self.now)
+
+        self.assertTrue(all(record.status is IngestionRunStatus.SUCCESS for record in records))
+        self.assertEqual(collector.addresses, (valid_mint,))
+        self.assertEqual(collector.holder_addresses, (valid_mint,))
+
     def test_solana_transfer_control_reads_upgrade_v1_before_refreshing_v2(self):
         v1_mint = "11111111111111111111111111111111"
         v2_mint = "22222222222222222222222222222222"

@@ -77,6 +77,15 @@ class SolanaMintAuthorityCollector:
         self.transport = transport or self._read_only_transport(environment)
 
     @classmethod
+    def is_valid_mint_address(cls, value: object) -> bool:
+        """Accept only canonical-length base58 addresses before a bounded RPC read."""
+        return (
+            isinstance(value, str)
+            and 32 <= len(value) <= 44
+            and all(character in cls._BASE58_ALPHABET for character in value)
+        )
+
+    @classmethod
     def _read_only_transport(
         cls, environment: Mapping[str, str] | None = None
     ) -> ReadOnlyJsonRpcTransport:
@@ -119,7 +128,7 @@ class SolanaMintAuthorityCollector:
             raise ValueError(f"token_addresses must contain 1 to {self.MAX_ADDRESSES} addresses")
         if len(set(token_addresses)) != len(token_addresses):
             raise ValueError("token_addresses must be unique")
-        if any(not _is_solana_pubkey(address) for address in token_addresses):
+        if any(not self.is_valid_mint_address(address) for address in token_addresses):
             raise ValueError("token_addresses must be base58 Solana public keys")
         received_at = require_aware(collected_at, "collected_at") if collected_at else utc_now()
         response = self.transport.call(
@@ -165,7 +174,7 @@ class SolanaMintAuthorityCollector:
             raise ValueError(f"token_addresses must contain 1 to {self.MAX_ADDRESSES} addresses")
         if len(set(token_addresses)) != len(token_addresses):
             raise ValueError("token_addresses must be unique")
-        if any(not _is_solana_pubkey(address) for address in token_addresses):
+        if any(not self.is_valid_mint_address(address) for address in token_addresses):
             raise ValueError("token_addresses must be base58 Solana public keys")
         received_at = require_aware(collected_at, "collected_at") if collected_at else utc_now()
         events = []
@@ -349,14 +358,6 @@ class SolanaMintAuthorityCollector:
             payload,
             ingested_at=received_at,
         )
-
-
-def _is_solana_pubkey(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and 32 <= len(value) <= 44
-        and all(character in SolanaMintAuthorityCollector._BASE58_ALPHABET for character in value)
-    )
 
 
 @dataclass(frozen=True)

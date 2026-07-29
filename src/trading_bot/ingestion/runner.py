@@ -506,7 +506,10 @@ class ShadowIngestionRunner:
         """
         candidates: list[tuple[bool, datetime | None, str]] = []
         for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
-            if instrument.venue != "dexscreener":
+            if (
+                instrument.venue != "dexscreener"
+                or not SolanaMintAuthorityCollector.is_valid_mint_address(instrument.symbol)
+            ):
                 continue
             events = self.store.events_available_at(
                 as_of,
@@ -539,7 +542,10 @@ class ShadowIngestionRunner:
         """Select mints missing a bounded finalized concentration observation."""
         candidates: list[tuple[bool, datetime | None, str]] = []
         for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
-            if instrument.venue != "dexscreener":
+            if (
+                instrument.venue != "dexscreener"
+                or not SolanaMintAuthorityCollector.is_valid_mint_address(instrument.symbol)
+            ):
                 continue
             events = self.store.events_available_at(
                 as_of,

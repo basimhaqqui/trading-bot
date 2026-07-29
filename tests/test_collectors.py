@@ -44,6 +44,19 @@ class CollectorTests(unittest.TestCase):
     def setUp(self):
         self.collected = datetime(2026, 7, 21, 20, tzinfo=timezone.utc)
 
+    def test_solana_mint_address_validation_rejects_untrusted_profile_values(self):
+        self.assertTrue(
+            SolanaMintAuthorityCollector.is_valid_mint_address(
+                "11111111111111111111111111111111"
+            )
+        )
+        self.assertFalse(SolanaMintAuthorityCollector.is_valid_mint_address("ExampleMint"))
+        self.assertFalse(
+            SolanaMintAuthorityCollector.is_valid_mint_address(
+                "O" * 32
+            )
+        )
+
     def test_dexscreener_solana_profiles_are_point_in_time_and_safety_blocked(self):
         raw_profile = {
             "url": "https://dexscreener.com/solana/ExampleMint",
