@@ -213,8 +213,8 @@ class PredictionMarketCalibrationSpecialist:
 class AdjustedPredictionMarketCalibrationSpecialist(
     PredictionMarketCalibrationSpecialist
 ):
-    agent_id = "prediction-market-calibration-baseline-v4"
-    model_version = "baseline-v4"
+    agent_id = "prediction-market-calibration-adjusted-v1"
+    model_version = "adjusted-v1"
     hypothesis = PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS
 
     def evaluate(self, context: ReplayContext) -> Forecast | None:
@@ -447,6 +447,14 @@ def fast_prediction_settlement_deadline(forecast: Forecast) -> datetime | None:
         return parse_datetime(value)
     except (TypeError, ValueError):
         return None
+
+
+def is_quarantined_prediction_identity_collision(forecast: Forecast) -> bool:
+    """Exclude legacy generic forecasts that collided with the fast-lane v4 ID."""
+    return (
+        forecast.specialist_id == FastPredictionSettlementV4Specialist.agent_id
+        and fast_prediction_settlement_deadline(forecast) is None
+    )
 
 
 TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(

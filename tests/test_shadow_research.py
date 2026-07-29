@@ -205,7 +205,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.generation.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-calibration-baseline-v4"
+            forecast.specialist_id, "prediction-market-calibration-adjusted-v1"
         )
         self.assertEqual(forecast.values["state"], "cohort_adjusted")
         self.assertEqual(forecast.values["outcome_cluster"], "TARGET-EVENT")
@@ -262,6 +262,33 @@ class ShadowResearchTests(unittest.TestCase):
             self.audit.forecast_scores()[0].scored_at,
             settlement_time + timedelta(minutes=5),
         )
+
+    def test_legacy_fast_v4_identity_collision_is_quarantined(self):
+        legacy = Forecast(
+            "legacy-v4-collision",
+            "prediction-market-fast-settlement-baseline-v4",
+            "baseline-v4",
+            "kalshi:prediction:LEGACY",
+            ForecastKind.BINARY_PROBABILITY,
+            self.now,
+            self.now + timedelta(hours=1),
+            {
+                "probability": 0.6,
+                "market_probability": 0.5,
+                "event_ticker": "LEGACY-EVENT",
+                "target_time": (self.now + timedelta(hours=1)).isoformat(),
+            },
+            0.5,
+            {},
+            ("legacy-book",),
+            (),
+        )
+        self.audit.append_forecast(legacy)
+
+        summary = self.runner.score_available(as_of=self.now + timedelta(hours=2))
+
+        self.assertEqual(summary.quarantined, 1)
+        self.assertEqual(summary.appended, 0)
 
     def test_prediction_selection_never_uses_rule_after_book_availability(self):
         market = Instrument(
@@ -409,7 +436,7 @@ class ShadowResearchTests(unittest.TestCase):
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
             forecast.specialist_id,
-            "prediction-market-calibration-baseline-v4",
+            "prediction-market-calibration-adjusted-v1",
         )
         self.assertEqual(forecast.values["calibration_cohort_size"], 5.0)
 

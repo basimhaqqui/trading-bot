@@ -210,7 +210,7 @@ class EconomicReplayTests(unittest.TestCase):
         )
         self.assertEqual(
             registry.models[5].specialist_id,
-            "prediction-market-calibration-baseline-v4",
+            "prediction-market-calibration-adjusted-v1",
         )
         self.assertEqual(
             registry.models[6].specialist_id,

@@ -396,8 +396,8 @@ class ReportingTests(unittest.TestCase):
         occurrence = generated_at + timedelta(hours=4)
         forecast = Forecast(
             "timing-guarded-prediction",
-            "prediction-market-calibration-baseline-v4",
-            "baseline-v4",
+            "prediction-market-calibration-adjusted-v1",
+            "adjusted-v1",
             "kalshi:prediction:TIMING",
             ForecastKind.BINARY_PROBABILITY,
             generated_at,
@@ -436,6 +436,37 @@ class ReportingTests(unittest.TestCase):
             [(item.label, item.evaluation.raw_scores) for item in outcome_cohorts],
             [("1h-8h", 1)],
         )
+
+    def test_legacy_fast_v4_identity_collision_is_excluded_from_evidence(self):
+        forecast = Forecast(
+            "legacy-v4-collision",
+            "prediction-market-fast-settlement-baseline-v4",
+            "baseline-v4",
+            "kalshi:prediction:LEGACY",
+            ForecastKind.BINARY_PROBABILITY,
+            self.base,
+            self.base + timedelta(hours=1),
+            {
+                "probability": 0.8,
+                "market_probability": 0.5,
+                "event_ticker": "LEGACY-EVENT",
+                "target_time": (self.base + timedelta(hours=1)).isoformat(),
+            },
+            0.5,
+            {},
+            ("legacy-book",),
+            (),
+        )
+        score = score_binary_forecast(
+            forecast,
+            outcome=True,
+            target_time=self.base + timedelta(hours=1),
+            scored_at=self.base + timedelta(hours=1),
+        )
+
+        report = build_walk_forward_report((forecast,), (score,))
+
+        self.assertEqual(report.groups, ())
 
     def test_one_underpowered_horizon_keeps_aggregate_collecting(self):
         observations = [
