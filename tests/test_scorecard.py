@@ -31,6 +31,7 @@ from trading_bot.evaluation.scoring import score_return_forecast
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
+    IngestionObservationOrigin,
     IngestionRunRecord,
     IngestionRunStatus,
 )
@@ -118,6 +119,7 @@ class DailyScorecardTests(unittest.TestCase):
                 started_at + timedelta(seconds=1),
                 1,
                 1,
+                observation_origin=IngestionObservationOrigin.SCHEDULED,
             )
         )
 
@@ -134,6 +136,7 @@ class DailyScorecardTests(unittest.TestCase):
                 started_at + timedelta(seconds=1),
                 1,
                 1,
+                observation_origin=IngestionObservationOrigin.SCHEDULED,
             )
         )
 
@@ -261,6 +264,46 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("Rapid crypto collection cadence", markdown)
         self.assertIn("largest observed gap: **45.0 minutes**", markdown)
 
+    def test_scorecard_excludes_manual_cycles_from_rapid_continuity(self):
+        self.ingestion.append(
+            IngestionRunRecord(
+                "manual-rapid",
+                "scorecard-plan",
+                "coinbase-btc-fifteen-minute-candles",
+                "coinbase",
+                "candles",
+                IngestionRunStatus.SUCCESS,
+                self.now - timedelta(minutes=5),
+                self.now - timedelta(minutes=4),
+                1,
+                1,
+            )
+        )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path, plan, self.costs, as_of=self.now, environment={}
+        )
+
+        self.assertEqual(scorecard.rapid_crypto_cadence.observed_cycles, 0)
+        self.assertTrue(
+            any(
+                item.code == "rapid_crypto_observation_cadence_gap"
+                for item in scorecard.alerts
+            )
+        )
+
     def test_scorecard_ignores_remediated_rapid_crypto_gaps_outside_telemetry_window(self):
         self.append_rapid_crypto_run("rapid-old-early", self.now - timedelta(hours=26))
         self.append_rapid_crypto_run("rapid-old-late", self.now - timedelta(hours=25))
@@ -370,6 +413,48 @@ class DailyScorecardTests(unittest.TestCase):
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Fast prediction collection cadence", markdown)
         self.assertIn("largest collection gap: **45.0 minutes**", markdown)
+
+    def test_scorecard_excludes_manual_cycles_from_fast_prediction_continuity(self):
+        self.ingestion.append(
+            IngestionRunRecord(
+                "manual-fast",
+                "scorecard-plan",
+                "kalshi-fast-settling-markets",
+                "kalshi",
+                "markets",
+                IngestionRunStatus.SUCCESS,
+                self.now - timedelta(minutes=5),
+                self.now - timedelta(minutes=4),
+                1,
+                1,
+            )
+        )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "kalshi-fast-settling-markets",
+                    "kalshi",
+                    "markets",
+                    status="open",
+                    limit=1000,
+                    cursor_mode="resume",
+                    mve_filter="exclude",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path, plan, self.costs, as_of=self.now, environment={}
+        )
+
+        self.assertEqual(scorecard.fast_prediction_cadence.observed_cycles, 0)
+        self.assertTrue(
+            any(
+                item.code == "fast_prediction_observation_cadence_gap"
+                for item in scorecard.alerts
+            )
+        )
 
     def test_scorecard_warns_when_fast_prediction_collection_is_stale_after_last_cycle(self):
         self.append_fast_prediction_run("fast-last", self.now - timedelta(minutes=35))

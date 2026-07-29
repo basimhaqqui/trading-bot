@@ -51,6 +51,13 @@ class IngestionRunStatus(StrEnum):
     FAILED = "failed"
 
 
+class IngestionObservationOrigin(StrEnum):
+    """Attestation supplied by the process that ran an observation cycle."""
+
+    MANUAL = "manual"
+    SCHEDULED = "scheduled"
+
+
 MAX_CURSOR_LENGTH = 4096
 
 
@@ -72,6 +79,7 @@ class IngestionRunRecord:
     batch_digest: str | None = None
     error_type: str | None = None
     error_message: str | None = None
+    observation_origin: IngestionObservationOrigin = IngestionObservationOrigin.MANUAL
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "started_at", require_aware(self.started_at, "started_at"))
@@ -82,6 +90,8 @@ class IngestionRunRecord:
             raise ValueError("ingestion counts cannot be negative")
         if self.status is IngestionRunStatus.FAILED and not self.error_type:
             raise ValueError("failed ingestion runs require an error type")
+        if not isinstance(self.observation_origin, IngestionObservationOrigin):
+            raise ValueError("observation_origin must be a supported origin")
         for field_name, cursor in (
             ("request_cursor", self.request_cursor),
             ("next_cursor", self.next_cursor),
@@ -218,20 +228,27 @@ class ShadowIngestionRunner:
         plan: ShadowIngestionPlan,
         *,
         collected_at: datetime | None = None,
+        observation_origin: IngestionObservationOrigin = IngestionObservationOrigin.MANUAL,
     ) -> tuple[IngestionRunRecord, ...]:
+        if not isinstance(observation_origin, IngestionObservationOrigin):
+            raise ValueError("observation_origin must be a supported origin")
         collection_override = (
             require_aware(collected_at, "collected_at") if collected_at is not None else None
         )
         lock_path = self.store.path.with_suffix(self.store.path.suffix + ".shadow.lock")
         with exclusive_run_lock(lock_path):
             return tuple(
-                self._run_job(plan.name, job, collection_override)
+                self._run_job(plan.name, job, collection_override, observation_origin)
                 for job in plan.jobs
                 if job.is_active()
             )
 
     def _run_job(
-        self, plan_name: str, job: ObservationJob, collected_at: datetime | None
+        self,
+        plan_name: str,
+        job: ObservationJob,
+        collected_at: datetime | None,
+        observation_origin: IngestionObservationOrigin,
     ) -> IngestionRunRecord:
         run_id = str(uuid.uuid4())
         started_at = utc_now()
@@ -341,6 +358,7 @@ class ShadowIngestionRunner:
                 request_cursor=request_cursor,
                 next_cursor=batch.cursor,
                 batch_digest=sha256_digest(batch),
+                observation_origin=observation_origin,
             )
         except Exception as exc:
             record = IngestionRunRecord(
@@ -357,6 +375,7 @@ class ShadowIngestionRunner:
                 request_cursor=request_cursor,
                 error_type=type(exc).__name__,
                 error_message=str(exc)[:2000],
+                observation_origin=observation_origin,
             )
         self.ledger.append(record)
         return record

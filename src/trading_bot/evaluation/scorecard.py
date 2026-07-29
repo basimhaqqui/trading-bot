@@ -811,7 +811,16 @@ def _build_alerts(
                 f"{outcome_queue.due_unmatched} due forecast(s) await a public outcome; oldest target {oldest}",
             )
         )
-    if (
+    if rapid_crypto_cadence.job_ids and rapid_crypto_cadence.observed_cycles == 0:
+        alerts.append(
+            OperationalAlert(
+                "rapid_crypto_observation_cadence_gap",
+                AlertSeverity.WARNING,
+                "rapid crypto has no scheduled observations in its telemetry window; "
+                "manual and legacy cycles are not prospective evidence",
+            )
+        )
+    elif (
         rapid_crypto_cadence.largest_gap_minutes is not None
         and rapid_crypto_cadence.largest_gap_minutes
         > rapid_crypto_cadence.max_allowed_gap_minutes
@@ -828,7 +837,16 @@ def _build_alerts(
                 ),
             )
         )
-    if (
+    if fast_prediction_cadence.job_ids and fast_prediction_cadence.observed_cycles == 0:
+        alerts.append(
+            OperationalAlert(
+                "fast_prediction_observation_cadence_gap",
+                AlertSeverity.WARNING,
+                "fast prediction has no scheduled observations in its telemetry window; "
+                "manual and legacy cycles are not prospective evidence",
+            )
+        )
+    elif (
         fast_prediction_cadence.largest_gap_minutes is not None
         and fast_prediction_cadence.largest_gap_minutes
         > fast_prediction_cadence.max_allowed_gap_minutes
@@ -929,6 +947,7 @@ def _rapid_crypto_cadence(
                 SELECT started_at
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
+                  AND json_extract(record_json, '$.observation_origin') = 'scheduled'
                   AND started_at >= ? AND started_at <= ?
                 ORDER BY started_at ASC, rowid ASC
                 """,
@@ -1000,6 +1019,7 @@ def _fast_prediction_cadence(
                 SELECT started_at
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
+                  AND json_extract(record_json, '$.observation_origin') = 'scheduled'
                   AND started_at >= ? AND started_at <= ?
                 ORDER BY started_at ASC, rowid ASC
                 """,

@@ -76,7 +76,10 @@ jobs:
         run: trading-bot --db var/trading.db research-init
 
       - name: Collect and research
-        run: trading-bot --db var/trading.db shadow-cycle --plan config/shadow-ingestion.json
+        run: >-
+          trading-bot --db var/trading.db shadow-cycle
+          --plan config/shadow-ingestion.json
+          --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 
       - name: Reconcile Alpaca paper account
         if: ${{ env.ALPACA_MARKET_DATA_KEY_ID != '' && env.ALPACA_MARKET_DATA_SECRET_KEY != '' }}
