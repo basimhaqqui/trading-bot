@@ -5,7 +5,7 @@ from trading_bot.core.schemas import AssetClass, Hypothesis
 
 BASELINE_PROPOSED_AT = datetime(2026, 7, 21, tzinfo=timezone.utc)
 PREDICTION_V3_PROPOSED_AT = datetime(2026, 7, 23, tzinfo=timezone.utc)
-PREDICTION_V4_PROPOSED_AT = datetime(2026, 7, 23, 1, 35, tzinfo=timezone.utc)
+PREDICTION_ADJUSTED_V1_PROPOSED_AT = datetime(2026, 7, 29, 1, tzinfo=timezone.utc)
 CRYPTO_INTRADAY_PROPOSED_AT = datetime(2026, 7, 26, 11, 35, tzinfo=timezone.utc)
 CRYPTO_INTRADAY_V2_PROPOSED_AT = datetime(2026, 7, 27, 5, 57, tzinfo=timezone.utc)
 PREDICTION_FAST_V1_PROPOSED_AT = datetime(2026, 7, 26, 13, 10, tzinfo=timezone.utc)
@@ -96,7 +96,7 @@ PREDICTION_CALIBRATION_HYPOTHESIS = Hypothesis(
 
 
 PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS = Hypothesis(
-    hypothesis_id="prediction-market-calibration-baseline-v4",
+    hypothesis_id="prediction-market-calibration-adjusted-v1",
     family="prediction-market-calibration",
     market=AssetClass.PREDICTION,
     mechanism=(
@@ -124,7 +124,7 @@ PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS = Hypothesis(
         "spread, contract wording, or selection bias explains the apparent adjustment",
         "the adjustment does not survive fees, slippage, latency, and doubled-cost stress",
     ),
-    proposed_at=PREDICTION_V4_PROPOSED_AT,
+    proposed_at=PREDICTION_ADJUSTED_V1_PROPOSED_AT,
 )
 
 
@@ -371,7 +371,7 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
         "prediction-market-calibration-baseline-v3",
     ),
     PREDICTION_CALIBRATION_ADJUSTED_HYPOTHESIS.hypothesis_id: (
-        "prediction-market-calibration-baseline-v4",
+        "prediction-market-calibration-adjusted-v1",
     ),
     PREDICTION_FAST_SETTLEMENT_V1_HYPOTHESIS.hypothesis_id: (
         "prediction-market-fast-settlement-baseline-v1",

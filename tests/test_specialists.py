@@ -482,9 +482,9 @@ class SpecialistTests(unittest.TestCase):
         self.assertIsNotNone(adjusted)
         assert adjusted is not None
         self.assertEqual(
-            adjusted.specialist_id, "prediction-market-calibration-baseline-v4"
+            adjusted.specialist_id, "prediction-market-calibration-adjusted-v1"
         )
-        self.assertEqual(adjusted.model_version, "baseline-v4")
+        self.assertEqual(adjusted.model_version, "adjusted-v1")
         self.assertEqual(adjusted.values["state"], "cohort_adjusted")
         wide_book = self.event(
             "target-wide-book",

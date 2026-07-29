@@ -24,6 +24,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV4Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
+    is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_expected_expiration_time,
     prediction_occurrence_time,
@@ -190,6 +191,9 @@ class ShadowResearchRunner:
         errors: list[str] = []
         for forecast in forecasts:
             try:
+                if is_quarantined_prediction_identity_collision(forecast):
+                    quarantined += 1
+                    continue
                 score = self._match_score(forecast, as_of)
                 if score is None:
                     target_time = forecast_outcome_target_time(forecast)
@@ -712,6 +716,7 @@ class ShadowResearchRunner:
             str(forecast.values.get("event_ticker") or forecast.instrument_id)
             for forecast in self.audit.forecasts()
             if forecast.specialist_id == specialist.agent_id
+            and not is_quarantined_prediction_identity_collision(forecast)
         }
         latest_books: dict[str, MarketEvent] = {}
         rules_by_instrument: dict[str, list[MarketEvent]] = {}

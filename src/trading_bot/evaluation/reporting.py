@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from trading_bot.core.schemas import Forecast, ForecastKind
 from trading_bot.core.serialization import require_aware
+from trading_bot.agents.prediction import is_quarantined_prediction_identity_collision
 from trading_bot.evaluation.outcomes import evaluation_outcome_target_time
 from trading_bot.evaluation.scoring import ForecastScore, ScoreKind
 
@@ -163,6 +164,13 @@ def build_walk_forward_report(
     locked_decisions: tuple[EvaluationDecision, ...] = (),
 ) -> WalkForwardReport:
     config = config or EvaluationGateConfig()
+    forecasts = tuple(
+        forecast
+        for forecast in forecasts
+        if not is_quarantined_prediction_identity_collision(forecast)
+    )
+    forecast_ids = {forecast.forecast_id for forecast in forecasts}
+    scores = tuple(score for score in scores if score.forecast_id in forecast_ids)
     decisions_by_scope = {
         (decision.specialist_id, decision.kind, decision.scope): decision
         for decision in locked_decisions

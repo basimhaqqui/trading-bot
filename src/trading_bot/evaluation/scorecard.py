@@ -14,6 +14,7 @@ from trading_bot.agents.hypotheses import (
     BASELINE_HYPOTHESIS_SPECIALIST_IDS,
 )
 from trading_bot.agents.market_math import prediction_book_payload
+from trading_bot.agents.prediction import is_quarantined_prediction_identity_collision
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.schemas import AssetClass, Forecast
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
@@ -232,6 +233,15 @@ def build_daily_scorecard(
     audit = AuditLedger(path)
     forecasts = audit.forecasts()
     scores = audit.forecast_scores()
+    evidence_forecasts = tuple(
+        forecast
+        for forecast in forecasts
+        if not is_quarantined_prediction_identity_collision(forecast)
+    )
+    evidence_forecast_ids = {forecast.forecast_id for forecast in evidence_forecasts}
+    evidence_scores = tuple(
+        score for score in scores if score.forecast_id in evidence_forecast_ids
+    )
     evaluation, _ = checkpointed_walk_forward_report(
         audit,
         EvaluationGateConfig(min_independent_outcomes=min_outcomes),
@@ -286,7 +296,7 @@ def build_daily_scorecard(
         )
         for asset_class in AssetClass
     )
-    research_lanes = _research_lane_summaries(forecasts, scores)
+    research_lanes = _research_lane_summaries(evidence_forecasts, evidence_scores)
     memecoin_research = _memecoin_research_summary(path, as_of)
     totals = SystemTotals(
         instruments=database_totals["instruments"],
@@ -342,10 +352,10 @@ def build_daily_scorecard(
         control.reason,
         reconciliation_records,
     )
-    outcome_queue = _outcome_queue(forecasts, scores, as_of)
+    outcome_queue = _outcome_queue(evidence_forecasts, evidence_scores, as_of)
     strategy_outcome_queues = _strategy_outcome_queues(
-        forecasts,
-        scores,
+        evidence_forecasts,
+        evidence_scores,
         as_of,
     )
     prediction_calibration = _prediction_calibration_readiness(path, as_of)
@@ -1087,7 +1097,7 @@ def _prediction_calibration_readiness(
                 FROM audit_records
                 WHERE record_type = 'forecast'
                   AND json_extract(payload_json, '$.specialist_id') =
-                      'prediction-market-calibration-baseline-v4'
+                      'prediction-market-calibration-adjusted-v1'
                 """
             ).fetchall()
         }
