@@ -925,10 +925,10 @@ def _rapid_crypto_cadence(
     """Report recent gaps for the fixed fifteen-minute crypto collection lane.
 
     This is operational telemetry only: it never fills a missing candle, produces a
-    forecast, or changes any evidence or eligibility threshold.  It includes the
-    interval from the most recent cycle through ``as_of`` so a stopped lane is not
-    mistaken for a healthy one.  A fixed rolling window prevents an old,
-    already-remediated outage from permanently masking the current collection state.
+    forecast, or changes any evidence or eligibility threshold. It includes the
+    intervals from the rolling-window boundary to the first observed cycle and from
+    the most recent cycle through ``as_of``. A newly started lane therefore cannot
+    be mistaken for continuously collected evidence.
     """
     if max_gap <= timedelta(0):
         raise ValueError("rapid crypto cadence bound must be positive")
@@ -975,6 +975,9 @@ def _rapid_crypto_cadence(
             cycle_counts.append(len(timestamps))
             if timestamps:
                 observed_at.append(timestamps[-1])
+                gaps.append(
+                    (timestamps[0] - (as_of - lookback)).total_seconds() / 60
+                )
             gaps.extend(
                 (later - earlier).total_seconds() / 60
                 for earlier, later in zip(timestamps, timestamps[1:])
@@ -1002,8 +1005,10 @@ def _fast_prediction_cadence(
     """Report gaps for the pre-registered public fast-settlement market page.
 
     This is operational telemetry only: it cannot create a forecast, restore a
-    skipped page, or alter the immutable candidate or evidence rules.  The current
-    interval through ``as_of`` is included so a stopped collection lane is visible.
+    skipped page, or alter the immutable candidate or evidence rules. Both the
+    interval from the rolling-window boundary to the first observation and the
+    current interval through ``as_of`` are included, so a newly started or stopped
+    lane is visible.
     """
     if max_gap <= timedelta(0):
         raise ValueError("fast prediction cadence bound must be positive")
@@ -1047,6 +1052,9 @@ def _fast_prediction_cadence(
             cycle_counts.append(len(timestamps))
             if timestamps:
                 observed_at.append(timestamps[-1])
+                gaps.append(
+                    (timestamps[0] - (as_of - lookback)).total_seconds() / 60
+                )
             gaps.extend(
                 (later - earlier).total_seconds() / 60
                 for earlier, later in zip(timestamps, timestamps[1:])
