@@ -614,9 +614,14 @@ def _shadow_cycle(
         observation_origin=IngestionObservationOrigin(observation_origin),
     )
     for record in records:
+        requested = (
+            ""
+            if record.requested_instruments is None
+            else f" requested={record.requested_instruments}"
+        )
         print(
             f"{record.job_id}: {record.status.value} "
-            f"instruments={record.instruments_seen} events={record.events_inserted} "
+            f"instruments={record.instruments_seen}{requested} events={record.events_inserted} "
             f"diagnostics={len(record.diagnostics)}"
         )
         if record.error_type:

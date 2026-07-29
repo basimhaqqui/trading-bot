@@ -80,6 +80,7 @@ class IngestionRunRecord:
     error_type: str | None = None
     error_message: str | None = None
     observation_origin: IngestionObservationOrigin = IngestionObservationOrigin.MANUAL
+    requested_instruments: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "started_at", require_aware(self.started_at, "started_at"))
@@ -88,6 +89,8 @@ class IngestionRunRecord:
             raise ValueError("ingestion run cannot finish before it starts")
         if min(self.instruments_seen, self.events_inserted) < 0:
             raise ValueError("ingestion counts cannot be negative")
+        if self.requested_instruments is not None and self.requested_instruments < 0:
+            raise ValueError("requested instrument count cannot be negative")
         if self.status is IngestionRunStatus.FAILED and not self.error_type:
             raise ValueError("failed ingestion runs require an error type")
         if not isinstance(self.observation_origin, IngestionObservationOrigin):
@@ -253,6 +256,7 @@ class ShadowIngestionRunner:
         run_id = str(uuid.uuid4())
         started_at = utc_now()
         request_cursor: str | None = None
+        requested_instruments: int | None = None
         try:
             request_cursor = (
                 None
@@ -279,6 +283,7 @@ class ShadowIngestionRunner:
                 tickers = self._pending_prediction_tickers(
                     collected_at or started_at, job.limit
                 )
+                requested_instruments = len(tickers)
                 if not tickers:
                     batch = CollectionBatch(
                         "kalshi", metadata={"pending_forecast_tickers": 0}
@@ -354,6 +359,7 @@ class ShadowIngestionRunner:
                 finished_at=utc_now(),
                 instruments_seen=instruments_seen,
                 events_inserted=events_inserted,
+                requested_instruments=requested_instruments,
                 diagnostics=batch.diagnostics,
                 request_cursor=request_cursor,
                 next_cursor=batch.cursor,
@@ -372,6 +378,7 @@ class ShadowIngestionRunner:
                 finished_at=utc_now(),
                 instruments_seen=0,
                 events_inserted=0,
+                requested_instruments=requested_instruments,
                 request_cursor=request_cursor,
                 error_type=type(exc).__name__,
                 error_message=str(exc)[:2000],

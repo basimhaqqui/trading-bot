@@ -165,6 +165,17 @@ class OutcomeQueueSummary:
 
 
 @dataclass(frozen=True)
+class PredictionOutcomePollingSummary:
+    """Latest bounded Kalshi outcome-poll receipt, not a settlement assertion."""
+
+    job_ids: tuple[str, ...]
+    requested_instruments: int | None
+    returned_instruments: int | None
+    missing_instruments: int | None
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True)
 class StrategyOutcomeQueue:
     specialist_id: str
     kind: str
@@ -217,6 +228,7 @@ class DailyScorecard:
     economics: tuple[EconomicSummary, ...]
     paper: PaperOperationsSummary
     outcome_queue: OutcomeQueueSummary
+    prediction_outcome_polling: PredictionOutcomePollingSummary
     strategy_outcome_queues: tuple[StrategyOutcomeQueue, ...]
     prediction_calibration: PredictionCalibrationReadiness
     fast_prediction_eligibility: FastPredictionEligibilitySummary
@@ -375,6 +387,7 @@ def build_daily_scorecard(
         reconciliation_records,
     )
     outcome_queue = _outcome_queue(evidence_forecasts, evidence_scores, as_of)
+    prediction_outcome_polling = _prediction_outcome_polling(path, plan, as_of=as_of)
     strategy_outcome_queues = _strategy_outcome_queues(
         evidence_forecasts,
         evidence_scores,
@@ -395,6 +408,7 @@ def build_daily_scorecard(
         totals,
         paper,
         outcome_queue,
+        prediction_outcome_polling,
         fast_prediction_eligibility,
         rapid_crypto_cadence,
         fast_prediction_cadence,
@@ -410,6 +424,7 @@ def build_daily_scorecard(
         economics,
         paper,
         outcome_queue,
+        prediction_outcome_polling,
         strategy_outcome_queues,
         prediction_calibration,
         fast_prediction_eligibility,
@@ -446,6 +461,12 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"not_due={scorecard.outcome_queue.not_due} "
             f"due_unmatched={scorecard.outcome_queue.due_unmatched} "
             f"quarantined={scorecard.outcome_queue.quarantined}"
+        ),
+        (
+            "prediction_outcome_polling: "
+            f"requested={scorecard.prediction_outcome_polling.requested_instruments} "
+            f"returned={scorecard.prediction_outcome_polling.returned_instruments} "
+            f"missing={scorecard.prediction_outcome_polling.missing_instruments}"
         ),
         (
             "prediction_calibration: "
@@ -744,6 +765,7 @@ def _build_alerts(
     totals: SystemTotals,
     paper: PaperOperationsSummary,
     outcome_queue: OutcomeQueueSummary,
+    prediction_outcome_polling: PredictionOutcomePollingSummary,
     fast_prediction_eligibility: FastPredictionEligibilitySummary,
     rapid_crypto_cadence: RapidCryptoCadenceSummary,
     fast_prediction_cadence: FastPredictionCadenceSummary,
@@ -820,6 +842,20 @@ def _build_alerts(
                 "outcomes_awaiting_settlement",
                 AlertSeverity.INFO,
                 f"{outcome_queue.due_unmatched} due forecast(s) await a public outcome; oldest target {oldest}",
+            )
+        )
+    if (
+        prediction_outcome_polling.missing_instruments is not None
+        and prediction_outcome_polling.missing_instruments > 0
+    ):
+        alerts.append(
+            OperationalAlert(
+                "prediction_outcome_polling_incomplete",
+                AlertSeverity.WARNING,
+                "latest bounded Kalshi outcome poll requested "
+                f"{prediction_outcome_polling.requested_instruments} tracked ticker(s) but "
+                f"returned {prediction_outcome_polling.returned_instruments}; "
+                "missing responses are not treated as settlements",
             )
         )
     if rapid_crypto_cadence.job_ids and rapid_crypto_cadence.observed_cycles == 0:
@@ -1127,6 +1163,58 @@ def _outcome_queue(
         quarantined,
         min(future) if future else None,
         min(due) if due else None,
+    )
+
+
+def _prediction_outcome_polling(
+    path: str | Path,
+    plan: ShadowIngestionPlan,
+    *,
+    as_of: datetime,
+) -> PredictionOutcomePollingSummary:
+    """Read the newest bounded outcome-poll receipt without inferring a label."""
+    job_ids = tuple(
+        job.job_id
+        for job in plan.jobs
+        if job.venue == "kalshi" and job.dataset == "forecast_outcomes" and job.enabled
+    )
+    if not job_ids:
+        return PredictionOutcomePollingSummary(job_ids, None, None, None, None)
+    placeholders = ", ".join("?" for _ in job_ids)
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            f"""
+            SELECT finished_at, record_json
+            FROM ingestion_runs
+            WHERE plan_name = ?
+              AND job_id IN ({placeholders})
+              AND status IN ('success', 'degraded')
+              AND finished_at <= ?
+            ORDER BY finished_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (plan.name, *job_ids, as_of.isoformat()),
+        ).fetchone()
+    if row is None:
+        return PredictionOutcomePollingSummary(job_ids, None, None, None, None)
+    payload = json.loads(row[1])
+    requested = payload.get("requested_instruments")
+    returned = payload.get("instruments_seen")
+    if (
+        isinstance(requested, bool)
+        or not isinstance(requested, int)
+        or requested < 0
+        or isinstance(returned, bool)
+        or not isinstance(returned, int)
+        or returned < 0
+    ):
+        return PredictionOutcomePollingSummary(job_ids, None, None, None, parse_datetime(row[0]))
+    return PredictionOutcomePollingSummary(
+        job_ids,
+        requested,
+        returned,
+        max(0, requested - returned),
+        parse_datetime(row[0]),
     )
 
 
@@ -1617,6 +1705,25 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"`{scorecard.outcome_queue.oldest_due_at.isoformat()}`"
                 if scorecard.outcome_queue.oldest_due_at is not None
                 else "Oldest due without outcome: —"
+            ),
+            "",
+            "### Prediction outcome polling",
+            "",
+            (
+                "Latest bounded poll: "
+                f"**{scorecard.prediction_outcome_polling.requested_instruments:,}** requested → "
+                f"**{scorecard.prediction_outcome_polling.returned_instruments:,}** returned → "
+                f"**{scorecard.prediction_outcome_polling.missing_instruments:,}** missing."
+                if scorecard.prediction_outcome_polling.requested_instruments is not None
+                and scorecard.prediction_outcome_polling.returned_instruments is not None
+                and scorecard.prediction_outcome_polling.missing_instruments is not None
+                else "Latest bounded poll: no attested tracked-ticker receipt."
+            ),
+            (
+                "Poll completed: "
+                f"`{scorecard.prediction_outcome_polling.finished_at.isoformat()}`"
+                if scorecard.prediction_outcome_polling.finished_at is not None
+                else "Poll completed: —"
             ),
             "",
             "### Pending outcomes by strategy",
