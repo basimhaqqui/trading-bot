@@ -196,6 +196,16 @@ class RapidCryptoCadenceSummary:
 
 
 @dataclass(frozen=True)
+class FastPredictionCadenceSummary:
+    job_ids: tuple[str, ...]
+    observed_cycles: int
+    latest_started_at: datetime | None
+    largest_gap_minutes: float | None
+    max_allowed_gap_minutes: float
+    lookback_hours: float
+
+
+@dataclass(frozen=True)
 class DailyScorecard:
     generated_at: datetime
     status: ScorecardStatus
@@ -212,6 +222,7 @@ class DailyScorecard:
     fast_prediction_eligibility: FastPredictionEligibilitySummary
     intraday_momentum_eligibility: IntradayMomentumEligibilitySummary
     rapid_crypto_cadence: RapidCryptoCadenceSummary
+    fast_prediction_cadence: FastPredictionCadenceSummary
     ingestion: IngestionHealthReport
     alerts: tuple[OperationalAlert, ...]
 
@@ -365,6 +376,7 @@ def build_daily_scorecard(
         as_of=as_of
     )
     rapid_crypto_cadence = _rapid_crypto_cadence(path, plan, as_of=as_of)
+    fast_prediction_cadence = _fast_prediction_cadence(path, plan, as_of=as_of)
     alerts = _build_alerts(
         health,
         strategies,
@@ -374,6 +386,7 @@ def build_daily_scorecard(
         outcome_queue,
         fast_prediction_eligibility,
         rapid_crypto_cadence,
+        fast_prediction_cadence,
     )
     return DailyScorecard(
         as_of,
@@ -391,6 +404,7 @@ def build_daily_scorecard(
         fast_prediction_eligibility,
         intraday_momentum_eligibility,
         rapid_crypto_cadence,
+        fast_prediction_cadence,
         health,
         alerts,
     )
@@ -462,6 +476,15 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"{scorecard.rapid_crypto_cadence.largest_gap_minutes} "
             f"bound_minutes={scorecard.rapid_crypto_cadence.max_allowed_gap_minutes} "
             f"lookback_hours={scorecard.rapid_crypto_cadence.lookback_hours}"
+        ),
+        (
+            "fast_prediction_cadence: "
+            f"jobs={len(scorecard.fast_prediction_cadence.job_ids)} "
+            f"cycles={scorecard.fast_prediction_cadence.observed_cycles} "
+            f"largest_gap_minutes="
+            f"{scorecard.fast_prediction_cadence.largest_gap_minutes} "
+            f"bound_minutes={scorecard.fast_prediction_cadence.max_allowed_gap_minutes} "
+            f"lookback_hours={scorecard.fast_prediction_cadence.lookback_hours}"
         ),
         (
             "memecoin_research: "
@@ -712,6 +735,7 @@ def _build_alerts(
     outcome_queue: OutcomeQueueSummary,
     fast_prediction_eligibility: FastPredictionEligibilitySummary,
     rapid_crypto_cadence: RapidCryptoCadenceSummary,
+    fast_prediction_cadence: FastPredictionCadenceSummary,
 ) -> tuple[OperationalAlert, ...]:
     alerts: list[OperationalAlert] = []
     unhealthy = [job.job_id for job in health.jobs if not job.healthy]
@@ -805,6 +829,23 @@ def _build_alerts(
             )
         )
     if (
+        fast_prediction_cadence.largest_gap_minutes is not None
+        and fast_prediction_cadence.largest_gap_minutes
+        > fast_prediction_cadence.max_allowed_gap_minutes
+    ):
+        alerts.append(
+            OperationalAlert(
+                "fast_prediction_observation_cadence_gap",
+                AlertSeverity.WARNING,
+                (
+                    "fast prediction observation gap "
+                    f"{fast_prediction_cadence.largest_gap_minutes:.1f} minutes exceeds "
+                    f"the {fast_prediction_cadence.max_allowed_gap_minutes:.0f}-minute "
+                    "collection bound; missed cycles are not prospective evidence"
+                ),
+            )
+        )
+    if (
         fast_prediction_eligibility.active_markets
         and not fast_prediction_eligibility.fixed_close_markets
     ):
@@ -855,9 +896,10 @@ def _rapid_crypto_cadence(
     """Report recent gaps for the fixed fifteen-minute crypto collection lane.
 
     This is operational telemetry only: it never fills a missing candle, produces a
-    forecast, or changes any evidence or eligibility threshold.  A fixed rolling
-    window prevents an old, already-remediated outage from permanently masking the
-    current collection state.
+    forecast, or changes any evidence or eligibility threshold.  It includes the
+    interval from the most recent cycle through ``as_of`` so a stopped lane is not
+    mistaken for a healthy one.  A fixed rolling window prevents an old,
+    already-remediated outage from permanently masking the current collection state.
     """
     if max_gap <= timedelta(0):
         raise ValueError("rapid crypto cadence bound must be positive")
@@ -887,7 +929,7 @@ def _rapid_crypto_cadence(
                 SELECT started_at
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
-                  AND started_at >= ?
+                  AND started_at >= ? AND started_at <= ?
                 ORDER BY started_at ASC, rowid ASC
                 """,
                 (
@@ -896,6 +938,7 @@ def _rapid_crypto_cadence(
                     "success",
                     "degraded",
                     (as_of - lookback).isoformat(),
+                    as_of.isoformat(),
                 ),
             ).fetchall()
             timestamps = [parse_datetime(str(row[0])) for row in rows]
@@ -906,7 +949,80 @@ def _rapid_crypto_cadence(
                 (later - earlier).total_seconds() / 60
                 for earlier, later in zip(timestamps, timestamps[1:])
             )
+            if timestamps and timestamps[-1] <= as_of:
+                gaps.append((as_of - timestamps[-1]).total_seconds() / 60)
     return RapidCryptoCadenceSummary(
+        job_ids,
+        min(cycle_counts, default=0),
+        min(observed_at) if len(observed_at) == len(job_ids) else None,
+        max(gaps, default=None),
+        max_gap.total_seconds() / 60,
+        lookback.total_seconds() / 3600,
+    )
+
+
+def _fast_prediction_cadence(
+    path: str | Path,
+    plan: ShadowIngestionPlan,
+    *,
+    as_of: datetime,
+    max_gap: timedelta = timedelta(minutes=30),
+    lookback: timedelta = timedelta(hours=24),
+) -> FastPredictionCadenceSummary:
+    """Report gaps for the pre-registered public fast-settlement market page.
+
+    This is operational telemetry only: it cannot create a forecast, restore a
+    skipped page, or alter the immutable candidate or evidence rules.  The current
+    interval through ``as_of`` is included so a stopped collection lane is visible.
+    """
+    if max_gap <= timedelta(0):
+        raise ValueError("fast prediction cadence bound must be positive")
+    if lookback <= timedelta(0):
+        raise ValueError("fast prediction cadence lookback must be positive")
+    as_of = require_aware(as_of, "as_of")
+    job_ids = tuple(
+        job.job_id
+        for job in plan.jobs
+        if job.enabled and job.job_id == "kalshi-fast-settling-markets"
+    )
+    if not job_ids:
+        return FastPredictionCadenceSummary(
+            (), 0, None, None, max_gap.total_seconds() / 60, lookback.total_seconds() / 3600
+        )
+
+    observed_at: list[datetime] = []
+    cycle_counts: list[int] = []
+    gaps: list[float] = []
+    with sqlite3.connect(path) as connection:
+        for job_id in job_ids:
+            rows = connection.execute(
+                """
+                SELECT started_at
+                FROM ingestion_runs
+                WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
+                  AND started_at >= ? AND started_at <= ?
+                ORDER BY started_at ASC, rowid ASC
+                """,
+                (
+                    plan.name,
+                    job_id,
+                    "success",
+                    "degraded",
+                    (as_of - lookback).isoformat(),
+                    as_of.isoformat(),
+                ),
+            ).fetchall()
+            timestamps = [parse_datetime(str(row[0])) for row in rows]
+            cycle_counts.append(len(timestamps))
+            if timestamps:
+                observed_at.append(timestamps[-1])
+            gaps.extend(
+                (later - earlier).total_seconds() / 60
+                for earlier, later in zip(timestamps, timestamps[1:])
+            )
+            if timestamps and timestamps[-1] <= as_of:
+                gaps.append((as_of - timestamps[-1]).total_seconds() / 60)
+    return FastPredictionCadenceSummary(
         job_ids,
         min(cycle_counts, default=0),
         min(observed_at) if len(observed_at) == len(job_ids) else None,
@@ -1360,6 +1476,32 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"largest observed gap: **{largest_gap}** "
                 f"in the trailing {cadence.lookback_hours:.0f} hours "
                 f"(bound: {cadence.max_allowed_gap_minutes:.0f} minutes)."
+            ),
+        ]
+    )
+    fast_cadence = scorecard.fast_prediction_cadence
+    fast_latest_cycle = (
+        f"`{fast_cadence.latest_started_at.isoformat()}`"
+        if fast_cadence.latest_started_at is not None
+        else "—"
+    )
+    fast_largest_gap = (
+        f"{fast_cadence.largest_gap_minutes:.1f} minutes"
+        if fast_cadence.largest_gap_minutes is not None
+        else "insufficient history"
+    )
+    lines.extend(
+        [
+            "",
+            "### Fast prediction collection cadence",
+            "",
+            (
+                f"Cursor-resuming public market jobs: **{len(fast_cadence.job_ids)}** · "
+                f"observed cycles: **{fast_cadence.observed_cycles}** · "
+                f"latest cycle: {fast_latest_cycle} · "
+                f"largest collection gap: **{fast_largest_gap}** "
+                f"in the trailing {fast_cadence.lookback_hours:.0f} hours "
+                f"(bound: {fast_cadence.max_allowed_gap_minutes:.0f} minutes)."
             ),
         ]
     )
