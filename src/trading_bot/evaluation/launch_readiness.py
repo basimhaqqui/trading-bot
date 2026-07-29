@@ -15,7 +15,11 @@ from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.costs import load_cost_registry
 from trading_bot.evaluation.economics import EconomicStatus
 from trading_bot.evaluation.reporting import EdgeStatus
-from trading_bot.evaluation.scorecard import build_daily_scorecard
+from trading_bot.evaluation.scorecard import (
+    FastPredictionCadenceSummary,
+    RapidCryptoCadenceSummary,
+    build_daily_scorecard,
+)
 from trading_bot.execution.crypto_sandbox import (
     load_crypto_sandbox_config,
     run_crypto_sandbox_scenarios,
@@ -273,6 +277,16 @@ def build_launch_readiness_report(
             if scorecard.ingestion.healthy
             else "required ingestion jobs are missing, stale, or failing",
         ),
+        _cadence_gate(
+            "rapid-crypto-continuity",
+            "rapid crypto",
+            scorecard.rapid_crypto_cadence,
+        ),
+        _cadence_gate(
+            "fast-prediction-continuity",
+            "fast prediction",
+            scorecard.fast_prediction_cadence,
+        ),
         LaunchGate(
             "forecast-candidates",
             LaunchGateCategory.EVIDENCE,
@@ -372,6 +386,30 @@ def _suite_gate(
         True,
         f"{passed}/{expected} isolated scenarios passed",
     )
+
+
+def _cadence_gate(
+    gate_id: str,
+    lane: str,
+    cadence: RapidCryptoCadenceSummary | FastPredictionCadenceSummary,
+) -> LaunchGate:
+    observed = cadence.observed_cycles
+    largest_gap = cadence.largest_gap_minutes
+    bound = cadence.max_allowed_gap_minutes
+    passed = observed > 0 and largest_gap is not None and largest_gap <= bound
+    if observed == 0 or largest_gap is None:
+        detail = f"{lane} has no observed collection cycles in its telemetry window"
+    elif passed:
+        detail = (
+            f"{lane} largest collection gap {largest_gap:.1f} minutes is within "
+            f"the {bound:.0f}-minute bound"
+        )
+    else:
+        detail = (
+            f"{lane} largest collection gap {largest_gap:.1f} minutes exceeds "
+            f"the {bound:.0f}-minute bound"
+        )
+    return LaunchGate(gate_id, LaunchGateCategory.OPERATIONS, passed, True, detail)
 
 
 def _initialize_readiness_stores(path: Path) -> None:

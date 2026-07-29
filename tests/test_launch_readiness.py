@@ -1,8 +1,10 @@
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from trading_bot.evaluation.launch_readiness import (
     LaunchReadinessStatus,
@@ -10,6 +12,13 @@ from trading_bot.evaluation.launch_readiness import (
     load_launch_readiness_config,
     render_launch_readiness_report,
 )
+from trading_bot.evaluation.scorecard import (
+    FastPredictionCadenceSummary,
+    RapidCryptoCadenceSummary,
+    build_daily_scorecard,
+)
+from trading_bot.evaluation.costs import load_cost_registry
+from trading_bot.ingestion.plan import load_plan
 
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
@@ -64,6 +73,74 @@ class LaunchReadinessTests(unittest.TestCase):
         self.assertEqual(payload["status"], "no_go")
         self.assertFalse(payload["live_execution_authorized"])
         self.assertTrue(payload["technical_successful"])
+
+    def test_requires_observed_continuity_for_both_rapid_lanes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "readiness.db"
+            report = build_launch_readiness_report(
+                database,
+                plan_path="config/shadow-ingestion.json",
+                costs_path="config/economic-costs.json",
+                as_of=NOW,
+            )
+
+        gates = {gate.gate_id: gate for gate in report.gates}
+        self.assertFalse(gates["rapid-crypto-continuity"].passed)
+        self.assertIn("no observed collection cycles", gates["rapid-crypto-continuity"].detail)
+        self.assertFalse(gates["fast-prediction-continuity"].passed)
+        self.assertIn("no observed collection cycles", gates["fast-prediction-continuity"].detail)
+
+    def test_accepts_rapid_lane_cadence_only_within_each_fixed_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "readiness.db"
+            build_launch_readiness_report(
+                database,
+                plan_path="config/shadow-ingestion.json",
+                costs_path="config/economic-costs.json",
+                as_of=NOW,
+            )
+            base = build_daily_scorecard(
+                database,
+                load_plan("config/shadow-ingestion.json"),
+                load_cost_registry("config/economic-costs.json"),
+                as_of=NOW,
+                environment={},
+            )
+            scorecard = replace(
+                base,
+                rapid_crypto_cadence=RapidCryptoCadenceSummary(
+                    ("coinbase-btc-fifteen-minute-candles",),
+                    4,
+                    NOW,
+                    30.0,
+                    30.0,
+                    24.0,
+                ),
+                fast_prediction_cadence=FastPredictionCadenceSummary(
+                    ("kalshi-fast-settling-markets",),
+                    4,
+                    NOW,
+                    31.0,
+                    30.0,
+                    24.0,
+                ),
+            )
+            with patch(
+                "trading_bot.evaluation.launch_readiness.build_daily_scorecard",
+                return_value=scorecard,
+            ):
+                report = build_launch_readiness_report(
+                    database,
+                    plan_path="config/shadow-ingestion.json",
+                    costs_path="config/economic-costs.json",
+                    as_of=NOW,
+                )
+
+        gates = {gate.gate_id: gate for gate in report.gates}
+        self.assertTrue(gates["rapid-crypto-continuity"].passed)
+        self.assertIn("within the 30-minute bound", gates["rapid-crypto-continuity"].detail)
+        self.assertFalse(gates["fast-prediction-continuity"].passed)
+        self.assertIn("exceeds the 30-minute bound", gates["fast-prediction-continuity"].detail)
 
 
 if __name__ == "__main__":
