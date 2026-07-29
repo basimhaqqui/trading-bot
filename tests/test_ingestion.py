@@ -831,6 +831,7 @@ class IngestionTests(unittest.TestCase):
         record = runner.run_plan(plan, collected_at=self.now)[0]
 
         self.assertEqual(record.status, IngestionRunStatus.SUCCESS)
+        self.assertEqual(record.requested_instruments, 2)
         self.assertEqual(
             collector.market_kwargs["tickers"],
             ("KXCLOSED-YES", "KXACTIVE-YES"),

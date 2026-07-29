@@ -1040,11 +1040,61 @@ class DailyScorecardTests(unittest.TestCase):
         )
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("### Outcome queue", markdown)
+        self.assertIn("no attested tracked-ticker receipt", markdown)
         self.assertIn("### Pending outcomes by strategy", markdown)
         self.assertIn("due without outcome: **1**", markdown)
         self.assertIn(
             "prediction-market-calibration-baseline-v3", markdown
         )
+
+    def test_scorecard_attests_incomplete_bounded_prediction_outcome_poll(self):
+        finished_at = self.now - timedelta(minutes=5)
+        self.ingestion.append(
+            IngestionRunRecord(
+                "forecast-outcomes-receipt",
+                "outcome-poll-plan",
+                "kalshi-forecast-outcomes",
+                "kalshi",
+                "forecast_outcomes",
+                IngestionRunStatus.SUCCESS,
+                finished_at - timedelta(seconds=2),
+                finished_at,
+                50,
+                106,
+                requested_instruments=100,
+            )
+        )
+        plan = ShadowIngestionPlan(
+            "outcome-poll-plan",
+            (
+                ObservationJob(
+                    "kalshi-forecast-outcomes",
+                    "kalshi",
+                    "forecast_outcomes",
+                    limit=100,
+                    cursor_mode="restart",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path, plan, self.costs, as_of=self.now, environment={}
+        )
+
+        polling = scorecard.prediction_outcome_polling
+        self.assertEqual(polling.requested_instruments, 100)
+        self.assertEqual(polling.returned_instruments, 50)
+        self.assertEqual(polling.missing_instruments, 50)
+        self.assertEqual(polling.finished_at, finished_at)
+        self.assertTrue(
+            any(
+                alert.code == "prediction_outcome_polling_incomplete"
+                for alert in scorecard.alerts
+            )
+        )
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("### Prediction outcome polling", markdown)
+        self.assertIn("**100** requested → **50** returned → **50** missing", markdown)
 
     def test_scorecard_reports_prediction_calibration_cohort_readiness(self):
         self.append_public_run()
