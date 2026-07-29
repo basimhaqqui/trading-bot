@@ -121,6 +121,22 @@ class DailyScorecardTests(unittest.TestCase):
             )
         )
 
+    def append_fast_prediction_run(self, run_id, started_at):
+        self.ingestion.append(
+            IngestionRunRecord(
+                run_id,
+                "scorecard-plan",
+                "kalshi-fast-settling-markets",
+                "kalshi",
+                "markets",
+                IngestionRunStatus.SUCCESS,
+                started_at,
+                started_at + timedelta(seconds=1),
+                1,
+                1,
+            )
+        )
+
     def test_scorecard_combines_coverage_health_and_credential_alerts(self):
         self.append_public_run()
         self.append_crypto_event()
@@ -280,6 +296,155 @@ class DailyScorecardTests(unittest.TestCase):
                 for item in scorecard.alerts
             )
         )
+
+    def test_scorecard_warns_when_rapid_crypto_collection_is_stale_after_last_cycle(self):
+        self.append_rapid_crypto_run("rapid-last", self.now - timedelta(minutes=35))
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(scorecard.rapid_crypto_cadence.largest_gap_minutes, 35.0)
+        alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "rapid_crypto_observation_cadence_gap"
+        )
+        self.assertIn("35.0 minutes", alert.message)
+
+    def test_scorecard_warns_when_fast_prediction_observation_cycles_are_gapped(self):
+        self.append_fast_prediction_run("fast-early", self.now - timedelta(minutes=50))
+        self.append_fast_prediction_run("fast-late", self.now - timedelta(minutes=5))
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "kalshi-fast-settling-markets",
+                    "kalshi",
+                    "markets",
+                    status="open",
+                    limit=1000,
+                    cursor_mode="resume",
+                    mve_filter="exclude",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        cadence = scorecard.fast_prediction_cadence
+        self.assertEqual(cadence.job_ids, ("kalshi-fast-settling-markets",))
+        self.assertEqual(cadence.observed_cycles, 2)
+        self.assertEqual(cadence.latest_started_at, self.now - timedelta(minutes=5))
+        self.assertEqual(cadence.largest_gap_minutes, 45.0)
+        self.assertEqual(cadence.max_allowed_gap_minutes, 30.0)
+        alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "fast_prediction_observation_cadence_gap"
+        )
+        self.assertEqual(alert.severity, AlertSeverity.WARNING)
+        self.assertIn("45.0 minutes", alert.message)
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("Fast prediction collection cadence", markdown)
+        self.assertIn("largest collection gap: **45.0 minutes**", markdown)
+
+    def test_scorecard_warns_when_fast_prediction_collection_is_stale_after_last_cycle(self):
+        self.append_fast_prediction_run("fast-last", self.now - timedelta(minutes=35))
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "kalshi-fast-settling-markets",
+                    "kalshi",
+                    "markets",
+                    status="open",
+                    limit=1000,
+                    cursor_mode="resume",
+                    mve_filter="exclude",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(scorecard.fast_prediction_cadence.largest_gap_minutes, 35.0)
+        alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "fast_prediction_observation_cadence_gap"
+        )
+        self.assertIn("35.0 minutes", alert.message)
+
+    def test_scorecard_cadence_excludes_future_ingestion_runs(self):
+        self.append_rapid_crypto_run("rapid-last", self.now - timedelta(minutes=35))
+        self.append_rapid_crypto_run("rapid-future", self.now + timedelta(minutes=5))
+        self.append_fast_prediction_run("fast-last", self.now - timedelta(minutes=35))
+        self.append_fast_prediction_run("fast-future", self.now + timedelta(minutes=5))
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+                ObservationJob(
+                    "kalshi-fast-settling-markets",
+                    "kalshi",
+                    "markets",
+                    status="open",
+                    limit=1000,
+                    cursor_mode="resume",
+                    mve_filter="exclude",
+                ),
+            ),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(scorecard.rapid_crypto_cadence.observed_cycles, 1)
+        self.assertEqual(scorecard.rapid_crypto_cadence.latest_started_at, self.now - timedelta(minutes=35))
+        self.assertEqual(scorecard.rapid_crypto_cadence.largest_gap_minutes, 35.0)
+        self.assertEqual(scorecard.fast_prediction_cadence.observed_cycles, 1)
+        self.assertEqual(scorecard.fast_prediction_cadence.latest_started_at, self.now - timedelta(minutes=35))
+        self.assertEqual(scorecard.fast_prediction_cadence.largest_gap_minutes, 35.0)
 
     def test_unhealthy_ingestion_emits_error_annotation(self):
         plan = ShadowIngestionPlan(
