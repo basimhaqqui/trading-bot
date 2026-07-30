@@ -708,7 +708,8 @@ def _print_shadow_research(
     print(
         "shadow forecasts: "
         f"candidates={generation.candidates} new={generation.appended} "
-        f"existing={generation.existing} skipped={generation.skipped}"
+        f"existing={generation.existing} skipped={generation.skipped} "
+        f"blocked_rejected={generation.blocked_by_rejection}"
     )
     print(
         "shadow scores: "

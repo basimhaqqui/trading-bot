@@ -18,6 +18,7 @@ from trading_bot.core.schemas import (
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.cli import _print_shadow_research
 from trading_bot.evaluation.shadow import ShadowResearchConfig, ShadowResearchRunner
+from trading_bot.evaluation.scoring import score_binary_forecast
 
 
 class ShadowResearchTests(unittest.TestCase):
@@ -561,6 +562,81 @@ class ShadowResearchTests(unittest.TestCase):
             forecast.specialist_id, "prediction-market-fast-settlement-baseline-v6"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
+
+    def test_rejected_fast_lane_freezes_new_forecasts_before_checkpoint(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-REJECTED",
+            "kalshi",
+            "FAST-REJECTED",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expiration = self.now + timedelta(hours=1)
+        for event in (
+            self.event(
+                "fast-rejected-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-REJECTED-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            ),
+            self.event(
+                "fast-rejected-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            ),
+        ):
+            self.store.append_event(event)
+
+        for index in range(30):
+            generated_at = self.now - timedelta(days=2) + timedelta(minutes=index)
+            target_time = generated_at + timedelta(minutes=30)
+            forecast = Forecast(
+                f"rejected-fast-{index}",
+                "prediction-market-fast-settlement-baseline-v6",
+                "baseline-v6",
+                f"kalshi:prediction:REJECTED-{index}",
+                ForecastKind.BINARY_PROBABILITY,
+                generated_at,
+                target_time,
+                {
+                    "probability": 0.5,
+                    "market_probability": 0.5,
+                    "event_ticker": f"REJECTED-EVENT-{index}",
+                    "outcome_cluster": f"REJECTED-EVENT-{index}",
+                    "target_time": target_time.isoformat(),
+                },
+                0.5,
+                {},
+                (f"rejected-evidence-{index}",),
+                ("fails preregistered validation",),
+            )
+            self.audit.append_forecast(forecast)
+            self.audit.append_forecast_score(
+                score_binary_forecast(
+                    forecast,
+                    outcome=bool(index % 2),
+                    target_time=target_time,
+                    scored_at=target_time,
+                )
+            )
+
+        generated = self.runner.generate_forecasts(as_of=self.now)
+
+        self.assertEqual(generated.candidates, 1)
+        self.assertEqual(generated.appended, 0)
+        self.assertEqual(generated.blocked_by_rejection, 1)
+        self.assertEqual(len(self.audit.forecasts()), 30)
 
     def test_fast_prediction_selection_never_uses_rule_after_book_availability(self):
         market = Instrument(
