@@ -93,24 +93,36 @@ def _postgres_sql(query: str) -> str:
 
 
 class PostgresConnection:
-    def __init__(self, connection: Any) -> None:
+    def __init__(self, connection: Any, schema: str = DEFAULT_POSTGRES_SCHEMA) -> None:
         self._connection = connection
+        self._schema = schema
+        self._schema_selected = schema == DEFAULT_POSTGRES_SCHEMA
+
+    def _ensure_schema(self) -> None:
+        if self._schema_selected:
+            return
+        self._connection.execute(f"SET LOCAL search_path TO {self._schema}")
+        self._schema_selected = True
 
     def execute(self, query: str, parameters: Sequence[Any] | None = None):
+        self._ensure_schema()
         translated = _postgres_sql(query)
         if parameters is None:
             return self._connection.execute(translated)
         return self._connection.execute(translated, parameters)
 
     def executemany(self, query: str, parameters: Sequence[Sequence[Any]]):
+        self._ensure_schema()
         with self._connection.cursor() as cursor:
             cursor.executemany(_postgres_sql(query), parameters)
 
     def commit(self) -> None:
         self._connection.commit()
+        self._schema_selected = self._schema == DEFAULT_POSTGRES_SCHEMA
 
     def rollback(self) -> None:
         self._connection.rollback()
+        self._schema_selected = self._schema == DEFAULT_POSTGRES_SCHEMA
 
     def close(self) -> None:
         self._connection.close()
@@ -140,15 +152,13 @@ def connect_database(location: DatabaseLocation) -> Iterator[sqlite3.Connection 
         import psycopg
     except ImportError as exc:  # pragma: no cover - exercised in deployment
         raise RuntimeError("PostgreSQL persistence requires psycopg") from exc
-    connection_options: dict[str, Any] = {
-        "row_factory": _postgres_row_factory,
-        "prepare_threshold": None,
-    }
     schema = postgres_schema()
-    if schema != DEFAULT_POSTGRES_SCHEMA:
-        connection_options["options"] = f"-csearch_path={schema}"
-    raw_connection = psycopg.connect(dsn, **connection_options)
-    connection = PostgresConnection(raw_connection)
+    raw_connection = psycopg.connect(
+        dsn,
+        row_factory=_postgres_row_factory,
+        prepare_threshold=None,
+    )
+    connection = PostgresConnection(raw_connection, schema)
     try:
         yield connection
         connection.commit()

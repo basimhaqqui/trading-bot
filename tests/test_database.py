@@ -1,3 +1,5 @@
+import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +69,54 @@ class DatabaseTests(unittest.TestCase):
         fake = FakeConnection()
         PostgresConnection(fake).execute("SELECT '100%'")
         self.assertEqual(fake.calls, [("SELECT '100%'",)])
+
+    def test_pooled_schema_is_selected_locally_for_each_transaction(self):
+        class FakeConnection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, *args):
+                self.calls.append(("execute", args))
+
+            def commit(self):
+                self.calls.append(("commit",))
+
+            def rollback(self):
+                self.calls.append(("rollback",))
+
+            def close(self):
+                self.calls.append(("close",))
+
+        raw = FakeConnection()
+        connect_calls = []
+
+        def fake_connect(*args, **kwargs):
+            connect_calls.append((args, kwargs))
+            return raw
+
+        psycopg = SimpleNamespace(connect=fake_connect)
+        with (
+            patch.dict(sys.modules, {"psycopg": psycopg}),
+            patch.dict("os.environ", {"TRADING_DB_SCHEMA": "shadow_evidence_v1"}),
+        ):
+            with connect_database(POOLER_URL) as connection:
+                connection.execute("SELECT 1")
+                connection.commit()
+                connection.execute("SELECT 2")
+
+        self.assertNotIn("options", connect_calls[0][1])
+        self.assertEqual(
+            raw.calls,
+            [
+                ("execute", ("SET LOCAL search_path TO shadow_evidence_v1",)),
+                ("execute", ("SELECT 1",)),
+                ("commit",),
+                ("execute", ("SET LOCAL search_path TO shadow_evidence_v1",)),
+                ("execute", ("SELECT 2",)),
+                ("commit",),
+                ("close",),
+            ],
+        )
 
     def test_row_factory_accepts_commands_without_result_metadata(self):
         class CommandCursor:
