@@ -58,7 +58,21 @@ class ShadowWorkflowTests(unittest.TestCase):
         workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
 
         health_step = workflow.split("- name: Enforce rapid ingestion health", 1)[1]
-        self.assertIn("if: always()", health_step)
+        self.assertIn("id: persistence_check", workflow)
+        self.assertIn(
+            "if: ${{ always() && steps.persistence_check.outcome == 'success' }}",
+            health_step,
+        )
+
+    def test_database_followups_skip_unavailable_persistent_evidence(self):
+        rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+
+        expected_condition = (
+            "if: ${{ always() && steps.persistence_check.outcome == 'success' }}"
+        )
+        self.assertIn(expected_condition, rapid_workflow)
+        self.assertEqual(full_workflow.count(expected_condition), 2)
 
     def test_only_scheduled_workflow_cycles_attest_scheduled_evidence(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
