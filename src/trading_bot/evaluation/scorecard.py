@@ -481,10 +481,10 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"paired={scorecard.fast_prediction_eligibility.paired_markets} "
             f"fresh={scorecard.fast_prediction_eligibility.fresh_book_markets} "
             f"active={scorecard.fast_prediction_eligibility.active_markets} "
-            f"fixed_close={scorecard.fast_prediction_eligibility.fixed_close_markets} "
-            f"early_close_allowed={scorecard.fast_prediction_eligibility.early_close_allowed_markets} "
-            f"close_constraint_missing={scorecard.fast_prediction_eligibility.missing_close_constraint_markets} "
-            f"close_constraint_invalid={scorecard.fast_prediction_eligibility.invalid_close_constraint_markets} "
+            f"documented_close_policy={scorecard.fast_prediction_eligibility.documented_close_policy_markets} "
+            f"early_close_enabled={scorecard.fast_prediction_eligibility.early_close_enabled_markets} "
+            f"close_policy_missing={scorecard.fast_prediction_eligibility.missing_close_policy_markets} "
+            f"close_policy_invalid={scorecard.fast_prediction_eligibility.invalid_close_policy_markets} "
             f"short_timer={scorecard.fast_prediction_eligibility.short_timer_markets} "
             f"horizon={scorecard.fast_prediction_eligibility.horizon_markets} "
             f"executable={scorecard.fast_prediction_eligibility.executable_markets} "
@@ -912,28 +912,24 @@ def _build_alerts(
         )
     if (
         fast_prediction_eligibility.active_markets
-        and not fast_prediction_eligibility.fixed_close_markets
+        and not fast_prediction_eligibility.documented_close_policy_markets
     ):
         close_constraint_reasons: list[str] = []
-        if fast_prediction_eligibility.early_close_allowed_markets:
+        if fast_prediction_eligibility.missing_close_policy_markets:
             close_constraint_reasons.append(
-                f"{fast_prediction_eligibility.early_close_allowed_markets} allow early close"
+                f"{fast_prediction_eligibility.missing_close_policy_markets} omit the field"
             )
-        if fast_prediction_eligibility.missing_close_constraint_markets:
+        if fast_prediction_eligibility.invalid_close_policy_markets:
             close_constraint_reasons.append(
-                f"{fast_prediction_eligibility.missing_close_constraint_markets} omit the field"
-            )
-        if fast_prediction_eligibility.invalid_close_constraint_markets:
-            close_constraint_reasons.append(
-                f"{fast_prediction_eligibility.invalid_close_constraint_markets} have invalid values"
+                f"{fast_prediction_eligibility.invalid_close_policy_markets} have invalid values"
             )
         alerts.append(
             OperationalAlert(
-                "fast_prediction_fixed_close_unavailable",
+                "fast_prediction_close_policy_unavailable",
                 AlertSeverity.INFO,
                 (
                     f"{fast_prediction_eligibility.active_markets} active fast-settlement "
-                    "market(s) lacked the preregistered can_close_early=false "
+                    "market(s) lacked a documented boolean can_close_early "
                     f"constraint ({'; '.join(close_constraint_reasons)}); "
                     "no fast-lane forecast was selected"
                 ),
@@ -1548,10 +1544,10 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"**{fast.paired_markets}** paired rule/book markets → "
                 f"**{fast.fresh_book_markets}** fresh books → "
                 f"**{fast.active_markets}** active → "
-                f"**{fast.fixed_close_markets}** fixed-close → "
-                f"({fast.early_close_allowed_markets} early-close allowed, "
-                f"{fast.missing_close_constraint_markets} missing, "
-                f"{fast.invalid_close_constraint_markets} invalid) → "
+                f"**{fast.documented_close_policy_markets}** documented close policies → "
+                f"({fast.early_close_enabled_markets} early-close enabled, "
+                f"{fast.missing_close_policy_markets} missing, "
+                f"{fast.invalid_close_policy_markets} invalid) → "
                 f"**{fast.short_timer_markets}** short-timer → "
                 f"**{fast.horizon_markets}** in horizon → "
                 f"**{fast.executable_markets}** executable → "

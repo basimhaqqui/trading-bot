@@ -22,11 +22,13 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementSpecialist,
     FastPredictionSettlementV3Specialist,
     FastPredictionSettlementV4Specialist,
+    FastPredictionSettlementV5Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_expected_expiration_time,
+    prediction_latest_expiration_time,
     prediction_occurrence_time,
     prediction_settlement_event_ticker,
     prediction_settlement_event_key,
@@ -88,10 +90,10 @@ class FastPredictionEligibilitySummary:
     paired_markets: int
     fresh_book_markets: int
     active_markets: int
-    fixed_close_markets: int
-    early_close_allowed_markets: int
-    missing_close_constraint_markets: int
-    invalid_close_constraint_markets: int
+    documented_close_policy_markets: int
+    early_close_enabled_markets: int
+    missing_close_policy_markets: int
+    invalid_close_policy_markets: int
     short_timer_markets: int
     horizon_markets: int
     executable_markets: int
@@ -712,7 +714,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV4Specialist()
+        specialist = FastPredictionSettlementV5Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -742,10 +744,10 @@ class ShadowResearchRunner:
         paired_markets = 0
         fresh_book_markets = 0
         active_markets = 0
-        fixed_close_markets = 0
-        early_close_allowed_markets = 0
-        missing_close_constraint_markets = 0
-        invalid_close_constraint_markets = 0
+        documented_close_policy_markets = 0
+        early_close_enabled_markets = 0
+        missing_close_policy_markets = 0
+        invalid_close_policy_markets = 0
         short_timer_markets = 0
         horizon_markets = 0
         executable_markets = 0
@@ -777,15 +779,15 @@ class ShadowResearchRunner:
                 continue
             active_markets += 1
             close_constraint = rule.payload.get("can_close_early")
-            if close_constraint is not False:
-                if close_constraint is True:
-                    early_close_allowed_markets += 1
-                elif "can_close_early" not in rule.payload:
-                    missing_close_constraint_markets += 1
+            if not isinstance(close_constraint, bool):
+                if "can_close_early" not in rule.payload:
+                    missing_close_policy_markets += 1
                 else:
-                    invalid_close_constraint_markets += 1
+                    invalid_close_policy_markets += 1
                 continue
-            fixed_close_markets += 1
+            documented_close_policy_markets += 1
+            if close_constraint:
+                early_close_enabled_markets += 1
             timer = rule.payload.get("settlement_timer_seconds")
             if isinstance(timer, bool) or (
                 isinstance(timer, float)
@@ -800,14 +802,22 @@ class ShadowResearchRunner:
                 continue
             short_timer_markets += 1
             event_ticker = rule.payload.get("event_ticker")
-            target_time = prediction_expected_expiration_time(rule)
-            if not isinstance(event_ticker, str) or not event_ticker or target_time is None:
+            expected_expiration = prediction_expected_expiration_time(rule)
+            latest_expiration = prediction_latest_expiration_time(rule)
+            if (
+                not isinstance(event_ticker, str)
+                or not event_ticker
+                or expected_expiration is None
+                or latest_expiration is None
+                or latest_expiration < expected_expiration
+            ):
                 continue
-            horizon = target_time - decision_time
+            expected_horizon = expected_expiration - decision_time
+            latest_horizon = latest_expiration - decision_time
             if not (
-                specialist.config.min_forecast_horizon
-                < horizon
+                specialist.config.min_forecast_horizon < expected_horizon
                 <= specialist.config.forecast_horizon
+                and latest_horizon <= specialist.config.forecast_horizon
             ):
                 continue
             horizon_markets += 1
@@ -842,10 +852,10 @@ class ShadowResearchRunner:
             paired_markets,
             fresh_book_markets,
             active_markets,
-            fixed_close_markets,
-            early_close_allowed_markets,
-            missing_close_constraint_markets,
-            invalid_close_constraint_markets,
+            documented_close_policy_markets,
+            early_close_enabled_markets,
+            missing_close_policy_markets,
+            invalid_close_policy_markets,
             short_timer_markets,
             horizon_markets,
             executable_markets,
@@ -1046,6 +1056,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementSpecialist.agent_id,
             FastPredictionSettlementV3Specialist.agent_id,
             FastPredictionSettlementV4Specialist.agent_id,
+            FastPredictionSettlementV5Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1056,6 +1067,7 @@ class ShadowResearchRunner:
             in {
                 FastPredictionSettlementV3Specialist.agent_id,
                 FastPredictionSettlementV4Specialist.agent_id,
+                FastPredictionSettlementV5Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1086,6 +1098,11 @@ class ShadowResearchRunner:
                     event.event_time < target_time
                     or prediction_settlement_event_ticker(event) != expected_event_ticker
                 )
+            ):
+                continue
+            if (
+                forecast.specialist_id == FastPredictionSettlementV5Specialist.agent_id
+                and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):
                 continue
             return score_binary_forecast(

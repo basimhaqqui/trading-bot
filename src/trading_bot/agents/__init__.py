@@ -15,6 +15,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementSpecialist,
     FastPredictionSettlementV3Specialist,
     FastPredictionSettlementV4Specialist,
+    FastPredictionSettlementV5Specialist,
     PredictionMarketCalibrationSpecialist,
 )
 
@@ -29,4 +30,5 @@ __all__ = [
     "FastPredictionSettlementSpecialist",
     "FastPredictionSettlementV3Specialist",
     "FastPredictionSettlementV4Specialist",
+    "FastPredictionSettlementV5Specialist",
 ]
