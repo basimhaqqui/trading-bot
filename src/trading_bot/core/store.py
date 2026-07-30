@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS market_events (
 CREATE INDEX IF NOT EXISTS idx_events_replay
 ON market_events(available_at, event_time, instrument_id, event_type);
 
+CREATE INDEX IF NOT EXISTS idx_events_instrument_type_available
+ON market_events(instrument_id, event_type, available_at, event_time, event_id);
+
 CREATE TRIGGER IF NOT EXISTS market_events_no_update
 BEFORE UPDATE ON market_events BEGIN
     SELECT RAISE(ABORT, 'market_events is append-only');

@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS audit_records (
 CREATE INDEX IF NOT EXISTS idx_audit_timeline
 ON audit_records(occurred_at, record_type, record_id);
 
+CREATE INDEX IF NOT EXISTS idx_audit_records_type_timeline
+ON audit_records(record_type, occurred_at, record_id);
+
 CREATE TRIGGER IF NOT EXISTS audit_records_no_update
 BEFORE UPDATE ON audit_records BEGIN
     SELECT RAISE(ABORT, 'audit_records is append-only');
