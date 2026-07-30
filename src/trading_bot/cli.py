@@ -94,6 +94,8 @@ from trading_bot.evaluation.reporting import (
     WalkForwardReport,
 )
 from trading_bot.evaluation.shadow import (
+    ShadowResearchConfig,
+    ShadowResearchProfile,
     ShadowResearchResult,
     ShadowResearchRunner,
 )
@@ -159,6 +161,12 @@ def _parser() -> argparse.ArgumentParser:
         choices=tuple(item.value for item in IngestionObservationOrigin),
         default=IngestionObservationOrigin.MANUAL.value,
         help="attest whether this cycle was invoked by the scheduled workflow (default: manual)",
+    )
+    shadow_cycle.add_argument(
+        "--research-profile",
+        choices=tuple(item.value for item in ShadowResearchProfile),
+        default=ShadowResearchProfile.FULL.value,
+        help="bound research work to the observation lane (default: full)",
     )
     subparsers.add_parser(
         "shadow-research",
@@ -625,6 +633,7 @@ def _shadow_cycle(
     *,
     validate_only: bool = False,
     observation_origin: str = IngestionObservationOrigin.MANUAL.value,
+    research_profile: str = ShadowResearchProfile.FULL.value,
 ) -> int:
     plan = load_plan(plan_path)
     if validate_only:
@@ -660,7 +669,11 @@ def _shadow_cycle(
             print(f"  request_cursor={record.request_cursor}")
         if record.next_cursor:
             print(f"  next_cursor={record.next_cursor}")
-    research_runner = ShadowResearchRunner(store, audit)
+    research_runner = ShadowResearchRunner(
+        store,
+        audit,
+        ShadowResearchConfig(profile=ShadowResearchProfile(research_profile)),
+    )
     research_as_of = utc_now()
     research = research_runner.run(as_of=research_as_of)
     _print_shadow_research(research)
@@ -1225,6 +1238,7 @@ def main() -> int:
                 Path(args.plan),
                 validate_only=args.validate_only,
                 observation_origin=args.observation_origin,
+                research_profile=args.research_profile,
             )
         if args.command == "shadow-research":
             return _shadow_research(path)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Mapping
 
 from trading_bot.agents.base import Specialist
@@ -125,14 +126,24 @@ class IntradayMomentumEligibilitySummary:
     v2_signal_instruments: int
 
 
+class ShadowResearchProfile(StrEnum):
+    """Bound candidate work to the instruments observed by a scheduler lane."""
+
+    FULL = "full"
+    RAPID = "rapid"
+
+
 @dataclass(frozen=True)
 class ShadowResearchConfig:
     max_prediction_forecasts: int = 25
     max_prediction_history: int = 250
+    profile: ShadowResearchProfile = ShadowResearchProfile.FULL
 
     def __post_init__(self) -> None:
         if self.max_prediction_forecasts < 1 or self.max_prediction_history < 1:
             raise ValueError("shadow research limits must be positive")
+        if not isinstance(self.profile, ShadowResearchProfile):
+            raise ValueError("shadow research profile must be supported")
 
 
 @dataclass(frozen=True)
@@ -156,7 +167,14 @@ class ShadowResearchRunner:
 
     def run(self, *, as_of: datetime) -> ShadowResearchResult:
         as_of = require_aware(as_of, "as_of")
-        scoring = self.score_available(as_of=as_of)
+        scoring = self.score_available(
+            as_of=as_of,
+            specialist_ids=(
+                self._rapid_specialist_ids()
+                if self.config.profile is ShadowResearchProfile.RAPID
+                else None
+            ),
+        )
         # Checkpoint before generation so a strategy which has just reached its
         # preregistered rejection boundary cannot issue one more forecast.  The
         # returned report is also reused by the caller, avoiding a second full
@@ -274,13 +292,29 @@ class ShadowResearchRunner:
                 rejected.add(group.specialist_id)
         return frozenset(rejected)
 
-    def score_available(self, *, as_of: datetime) -> ForecastScoringSummary:
+    def _rapid_specialist_ids(self) -> frozenset[str]:
+        """Families whose decision-time inputs are refreshed by the rapid plan."""
+        return frozenset(
+            (
+                CryptoIntradayMomentumSpecialist().agent_id,
+                CryptoIntradayMomentumV2Specialist().agent_id,
+                FastPredictionSettlementV6Specialist().agent_id,
+            )
+        )
+
+    def score_available(
+        self,
+        *,
+        as_of: datetime,
+        specialist_ids: frozenset[str] | None = None,
+    ) -> ForecastScoringSummary:
         as_of = require_aware(as_of, "as_of")
         scored_ids = self.audit.scored_forecast_ids()
         forecasts = [
             forecast
             for forecast in self.audit.forecasts()
             if forecast.forecast_id not in scored_ids
+            and (specialist_ids is None or forecast.specialist_id in specialist_ids)
         ]
         matched = 0
         appended = 0
@@ -339,9 +373,16 @@ class ShadowResearchRunner:
         fast_prediction_candidates: list[_Candidate] | None = None,
     ) -> tuple[_Candidate, ...]:
         candidates: list[_Candidate] = []
-        candidates.extend(self._breakout_candidates(as_of))
         candidates.extend(self._intraday_momentum_candidates(as_of))
         candidates.extend(self._intraday_momentum_v2_candidates(as_of))
+        if self.config.profile is ShadowResearchProfile.RAPID:
+            candidates.extend(
+                fast_prediction_candidates
+                if fast_prediction_candidates is not None
+                else self._fast_prediction_candidates(as_of)
+            )
+            return tuple(candidates)
+        candidates.extend(self._breakout_candidates(as_of))
         candidates.extend(self._perpetual_candidates(as_of))
         candidates.extend(self._option_candidates(as_of))
         candidates.extend(self._prediction_candidates(as_of))

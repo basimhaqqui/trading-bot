@@ -49,6 +49,7 @@ jobs:
         run: >-
           trading-bot shadow-cycle
           --plan config/rapid-shadow-ingestion.json
+          --research-profile rapid
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 
       - name: Enforce rapid ingestion health
