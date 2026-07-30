@@ -713,6 +713,24 @@ class DailyScorecardTests(unittest.TestCase):
                 ingested_at=self.now - timedelta(minutes=3),
             )
         )
+        self.store.append_event(
+            MarketEvent(
+                "holder-activity-observation",
+                MarketEventType.ONCHAIN_STATE,
+                "solana",
+                instrument.instrument_id,
+                self.now - timedelta(minutes=2),
+                self.now - timedelta(minutes=2),
+                "solana-rpc-finalized-holder-activity-v1",
+                {
+                    "safety_status": "blocked_unverified",
+                    "holder_activity_observed": True,
+                    "transfer_behavior_observed": False,
+                    "round_trip_simulation_observed": False,
+                },
+                ingested_at=self.now - timedelta(minutes=2),
+            )
+        )
         plan = ShadowIngestionPlan(
             "scorecard-plan",
             (ObservationJob("coinbase-products", "coinbase", "products"),),
@@ -744,6 +762,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(memecoin.latest_authority_observations, 1)
         self.assertEqual(memecoin.transfer_control_observations, 1)
         self.assertEqual(memecoin.holder_concentration_observations, 1)
+        self.assertEqual(memecoin.holder_activity_observations, 1)
         self.assertEqual(
             memecoin.latest_profile_observed_at, self.now - timedelta(minutes=5)
         )
@@ -758,6 +777,9 @@ class DailyScorecardTests(unittest.TestCase):
         )
         self.assertEqual(
             memecoin.latest_holder_concentration_observed_at, self.now - timedelta(minutes=3)
+        )
+        self.assertEqual(
+            memecoin.latest_holder_activity_observed_at, self.now - timedelta(minutes=2)
         )
         self.assertEqual(memecoin.blocked_unverified_tokens, 1)
         self.assertEqual(memecoin.safety_eligible_tokens, 0)
@@ -775,6 +797,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("finalized authority observation", markdown)
         self.assertIn("transfer-control parse", markdown)
         self.assertIn("holder-concentration observation", markdown)
+        self.assertIn("aggregate holder-activity observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
     def test_scorecard_does_not_aggregate_stale_memecoin_gates_into_eligibility(self):
