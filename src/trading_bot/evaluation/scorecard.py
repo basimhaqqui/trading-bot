@@ -331,7 +331,7 @@ def build_daily_scorecard(
         for asset_class in AssetClass
     )
     research_lanes = _research_lane_summaries(evidence_forecasts, evidence_scores)
-    memecoin_research = _memecoin_research_summary(path, as_of)
+    memecoin_research = _memecoin_research_summary(path, as_of, max_age=max_age)
     totals = SystemTotals(
         instruments=database_totals["instruments"],
         events=database_totals["events"],
@@ -623,7 +623,7 @@ def _research_lane_summaries(
 
 
 def _memecoin_research_summary(
-    path: str | Path, as_of: datetime
+    path: str | Path, as_of: datetime, *, max_age: timedelta
 ) -> MemecoinResearchSummary:
     with connect_database(path) as connection:
         rows = connection.execute(
@@ -663,7 +663,7 @@ def _memecoin_research_summary(
         if existing is None or candidate[:2] > existing[:2]:
             latest[key] = candidate
 
-    by_token: dict[str, list[Mapping[str, object]]] = {}
+    by_token: dict[str, list[tuple[datetime, Mapping[str, object]]]] = {}
     profiles = 0
     pools = 0
     authorities = 0
@@ -675,7 +675,7 @@ def _memecoin_research_summary(
     latest_transfer_control_observed_at: datetime | None = None
     latest_holder_concentration_observed_at: datetime | None = None
     for (instrument_id, category), (observed_at, _, payload) in latest.items():
-        by_token.setdefault(instrument_id, []).append(payload)
+        by_token.setdefault(instrument_id, []).append((observed_at, payload))
         if category == "profile":
             profiles += 1
             if (
@@ -715,7 +715,15 @@ def _memecoin_research_summary(
         "transfer_behavior_observed": "transfer behavior",
         "round_trip_simulation_observed": "round-trip simulation",
     }
-    for payloads in by_token.values():
+    for observations in by_token.values():
+        # A scorecard is an operational view, not an archive lookup. A hard
+        # gate outside its active health window cannot make a current token
+        # look eligible; sandbox execution applies its own tighter check.
+        payloads = tuple(
+            payload
+            for observed_at, payload in observations
+            if timedelta(0) <= as_of - observed_at <= max_age
+        )
         statuses = {str(payload.get("safety_status", "")) for payload in payloads}
         token_missing = False
         for field, label in hard_gates.items():
