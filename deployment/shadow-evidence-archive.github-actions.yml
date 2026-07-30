@@ -1,0 +1,149 @@
+name: Archive immutable shadow evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type ARCHIVE-EVIDENCE to publish the retained SQLite checkpoint
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadow-evidence-archive
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ inputs.confirmation == 'ARCHIVE-EVIDENCE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      release_tag: ${{ steps.package.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Restore the final legacy evidence cache
+        id: legacy
+        uses: actions/cache/restore@v5
+        with:
+          path: var/trading.db
+          key: shadow-evidence-archive-${{ github.run_id }}
+          restore-keys: |
+            shadow-db-
+          fail-on-cache-miss: true
+
+      - name: Require legacy SQLite evidence
+        run: test -s var/trading.db
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Build verified full-fidelity snapshot
+        run: |
+          mkdir -p archive staging
+          trading-bot --db var/trading.db snapshot \
+            --output staging/shadow-evidence.sqlite \
+            --json-output archive/snapshot-manifest.json
+
+      - name: Compress and split release assets
+        id: package
+        env:
+          CACHE_KEY: ${{ steps.legacy.outputs.cache-matched-key }}
+        run: |
+          command -v zstd
+          zstd -T0 -19 staging/shadow-evidence.sqlite \
+            -o archive/shadow-evidence.sqlite.zst
+          archive_bytes="$(stat -c %s archive/shadow-evidence.sqlite.zst)"
+          if (( archive_bytes >= 2000000000 )); then
+            split --bytes=1900000000 --numeric-suffixes=0 --suffix-length=3 \
+              archive/shadow-evidence.sqlite.zst \
+              archive/shadow-evidence.sqlite.zst.part-
+            mv archive/shadow-evidence.sqlite.zst staging/shadow-evidence.sqlite.zst
+          fi
+          release_tag="shadow-evidence-$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_RUN_ID}"
+          jq -n \
+            --arg tag "$release_tag" \
+            --arg commit "$GITHUB_SHA" \
+            --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg cache_key "$CACHE_KEY" \
+            '{
+              format: "trading-bot-evidence-release",
+              version: 1,
+              tag: $tag,
+              commit: $commit,
+              created_at: $created_at,
+              source_cache_key: $cache_key
+            }' > archive/release-metadata.json
+          (
+            cd archive
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+          )
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Stage archive for release job
+        uses: actions/upload-artifact@v7
+        with:
+          name: immutable-shadow-evidence-${{ github.run_id }}
+          path: archive/
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download staged archive
+        uses: actions/download-artifact@v7
+        with:
+          name: immutable-shadow-evidence-${{ github.run_id }}
+          path: archive
+
+      - name: Publish complete immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Full-fidelity append-only shadow evidence archive.
+
+          Verify `SHA256SUMS`, reconstruct `shadow-evidence.sqlite.zst` if it was
+          split, decompress it, and run the documented restore workflow before
+          relying on this archive for any hot-tier eviction.
+          EOF
+          gh release create "$RELEASE_TAG" archive/* \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "Shadow evidence archive $RELEASE_TAG" \
+            --notes-file release-notes.md
+          local_assets="$(find archive -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          remote_assets="$(
+            gh release view "$RELEASE_TAG" --json assets --jq '.assets | length'
+          )"
+          test "$local_assets" = "$remote_assets"
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          gh api \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            | jq -e '.draft == false and .immutable == true'
+
+      - name: Record release
+        env:
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          echo "Published immutable evidence release: $RELEASE_TAG" \
+            >> "$GITHUB_STEP_SUMMARY"

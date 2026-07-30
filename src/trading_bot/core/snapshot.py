@@ -26,6 +26,23 @@ class SnapshotSummary:
     paper_control_ready: bool
 
 
+def snapshot_manifest(summary: SnapshotSummary) -> dict[str, object]:
+    return {
+        "format": "trading-bot-sqlite-snapshot",
+        "version": 1,
+        "file": summary.output_path.name,
+        "bytes": summary.bytes_written,
+        "sha256": summary.sha256,
+        "counts": {
+            "market_events": summary.events,
+            "audit_records": summary.audit_records,
+            "ingestion_runs": summary.ingestion_runs,
+            "paper_records": summary.paper_records,
+        },
+        "paper_control_ready": summary.paper_control_ready,
+    }
+
+
 def create_verified_snapshot(
     source_path: DatabaseLocation, output_path: str | Path
 ) -> SnapshotSummary:
