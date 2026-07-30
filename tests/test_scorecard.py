@@ -777,6 +777,78 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("holder-concentration observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
+    def test_scorecard_does_not_aggregate_stale_memecoin_gates_into_eligibility(self):
+        instrument = Instrument(
+            "dexscreener:memecoin:solana:STALE",
+            "dexscreener",
+            "STALE",
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        stale_at = self.now - timedelta(hours=2)
+        fully_screened = {
+            "safety_status": "sandbox_eligible",
+            "onchain_authorities_observed": True,
+            "holder_concentration_observed": True,
+            "transfer_behavior_observed": True,
+            "round_trip_simulation_observed": True,
+        }
+        for event_id, venue, source in (
+            ("stale-profile", "dexscreener", "dexscreener-public-token-profile-v1"),
+            ("stale-pool", "dexscreener", "dexscreener-public-token-pairs-v1"),
+            (
+                "stale-authority",
+                "solana",
+                "solana-rpc-get-multiple-accounts-finalized-v2",
+            ),
+            (
+                "stale-holders",
+                "solana",
+                "solana-rpc-token-holder-concentration-finalized-v1",
+            ),
+        ):
+            self.store.append_event(
+                MarketEvent(
+                    event_id,
+                    MarketEventType.ONCHAIN_STATE,
+                    venue,
+                    instrument.instrument_id,
+                    stale_at,
+                    stale_at,
+                    source,
+                    fully_screened,
+                    ingested_at=stale_at,
+                )
+            )
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            max_age=timedelta(minutes=90),
+            environment={},
+        )
+
+        memecoin = scorecard.memecoin_research
+        self.assertEqual(memecoin.discovered_tokens, 1)
+        self.assertEqual(memecoin.safety_eligible_tokens, 0)
+        self.assertEqual(memecoin.blocked_unverified_tokens, 1)
+        self.assertEqual(
+            memecoin.missing_hard_gates,
+            (
+                "holder concentration",
+                "onchain authorities",
+                "round-trip simulation",
+                "transfer behavior",
+            ),
+        )
+
     def test_scorecard_explains_when_fast_lane_lacks_documented_close_policy(self):
         self.append_public_run()
         market = Instrument(
