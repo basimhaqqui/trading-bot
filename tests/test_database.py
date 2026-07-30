@@ -18,6 +18,35 @@ POOLER_URL = (
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_batch_sql_uses_a_postgres_cursor(self):
+        class FakeCursor:
+            def __init__(self):
+                self.calls = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+            def executemany(self, *args):
+                self.calls.append(args)
+
+        class FakeConnection:
+            def __init__(self):
+                self.batch_cursor = FakeCursor()
+
+            def cursor(self):
+                return self.batch_cursor
+
+        fake = FakeConnection()
+        PostgresConnection(fake).executemany("INSERT INTO sample VALUES (?)", [(1,), (2,)])
+
+        self.assertEqual(
+            fake.batch_cursor.calls,
+            [("INSERT INTO sample VALUES (%s)", [(1,), (2,)])],
+        )
+
     def test_command_sql_with_percent_does_not_bind_an_empty_parameter_sequence(self):
         class FakeConnection:
             def __init__(self):
