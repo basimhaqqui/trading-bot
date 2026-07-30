@@ -23,6 +23,7 @@ class ShadowWorkflowTests(unittest.TestCase):
 
         self.assertIn("group: shadow-market-observation", workflow)
         self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
+        self.assertIn("TRADING_DB_SCHEMA: shadow_evidence_v1", workflow)
         self.assertIn("Require persistent shadow database", workflow)
         self.assertNotIn("actions/cache/", workflow)
         self.assertNotIn("var/trading.db", workflow)
@@ -79,6 +80,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
         self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
+        self.assertIn("TRADING_DB_SCHEMA: shadow_evidence_v1", workflow)
         self.assertIn("Require persistent shadow database", workflow)
         self.assertIn("SHADOW_DATABASE_URL must be configured", workflow)
         self.assertNotIn("actions/cache/", workflow)
@@ -117,6 +119,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("fail-on-cache-miss: true", workflow)
         self.assertIn("trading-bot migrate-sqlite --source var/trading.db", workflow)
         self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
+        self.assertIn("TRADING_DB_SCHEMA: shadow_evidence_v1", workflow)
 
     def test_migration_deployment_template_matches_live_workflow(self):
         workflow = Path(".github/workflows/shadow-persistence-migration.yml").read_text()

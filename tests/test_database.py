@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from trading_bot.core.database import (
     DatabaseConfigurationError,
@@ -8,6 +9,7 @@ from trading_bot.core.database import (
     database_display_name,
     is_postgres_location,
     PostgresConnection,
+    postgres_schema,
 )
 
 
@@ -18,6 +20,13 @@ POOLER_URL = (
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_postgres_schema_is_validated_before_connection_use(self):
+        with patch.dict("os.environ", {"TRADING_DB_SCHEMA": "shadow_evidence_v1"}):
+            self.assertEqual(postgres_schema(), "shadow_evidence_v1")
+        with patch.dict("os.environ", {"TRADING_DB_SCHEMA": "public; DROP SCHEMA public"}):
+            with self.assertRaises(DatabaseConfigurationError):
+                postgres_schema()
+
     def test_batch_sql_uses_a_postgres_cursor(self):
         class FakeCursor:
             def __init__(self):
