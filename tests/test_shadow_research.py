@@ -16,6 +16,7 @@ from trading_bot.core.schemas import (
     MarketEventType,
 )
 from trading_bot.core.store import PointInTimeStore
+from trading_bot.cli import _print_shadow_research
 from trading_bot.evaluation.shadow import ShadowResearchConfig, ShadowResearchRunner
 
 
@@ -32,6 +33,18 @@ class ShadowResearchTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_fast_prediction_funnel_output_is_explicitly_non_evidence(self):
+        result = self.runner.run(as_of=self.now)
+        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
+
+        with patch("builtins.print") as output:
+            _print_shadow_research(result, eligibility)
+
+        rendered = "\n".join(str(call.args[0]) for call in output.call_args_list)
+        self.assertIn("fast prediction eligibility (pre-generation; not evidence)", rendered)
+        self.assertIn("documented_close_policy=0", rendered)
+        self.assertIn("selected=0", rendered)
 
     def event(
         self,
