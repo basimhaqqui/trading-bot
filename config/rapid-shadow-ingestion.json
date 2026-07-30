@@ -23,7 +23,7 @@
       "dataset": "candles",
       "symbol": "BTC-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-eth-fifteen-minute-candles",
@@ -31,7 +31,7 @@
       "dataset": "candles",
       "symbol": "ETH-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-sol-fifteen-minute-candles",
@@ -39,7 +39,7 @@
       "dataset": "candles",
       "symbol": "SOL-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-doge-fifteen-minute-candles",
@@ -47,7 +47,7 @@
       "dataset": "candles",
       "symbol": "DOGE-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-xrp-fifteen-minute-candles",
@@ -55,7 +55,7 @@
       "dataset": "candles",
       "symbol": "XRP-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-ada-fifteen-minute-candles",
@@ -63,7 +63,7 @@
       "dataset": "candles",
       "symbol": "ADA-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-avax-fifteen-minute-candles",
@@ -71,7 +71,7 @@
       "dataset": "candles",
       "symbol": "AVAX-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-link-fifteen-minute-candles",
@@ -79,7 +79,7 @@
       "dataset": "candles",
       "symbol": "LINK-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-hype-fifteen-minute-candles",
@@ -87,7 +87,7 @@
       "dataset": "candles",
       "symbol": "HYPE-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     },
     {
       "job_id": "coinbase-pump-fifteen-minute-candles",
@@ -95,7 +95,7 @@
       "dataset": "candles",
       "symbol": "PUMP-USD",
       "granularity": "FIFTEEN_MINUTE",
-      "limit": 350
+      "limit": 32
     }
   ]
 }
