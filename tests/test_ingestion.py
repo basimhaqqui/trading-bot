@@ -1022,6 +1022,12 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(all(job.limit == 32 for job in intraday_jobs))
         self.assertTrue(all(job.limit >= 8 for job in intraday_jobs))
 
+        fast_prediction = next(
+            job for job in plan.jobs if job.job_id == "kalshi-fast-settling-markets"
+        )
+        self.assertEqual(fast_prediction.limit, 250)
+        self.assertEqual(fast_prediction.cursor_mode, "resume")
+
     def test_checked_in_perpetual_plan_pairs_btc_and_eth_books(self):
         plan = load_plan("config/shadow-ingestion.json")
         book_jobs = [
