@@ -15,7 +15,10 @@ class ShadowWorkflowTests(unittest.TestCase):
         expected_cron = 'cron: "22,37,52 * * * *"'
         self.assertIn(expected_cron, rapid_workflow)
         self.assertIn(expected_cron, rapid_deployment)
-        self.assertIn("timeout-minutes: 12", rapid_workflow)
+        # The run must leave scheduler headroom while allowing the complete
+        # Neon-backed observation to finish before the next 15-minute trigger.
+        self.assertIn("timeout-minutes: 14", rapid_workflow)
+        self.assertIn("timeout-minutes: 14", rapid_deployment)
 
     def test_rapid_workflow_uses_persistent_postgres_evidence_state(self):
         workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
