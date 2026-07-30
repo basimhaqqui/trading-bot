@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from trading_bot.core.audit import AuditLedger
+from trading_bot.core.database import DatabaseLocation, is_postgres_location
 from trading_bot.core.serialization import sha256_digest
 from trading_bot.ingestion.runner import IngestionRunLedger
 
@@ -26,8 +27,10 @@ class SnapshotSummary:
 
 
 def create_verified_snapshot(
-    source_path: str | Path, output_path: str | Path
+    source_path: DatabaseLocation, output_path: str | Path
 ) -> SnapshotSummary:
+    if is_postgres_location(source_path):
+        raise ValueError("SQLite snapshots are unavailable for PostgreSQL persistence")
     source = Path(source_path).resolve()
     output = Path(output_path).resolve()
     if not source.exists():

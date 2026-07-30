@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 
 from trading_bot.core.audit import AuditLedger
+from trading_bot.core.database import DatabaseLocation, connect_database, initialize_schema
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware, sha256_digest, utc_now
 from trading_bot.execution.alpaca import AlpacaAccount, AlpacaOrder, AlpacaPaperClient, AlpacaPosition
 
@@ -133,26 +133,21 @@ def activate_paper_emergency_stop(
 
 class PaperControlStore:
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path: DatabaseLocation = path
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        try:
+    def connect(self) -> Iterator[Any]:
+        with connect_database(self.path) as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def initialize(self) -> None:
         now = utc_now()
         with self.connect() as connection:
-            connection.executescript(CONTROL_SCHEMA)
+            initialize_schema(
+                connection,
+                CONTROL_SCHEMA,
+                append_only_tables=("paper_control_events",),
+            )
             connection.execute(
                 """
                 INSERT OR IGNORE INTO paper_execution_control (
@@ -260,25 +255,20 @@ class PaperControlStore:
 
 class PaperExecutionLedger:
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path: DatabaseLocation = path
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        try:
+    def connect(self) -> Iterator[Any]:
+        with connect_database(self.path) as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def initialize(self) -> None:
         with self.connect() as connection:
-            connection.executescript(LEDGER_SCHEMA)
+            initialize_schema(
+                connection,
+                LEDGER_SCHEMA,
+                append_only_tables=("paper_account_snapshots", "paper_order_events"),
+            )
 
     def append_account(
         self,

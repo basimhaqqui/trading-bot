@@ -2,16 +2,6 @@ name: Shadow market observation
 
 on:
   workflow_dispatch:
-    inputs:
-      restore_run_id:
-        description: "Optional workflow run ID containing a shadow-database artifact"
-        required: false
-        type: string
-      create_recovery_checkpoint:
-        description: "Upload a recovery snapshot and scorecard artifact"
-        required: false
-        default: false
-        type: boolean
   schedule:
     - cron: "7 * * * *"
 
@@ -31,6 +21,7 @@ jobs:
       ALPACA_MARKET_DATA_KEY_ID: ${{ secrets.ALPACA_MARKET_DATA_KEY_ID }}
       ALPACA_MARKET_DATA_SECRET_KEY: ${{ secrets.ALPACA_MARKET_DATA_SECRET_KEY }}
       SOLANA_READ_ONLY_RPC_URL: ${{ secrets.SOLANA_READ_ONLY_RPC_URL }}
+      TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v6
 
@@ -38,70 +29,49 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Restore latest working state
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.restore_run_id == '' }}
-        uses: actions/cache/restore@v5
-        with:
-          path: var/trading.db
-          key: shadow-db-${{ github.run_id }}
-          restore-keys: shadow-db-
-
-      - name: Download recovery snapshot
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.restore_run_id != '' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: shadow-database
-          path: var/recovery
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.restore_run_id }}
-
-      - name: Restore recovery snapshot
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.restore_run_id != '' }}
-        run: |
-          mkdir -p var
-          cp var/recovery/trading.db var/trading.db
-
       - name: Install
         run: pip install -e .
 
-      - name: Verify recovered state
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.restore_run_id != '' }}
-        run: trading-bot --db var/trading.db doctor
+      - name: Require persistent shadow database
+        run: |
+          if [[ -z "$TRADING_DB_PATH" ]]; then
+            echo "SHADOW_DATABASE_URL must be configured for shadow persistence" >&2
+            exit 1
+          fi
 
       - name: Validate observation plan
         run: trading-bot shadow-cycle --plan config/shadow-ingestion.json --validate-only
 
       - name: Register research baselines
-        run: trading-bot --db var/trading.db research-init
+        run: trading-bot research-init
 
       - name: Collect and research
         run: >-
-          trading-bot --db var/trading.db shadow-cycle
+          trading-bot shadow-cycle
           --plan config/shadow-ingestion.json
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 
       - name: Reconcile Alpaca paper account
         if: ${{ env.ALPACA_MARKET_DATA_KEY_ID != '' && env.ALPACA_MARKET_DATA_SECRET_KEY != '' }}
-        run: trading-bot --db var/trading.db paper-reconcile
+        run: trading-bot paper-reconcile
 
       - name: Run economic eligibility gate
         run: |
-          trading-bot --db var/trading.db economic-report \
+          trading-bot economic-report \
             --costs config/economic-costs.json
 
       - name: Enforce ingestion health
         if: always()
         run: |
-          trading-bot --db var/trading.db shadow-health \
+          trading-bot shadow-health \
             --plan config/shadow-ingestion.json \
             --max-age-minutes 90 \
             --format text
 
       - name: Publish operational scorecard
-        if: ${{ always() && hashFiles('var/trading.db') != '' }}
+        if: always()
         run: |
-          trading-bot --db var/trading.db daily-scorecard \
+          trading-bot daily-scorecard \
             --plan config/shadow-ingestion.json \
             --costs config/economic-costs.json \
             --format markdown \
@@ -111,34 +81,6 @@ jobs:
             ${{ github.event_name == 'schedule' && '--fail-on-rapid-continuity' || '' }}
           cat var/reports/daily-scorecard.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Select recovery checkpoint
-        id: recovery
-        if: always()
-        env:
-          CREATE_RECOVERY_CHECKPOINT: ${{ inputs.create_recovery_checkpoint || false }}
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          if [[ "$CREATE_RECOVERY_CHECKPOINT" == "true" || $((RUN_NUMBER % 48)) -eq 0 ]]; then
-            echo "create=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "create=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create verified recovery snapshot
-        if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/trading.db') != '' }}
-        run: |
-          trading-bot --db var/trading.db snapshot \
-            --output var/snapshot/trading.db
-
-      - name: Upload recovery snapshot
-        if: ${{ always() && steps.recovery.outputs.create == 'true' && hashFiles('var/snapshot/trading.db') != '' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: shadow-database
-          path: var/snapshot/trading.db
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Upload daily scorecard
         if: ${{ always() && hashFiles('var/reports/daily-scorecard.json') != '' }}
         uses: actions/upload-artifact@v7
@@ -147,10 +89,3 @@ jobs:
           path: var/reports
           if-no-files-found: error
           retention-days: 90
-
-      - name: Save next-cycle state
-        if: ${{ always() && hashFiles('var/trading.db') != '' }}
-        uses: actions/cache/save@v5
-        with:
-          path: var/trading.db
-          key: shadow-db-${{ github.run_id }}

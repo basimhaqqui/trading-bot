@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Mapping
 
+from trading_bot.core.database import DatabaseLocation, connect_database, initialize_schema
 from trading_bot.core.schemas import Hypothesis
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware, utc_now
 
@@ -73,16 +73,14 @@ CREATE INDEX IF NOT EXISTS idx_experiments_family ON experiments(family, created
 
 class ExperimentRegistry:
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path: DatabaseLocation = path
 
     def initialize(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path) as connection:
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.executescript(EXPERIMENT_SCHEMA)
+        with connect_database(self.path) as connection:
+            initialize_schema(connection, EXPERIMENT_SCHEMA)
 
     def register_hypothesis(self, hypothesis: Hypothesis) -> None:
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             existing = connection.execute(
                 "SELECT record_json FROM hypotheses WHERE hypothesis_id = ?",
                 (hypothesis.hypothesis_id,),
@@ -129,8 +127,7 @@ class ExperimentRegistry:
             metrics={},
             notes="",
         )
-        with sqlite3.connect(self.path) as connection:
-            connection.execute("PRAGMA foreign_keys = ON")
+        with connect_database(self.path) as connection:
             connection.execute(
                 """
                 INSERT INTO experiments VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -161,7 +158,7 @@ class ExperimentRegistry:
     ) -> None:
         if status not in TERMINAL_STATUSES:
             raise ValueError("finished experiment needs a terminal status")
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             row = connection.execute(
                 "SELECT status FROM experiments WHERE experiment_id = ?", (experiment_id,)
             ).fetchone()
@@ -179,15 +176,14 @@ class ExperimentRegistry:
             )
 
     def trial_count(self, family: str) -> int:
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             row = connection.execute(
                 "SELECT COUNT(*) FROM experiments WHERE family = ?", (family,)
             ).fetchone()
         return int(row[0])
 
     def get(self, experiment_id: str) -> Experiment:
-        with sqlite3.connect(self.path) as connection:
-            connection.row_factory = sqlite3.Row
+        with connect_database(self.path) as connection:
             row = connection.execute(
                 "SELECT * FROM experiments WHERE experiment_id = ?", (experiment_id,)
             ).fetchone()

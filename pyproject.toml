@@ -8,7 +8,9 @@ version = "0.20.0"
 description = "Point-in-time research, replay, risk, and execution controls for multi-market agents"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "psycopg[binary]>=3.2,<4",
+]
 
 [project.optional-dependencies]
 dev = []

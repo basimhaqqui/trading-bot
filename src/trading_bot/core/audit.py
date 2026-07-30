@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
+from trading_bot.core.database import DatabaseLocation, connect_database, initialize_schema
 from trading_bot.core.schemas import Forecast, ForecastKind
 from trading_bot.core.serialization import (
     canonical_json,
@@ -75,25 +75,20 @@ class AuditIntegrityError(RuntimeError):
 
 class AuditLedger:
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path: DatabaseLocation = path
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        try:
+    def connect(self) -> Iterator[Any]:
+        with connect_database(self.path) as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def initialize(self) -> None:
         with self.connect() as connection:
-            connection.executescript(SCHEMA)
+            initialize_schema(
+                connection,
+                SCHEMA,
+                append_only_tables=("audit_records",),
+            )
 
     def append_forecast(self, forecast: Forecast) -> bool:
         return self._append(

@@ -17,13 +17,15 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_cron, rapid_deployment)
         self.assertIn("timeout-minutes: 12", rapid_workflow)
 
-    def test_rapid_workflow_preserves_shared_append_only_evidence_state(self):
+    def test_rapid_workflow_uses_persistent_postgres_evidence_state(self):
         workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
         plan = json.loads(Path("config/rapid-shadow-ingestion.json").read_text())
 
         self.assertIn("group: shadow-market-observation", workflow)
-        self.assertIn("restore-keys: shadow-db-", workflow)
-        self.assertIn("actions/cache/save@v5", workflow)
+        self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
+        self.assertIn("Require persistent shadow database", workflow)
+        self.assertNotIn("actions/cache/", workflow)
+        self.assertNotIn("var/trading.db", workflow)
         self.assertIn("config/rapid-shadow-ingestion.json", workflow)
         self.assertEqual(plan["name"], "public-shadow-observation")
         self.assertEqual(
@@ -73,26 +75,20 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_binding, workflow)
         self.assertIn(expected_binding, deployment)
 
-    def test_manual_recovery_artifacts_are_opt_in(self):
+    def test_full_workflow_requires_neon_and_never_falls_back_to_cache(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
-        self.assertIn("create_recovery_checkpoint:", workflow)
-        checkpoint_input = workflow.split("create_recovery_checkpoint:", 1)[1].split(
-            "schedule:", 1
-        )[0]
-        self.assertIn("default: false", checkpoint_input)
-        self.assertIn("type: boolean", checkpoint_input)
-        self.assertIn("CREATE_RECOVERY_CHECKPOINT:", workflow)
-        self.assertIn('if [[ "$CREATE_RECOVERY_CHECKPOINT" == "true"', workflow)
-        self.assertNotIn('if [[ "$EVENT_NAME" == "workflow_dispatch"', workflow)
-        self.assertIn("retention-days: 7", workflow)
+        self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
+        self.assertIn("Require persistent shadow database", workflow)
+        self.assertIn("SHADOW_DATABASE_URL must be configured", workflow)
+        self.assertNotIn("actions/cache/", workflow)
+        self.assertNotIn("shadow-database", workflow)
+        self.assertNotIn("var/trading.db", workflow)
 
     def test_scorecards_are_retained_even_when_a_continuity_gate_fails(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
-        upload = workflow.split("- name: Upload daily scorecard", 1)[1].split(
-            "- name: Save next-cycle state", 1
-        )[0]
+        upload = workflow.split("- name: Upload daily scorecard", 1)[1]
         self.assertIn("if: ${{ always()", upload)
         self.assertIn("hashFiles('var/reports/daily-scorecard.json')", upload)
         self.assertNotIn("steps.recovery.outputs.create", upload)

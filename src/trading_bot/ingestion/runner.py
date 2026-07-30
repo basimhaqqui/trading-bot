@@ -3,7 +3,6 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -13,6 +12,12 @@ from pathlib import Path
 from typing import Iterator, Protocol
 
 from trading_bot.core.audit import AuditLedger
+from trading_bot.core.database import (
+    DatabaseLocation,
+    connect_database,
+    initialize_schema,
+    is_postgres_location,
+)
 from trading_bot.core.schemas import (
     AssetClass,
     Forecast,
@@ -138,17 +143,20 @@ END;
 
 class IngestionRunLedger:
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path: DatabaseLocation = path
 
     def initialize(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path) as connection:
-            connection.executescript(RUN_SCHEMA)
+        with connect_database(self.path) as connection:
+            initialize_schema(
+                connection,
+                RUN_SCHEMA,
+                append_only_tables=("ingestion_runs",),
+            )
 
     def append(self, record: IngestionRunRecord) -> None:
         record_json = canonical_json(record)
         digest = sha256_digest(record)
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             connection.execute(
                 """
                 INSERT INTO ingestion_runs (
@@ -171,19 +179,19 @@ class IngestionRunLedger:
             )
 
     def count(self) -> int:
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             row = connection.execute("SELECT COUNT(*) FROM ingestion_runs").fetchone()
         return int(row[0])
 
     def resume_cursor(self, plan_name: str, job_id: str) -> str | None:
         """Recover the next page from the latest completed page for one job."""
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             row = connection.execute(
                 """
                 SELECT record_json
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
-                ORDER BY started_at DESC, rowid DESC
+                ORDER BY started_at DESC, run_id DESC
                 LIMIT 1
                 """,
                 (
@@ -203,7 +211,7 @@ class IngestionRunLedger:
         return cursor
 
     def verify_integrity(self) -> int:
-        with sqlite3.connect(self.path) as connection:
+        with connect_database(self.path) as connection:
             rows = connection.execute(
                 "SELECT run_id, record_json, digest FROM ingestion_runs"
             ).fetchall()
@@ -238,7 +246,15 @@ class ShadowIngestionRunner:
         collection_override = (
             require_aware(collected_at, "collected_at") if collected_at is not None else None
         )
-        lock_path = self.store.path.with_suffix(self.store.path.suffix + ".shadow.lock")
+        if is_postgres_location(self.store.path):
+            # GitHub Actions serializes production cycles. Neon uses transaction-mode
+            # pooling, where session advisory locks are intentionally unsupported.
+            return tuple(
+                self._run_job(plan.name, job, collection_override, observation_origin)
+                for job in plan.jobs
+                if job.is_active()
+            )
+        lock_path = Path(self.store.path).with_suffix(Path(self.store.path).suffix + ".shadow.lock")
         with exclusive_run_lock(lock_path):
             return tuple(
                 self._run_job(plan.name, job, collection_override, observation_origin)

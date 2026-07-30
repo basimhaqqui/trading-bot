@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
+from trading_bot.core.database import (
+    DatabaseLocation,
+    PostgresConnection,
+    connect_database,
+    initialize_schema,
+)
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 
@@ -66,26 +71,20 @@ class EventConflictError(RuntimeError):
 
 class PointInTimeStore:
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path: DatabaseLocation = path
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        try:
+    def connect(self) -> Iterator[Any]:
+        with connect_database(self.path) as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def initialize(self) -> None:
         with self.connect() as connection:
-            connection.executescript(SCHEMA)
+            initialize_schema(
+                connection,
+                SCHEMA,
+                append_only_tables=("market_events",),
+            )
 
     def register_instrument(self, instrument: Instrument) -> None:
         from trading_bot.core.serialization import sha256_digest
@@ -286,7 +285,7 @@ class PointInTimeStore:
         return events[-limit:]
 
     @staticmethod
-    def _event_from_row(row: sqlite3.Row) -> MarketEvent:
+    def _event_from_row(row: Any) -> MarketEvent:
         return MarketEvent(
             event_id=row["event_id"],
             event_type=MarketEventType(row["event_type"]),
@@ -301,7 +300,7 @@ class PointInTimeStore:
         )
 
     @staticmethod
-    def _same_market_observation(row: sqlite3.Row, event: MarketEvent) -> bool:
+    def _same_market_observation(row: Any, event: MarketEvent) -> bool:
         return (
             row["event_type"] == event.event_type.value
             and row["venue"] == event.venue
@@ -342,7 +341,7 @@ class PointInTimeStore:
         return self._event_from_row(row)
 
     @staticmethod
-    def _instrument_from_row(row: sqlite3.Row) -> Instrument:
+    def _instrument_from_row(row: Any) -> Instrument:
         return Instrument(
             instrument_id=row["instrument_id"],
             venue=row["venue"],
