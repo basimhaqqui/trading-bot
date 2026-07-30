@@ -54,9 +54,12 @@ from trading_bot.evaluation.scoring import (
     score_volatility_forecast,
 )
 from trading_bot.evaluation.outcomes import forecast_outcome_target_time
+from trading_bot.evaluation.checkpoint import checkpointed_walk_forward_report
 from trading_bot.evaluation.reporting import (
     DECISION_SCOPE_AGGREGATE,
     EdgeStatus,
+    EvaluationDecision,
+    WalkForwardReport,
     build_walk_forward_report,
 )
 from trading_bot.replay import ReplayEngine
@@ -90,6 +93,8 @@ class ForecastScoringSummary:
 class ShadowResearchResult:
     generation: ForecastGenerationSummary
     scoring: ForecastScoringSummary
+    report: WalkForwardReport
+    locked_decisions: tuple[EvaluationDecision, ...]
 
 
 @dataclass(frozen=True)
@@ -151,10 +156,28 @@ class ShadowResearchRunner:
     def run(self, *, as_of: datetime) -> ShadowResearchResult:
         as_of = require_aware(as_of, "as_of")
         scoring = self.score_available(as_of=as_of)
-        generation = self.generate_forecasts(as_of=as_of)
-        return ShadowResearchResult(generation, scoring)
+        # Checkpoint before generation so a strategy which has just reached its
+        # preregistered rejection boundary cannot issue one more forecast.  The
+        # returned report is also reused by the caller, avoiding a second full
+        # walk-forward pass in every scheduled evidence cycle.
+        report, locked_decisions = checkpointed_walk_forward_report(self.audit, as_of=as_of)
+        rejected_specialists = frozenset(
+            item.specialist_id
+            for item in report.groups
+            if item.locked_status is EdgeStatus.REJECTED
+        )
+        generation = self.generate_forecasts(
+            as_of=as_of,
+            rejected_specialists=rejected_specialists,
+        )
+        return ShadowResearchResult(generation, scoring, report, locked_decisions)
 
-    def generate_forecasts(self, *, as_of: datetime) -> ForecastGenerationSummary:
+    def generate_forecasts(
+        self,
+        *,
+        as_of: datetime,
+        rejected_specialists: frozenset[str] | None = None,
+    ) -> ForecastGenerationSummary:
         as_of = require_aware(as_of, "as_of")
         candidates = self._candidates(as_of)
         replay = ReplayEngine(self.store)
@@ -163,7 +186,8 @@ class ShadowResearchRunner:
         skipped = 0
         blocked_by_rejection = 0
         errors: list[str] = []
-        rejected_specialists = self._rejected_specialist_ids()
+        if rejected_specialists is None:
+            rejected_specialists = self._rejected_specialist_ids()
         for candidate in candidates:
             if candidate.specialist.agent_id in rejected_specialists:
                 blocked_by_rejection += 1
