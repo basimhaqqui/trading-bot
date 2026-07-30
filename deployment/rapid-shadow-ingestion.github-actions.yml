@@ -16,7 +16,9 @@ concurrency:
 jobs:
   observe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # Keep the scheduled cycle bounded below its 15-minute cadence. Twelve
+    # minutes proved insufficient for a complete persistent-Neon observation.
+    timeout-minutes: 14
     env:
       TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}
       TRADING_DB_SCHEMA: shadow_evidence_v1
