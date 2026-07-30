@@ -557,7 +557,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v5"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v6"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -712,7 +712,7 @@ class ShadowResearchTests(unittest.TestCase):
             )
         )
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
-        deadline = expiration + timedelta(minutes=15)
+        deadline = expiration + timedelta(hours=1, minutes=15)
         self.store.append_event(
             self.event(
                 "fast-late-settlement",
@@ -728,7 +728,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.due_unmatched, 1)
 
-    def test_fast_prediction_v5_accepts_early_close_within_recorded_latest_deadline(self):
+    def test_fast_prediction_v6_accepts_early_close_within_recorded_deadline(self):
         market = Instrument(
             "kalshi:prediction:FAST-EARLY",
             "kalshi",
@@ -779,7 +779,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 1)
         self.assertEqual(scored.due_unmatched, 0)
 
-    def test_fast_prediction_v5_rejects_settlement_from_a_different_event(self):
+    def test_fast_prediction_v6_rejects_settlement_from_a_different_event(self):
         market = Instrument(
             "kalshi:prediction:FAST-MISMATCH",
             "kalshi",
@@ -829,6 +829,54 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.due_unmatched, 1)
+
+    def test_fast_prediction_v6_records_long_latest_expiration_without_excluding_fast_target(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-LONG-LATEST",
+            "kalshi",
+            "FAST-LONG-LATEST",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expected = self.now + timedelta(hours=1)
+        latest = self.now + timedelta(days=3)
+        self.store.append_event(
+            self.event(
+                "fast-long-latest-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-LONG-LATEST-EVENT",
+                    "status": "active",
+                    "can_close_early": True,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expected.isoformat(),
+                    "latest_expiration_time": latest.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "fast-long-latest-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            )
+        )
+
+        generated = self.runner.generate_forecasts(as_of=self.now)
+
+        self.assertEqual(generated.appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(forecast.valid_until, expected)
+        self.assertEqual(forecast.values["latest_expiration_time"], latest.isoformat())
+        self.assertEqual(
+            forecast.values["settlement_deadline"],
+            (expected + timedelta(hours=1, minutes=15)).isoformat(),
+        )
 
     def test_option_forecast_scores_only_at_the_full_horizon(self):
         option = Instrument(
