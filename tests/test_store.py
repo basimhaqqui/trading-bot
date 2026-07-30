@@ -125,6 +125,27 @@ class PointInTimeStoreTests(unittest.TestCase):
         self.assertEqual(atomic_store.append_batch(batch), (1, 1))
         self.assertEqual(atomic_store.append_batch(batch), (1, 0))
 
+    def test_batch_preserves_first_receipt_for_duplicate_event_ids(self):
+        atomic_store = PointInTimeStore(Path(self.temp.name) / "duplicate.db")
+        atomic_store.initialize()
+        later_receipt = MarketEvent(
+            **{
+                **self.event.__dict__,
+                "available_at": self.available_at + timedelta(minutes=1),
+                "ingested_at": self.available_at + timedelta(minutes=1),
+            }
+        )
+
+        self.assertEqual(
+            atomic_store.append_batch(
+                CollectionBatch("demo", (self.instrument,), (self.event, later_receipt))
+            ),
+            (1, 1),
+        )
+        self.assertEqual(
+            atomic_store.event(self.event.event_id).available_at, self.available_at
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

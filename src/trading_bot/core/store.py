@@ -64,6 +64,8 @@ BEFORE DELETE ON market_events BEGIN
 END;
 """
 
+BATCH_LOOKUP_SIZE = 900
+
 
 class EventConflictError(RuntimeError):
     pass
@@ -164,44 +166,76 @@ class PointInTimeStore:
 
         if not isinstance(batch, CollectionBatch):
             raise TypeError("batch must be a CollectionBatch")
-        inserted = 0
         with self.connect() as connection:
+            existing_instruments = self._rows_by_identifier(
+                connection,
+                "instruments",
+                "instrument_id",
+                (item.instrument_id for item in batch.instruments),
+            )
+            instrument_rows: list[tuple[object, ...]] = []
+            batch_instruments: dict[str, str] = {}
             for instrument in batch.instruments:
                 digest = sha256_digest(instrument)
-                existing = connection.execute(
-                    "SELECT digest FROM instruments WHERE instrument_id = ?",
-                    (instrument.instrument_id,),
-                ).fetchone()
+                prior_digest = batch_instruments.get(instrument.instrument_id)
+                if prior_digest is not None:
+                    if prior_digest != digest:
+                        raise EventConflictError(
+                            f"instrument {instrument.instrument_id} already exists with different contents"
+                        )
+                    continue
+                batch_instruments[instrument.instrument_id] = digest
+                existing = existing_instruments.get(instrument.instrument_id)
                 if existing and existing["digest"] != digest:
                     raise EventConflictError(
                         f"instrument {instrument.instrument_id} already exists with different contents"
                     )
-                connection.execute(
+                if existing is None:
+                    instrument_rows.append(
+                        (
+                            instrument.instrument_id,
+                            instrument.venue,
+                            instrument.symbol,
+                            instrument.asset_class.value,
+                            instrument.quote_currency,
+                            instrument.multiplier,
+                            instrument.active_from.isoformat() if instrument.active_from else None,
+                            instrument.active_until.isoformat() if instrument.active_until else None,
+                            instrument.expiry.isoformat() if instrument.expiry else None,
+                            instrument.settlement,
+                            canonical_json(instrument.metadata),
+                            digest,
+                        )
+                    )
+            if instrument_rows:
+                connection.executemany(
                     """
                     INSERT OR IGNORE INTO instruments (
                         instrument_id, venue, symbol, asset_class, quote_currency, multiplier,
                         active_from, active_until, expiry, settlement, metadata_json, digest
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        instrument.instrument_id,
-                        instrument.venue,
-                        instrument.symbol,
-                        instrument.asset_class.value,
-                        instrument.quote_currency,
-                        instrument.multiplier,
-                        instrument.active_from.isoformat() if instrument.active_from else None,
-                        instrument.active_until.isoformat() if instrument.active_until else None,
-                        instrument.expiry.isoformat() if instrument.expiry else None,
-                        instrument.settlement,
-                        canonical_json(instrument.metadata),
-                        digest,
-                    ),
+                    instrument_rows,
                 )
+
+            existing_events = self._rows_by_identifier(
+                connection,
+                "market_events",
+                "event_id",
+                (item.event_id for item in batch.events),
+            )
+            event_rows: list[tuple[object, ...]] = []
+            batch_events: dict[str, MarketEvent] = {}
             for event in batch.events:
-                existing = connection.execute(
-                    "SELECT * FROM market_events WHERE event_id = ?", (event.event_id,)
-                ).fetchone()
+                prior = batch_events.get(event.event_id)
+                if prior is not None:
+                    if not self._same_market_events(prior, event):
+                        raise EventConflictError(
+                            f"event {event.event_id} already exists with different contents"
+                        )
+                    continue
+                batch_events[event.event_id] = event
+                existing = existing_events.get(event.event_id)
                 if existing:
                     if self._same_market_observation(existing, event):
                         continue
@@ -210,13 +244,7 @@ class PointInTimeStore:
                             f"event {event.event_id} already exists with different contents"
                         )
                     continue
-                connection.execute(
-                    """
-                    INSERT INTO market_events (
-                        event_id, event_type, venue, instrument_id, event_time, available_at,
-                        source, sequence, ingested_at, payload_json, digest
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                event_rows.append(
                     (
                         event.event_id,
                         event.event_type.value,
@@ -229,10 +257,19 @@ class PointInTimeStore:
                         event.ingested_at.isoformat(),
                         canonical_json(event.payload),
                         event.digest,
-                    ),
+                    )
                 )
-                inserted += 1
-        return len(batch.instruments), inserted
+            if event_rows:
+                connection.executemany(
+                    """
+                    INSERT INTO market_events (
+                        event_id, event_type, venue, instrument_id, event_time, available_at,
+                        source, sequence, ingested_at, payload_json, digest
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    event_rows,
+                )
+        return len(batch.instruments), len(event_rows)
 
     def events_available_at(
         self,
@@ -310,6 +347,37 @@ class PointInTimeStore:
             and row["sequence"] == event.sequence
             and row["payload_json"] == canonical_json(event.payload)
         )
+
+    @staticmethod
+    def _same_market_events(left: MarketEvent, right: MarketEvent) -> bool:
+        return (
+            left.event_type is right.event_type
+            and left.venue == right.venue
+            and left.instrument_id == right.instrument_id
+            and left.event_time == right.event_time
+            and left.source == right.source
+            and left.sequence == right.sequence
+            and canonical_json(left.payload) == canonical_json(right.payload)
+        )
+
+    @staticmethod
+    def _rows_by_identifier(
+        connection: Any,
+        table: str,
+        identifier: str,
+        values: Iterable[str],
+    ) -> dict[str, Any]:
+        selected = tuple(dict.fromkeys(values))
+        rows: dict[str, Any] = {}
+        for offset in range(0, len(selected), BATCH_LOOKUP_SIZE):
+            chunk = selected[offset : offset + BATCH_LOOKUP_SIZE]
+            if not chunk:
+                continue
+            placeholders = ", ".join("?" for _ in chunk)
+            query = f"SELECT * FROM {table} WHERE {identifier} IN ({placeholders})"
+            for row in connection.execute(query, chunk).fetchall():
+                rows[row[identifier]] = row
+        return rows
 
     def instrument(self, instrument_id: str) -> Instrument:
         with self.connect() as connection:
