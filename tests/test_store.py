@@ -35,6 +35,14 @@ class PointInTimeStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_instrument_type_availability_index_is_initialized(self):
+        with self.store.connect() as connection:
+            indexes = {
+                row[1]
+                for row in connection.execute("PRAGMA index_list('market_events')").fetchall()
+            }
+        self.assertIn("idx_events_instrument_type_available", indexes)
+
     def test_event_is_invisible_before_available_at(self):
         self.store.append_event(self.event)
         before = self.store.events_available_at(self.available_at - timedelta(microseconds=1))

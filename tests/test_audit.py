@@ -29,6 +29,14 @@ class AuditLedgerTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_record_type_timeline_index_is_initialized(self):
+        with self.ledger.connect() as connection:
+            indexes = {
+                row[1]
+                for row in connection.execute("PRAGMA index_list('audit_records')").fetchall()
+            }
+        self.assertIn("idx_audit_records_type_timeline", indexes)
+
     def test_full_decision_chain_is_append_only_and_verifiable(self):
         forecast = Forecast(
             "forecast-1",
