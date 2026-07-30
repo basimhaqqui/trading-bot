@@ -50,6 +50,12 @@ class ShadowWorkflowTests(unittest.TestCase):
             },
         )
 
+    def test_rapid_workflow_reports_health_after_collection_failure(self):
+        workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+
+        health_step = workflow.split("- name: Enforce rapid ingestion health", 1)[1]
+        self.assertIn("if: always()", health_step)
+
     def test_only_scheduled_workflow_cycles_attest_scheduled_evidence(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
