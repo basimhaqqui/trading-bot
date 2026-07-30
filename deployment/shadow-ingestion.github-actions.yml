@@ -44,6 +44,17 @@ jobs:
         id: persistence_check
         run: trading-bot persistence-check
 
+      - name: Attest unavailable persistent evidence
+        if: ${{ always() && steps.persistence_check.outcome == 'failure' }}
+        run: |
+          {
+            echo "## Shadow evidence unavailable"
+            echo
+            echo "Persistent preflight failed. No collection, scoring, health, economic, reconciliation, or retrospective replacement evidence ran."
+            echo
+            echo "Restore the configured persistent database before a later scheduled observation can count as prospective evidence."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Validate observation plan
         run: trading-bot shadow-cycle --plan config/shadow-ingestion.json --validate-only
 
