@@ -23,6 +23,13 @@
       "activation_profile": "solana_read_only_rpc"
     },
     {
+      "job_id": "solana-finalized-holder-activity",
+      "venue": "solana",
+      "dataset": "holder_activity",
+      "limit": 5,
+      "activation_profile": "solana_read_only_rpc"
+    },
+    {
       "job_id": "kalshi-open-markets",
       "venue": "kalshi",
       "dataset": "markets",

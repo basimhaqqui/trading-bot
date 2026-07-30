@@ -29,9 +29,13 @@ class SolanaMintAuthorityCollector:
     RPC_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/getmultipleaccounts"
     LARGEST_ACCOUNTS_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/gettokenlargestaccounts"
     TOKEN_SUPPLY_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/gettokensupply"
+    SIGNATURES_DOCUMENTATION_URL = "https://solana.com/docs/rpc/http/getsignaturesforaddress"
     TOKEN_DOCUMENTATION_URL = "https://solana.com/docs/tokens/basics"
     SOLANA_CHAIN = "solana"
     MAX_ADDRESSES = 25
+    MAX_HOLDER_ACTIVITY_ADDRESSES = 10
+    HOLDER_ACTIVITY_ACCOUNT_SAMPLE = 2
+    HOLDER_ACTIVITY_SIGNATURE_LIMIT = 10
     # Public RPC documentation publishes a per-method rate limit. Pace every
     # individual finalized read well below that limit. This is operational
     # backpressure only: it neither changes selected addresses nor treats a
@@ -107,7 +111,12 @@ class SolanaMintAuthorityCollector:
         return ReadOnlyJsonRpcTransport(
             endpoint,
             parts.hostname,
-            frozenset({"getMultipleAccounts", "getTokenLargestAccounts", "getTokenSupply"}),
+            frozenset({
+                "getMultipleAccounts",
+                "getSignaturesForAddress",
+                "getTokenLargestAccounts",
+                "getTokenSupply",
+            }),
             allow_endpoint_path=bool(configured_endpoint),
         )
 
@@ -189,6 +198,121 @@ class SolanaMintAuthorityCollector:
                 "requested_addresses": len(token_addresses),
                 "wallet_or_transaction_authority": False,
             },
+        )
+
+    def collect_holder_activity(
+        self,
+        token_addresses: tuple[str, ...],
+        *,
+        collected_at: datetime | None = None,
+    ) -> CollectionBatch:
+        """Record bounded finalized account activity without retaining identities.
+
+        This only checks whether a small public sample of the largest token
+        accounts has recent successful finalized transaction references.  It
+        cannot establish future transferability, does not inspect or submit a
+        transaction, and never satisfies the transfer-behavior or round-trip
+        safety gates.
+        """
+        if not token_addresses or len(token_addresses) > self.MAX_HOLDER_ACTIVITY_ADDRESSES:
+            raise ValueError(
+                "token_addresses must contain 1 to "
+                f"{self.MAX_HOLDER_ACTIVITY_ADDRESSES} addresses"
+            )
+        if len(set(token_addresses)) != len(token_addresses):
+            raise ValueError("token_addresses must be unique")
+        if any(not self.is_valid_mint_address(address) for address in token_addresses):
+            raise ValueError("token_addresses must be base58 Solana public keys")
+        received_at = require_aware(collected_at, "collected_at") if collected_at else utc_now()
+        events = []
+        for index, address in enumerate(token_addresses):
+            events.append(self._holder_activity_event(address, received_at))
+            if index + 1 < len(token_addresses):
+                sleep(self.HOLDER_REQUEST_SPACING_SECONDS)
+        return CollectionBatch(
+            self.venue,
+            events=tuple(events),
+            metadata={
+                "requested_addresses": len(token_addresses),
+                "sampled_token_accounts_per_mint": self.HOLDER_ACTIVITY_ACCOUNT_SAMPLE,
+                "wallet_or_transaction_authority": False,
+            },
+        )
+
+    def _holder_activity_event(self, token_address: str, received_at: datetime) -> MarketEvent:
+        largest = _parse_largest_accounts(
+            self.transport.call(
+                "getTokenLargestAccounts", [token_address, {"commitment": "finalized"}]
+            ),
+            require_addresses=True,
+        )
+        sampled_accounts = (
+            largest.addresses[: self.HOLDER_ACTIVITY_ACCOUNT_SAMPLE]
+            if largest is not None
+            else ()
+        )
+        successful_references = 0
+        observed = largest is not None
+        for account_address in sampled_accounts:
+            response = self.transport.call(
+                "getSignaturesForAddress",
+                [
+                    account_address,
+                    {
+                        "commitment": "finalized",
+                        "limit": self.HOLDER_ACTIVITY_SIGNATURE_LIMIT,
+                    },
+                ],
+            )
+            signatures = _parse_finalized_signature_count(response)
+            if signatures is None:
+                observed = False
+                continue
+            successful_references += signatures
+        reasons = [
+            "onchain_authorities_unobserved",
+            "holder_concentration_unobserved",
+            "transfer_behavior_unobserved",
+            "round_trip_simulation_unobserved",
+        ]
+        if not observed:
+            reasons.append("holder_activity_unobserved")
+        elif successful_references == 0:
+            reasons.append("no_recent_finalized_holder_activity")
+        payload = {
+            "chain_id": self.SOLANA_CHAIN,
+            "token_address": token_address,
+            "holder_activity_observed": observed,
+            "sampled_token_account_count": len(sampled_accounts),
+            "sampled_successful_finalized_reference_count": successful_references,
+            "sampled_signature_limit_per_account": self.HOLDER_ACTIVITY_SIGNATURE_LIMIT,
+            "source_methods": ("getTokenLargestAccounts", "getSignaturesForAddress"),
+            "largest_accounts_documentation_url": self.LARGEST_ACCOUNTS_DOCUMENTATION_URL,
+            "signatures_documentation_url": self.SIGNATURES_DOCUMENTATION_URL,
+            "observation_received_at": received_at.isoformat(),
+            "safety_status": "blocked_unverified",
+            "safety_reasons": tuple(reasons),
+            "onchain_authorities_observed": False,
+            "holder_concentration_observed": False,
+            "transfer_behavior_observed": False,
+            "round_trip_simulation_observed": False,
+            "wallet_or_transaction_authority": False,
+            "forecast_created": False,
+            "shadow_intent_created": False,
+        }
+        return MarketEvent(
+            stable_event_id(
+                "solana:holder-activity-observation",
+                {"token_address": token_address, "payload": payload},
+            ),
+            MarketEventType.ONCHAIN_STATE,
+            self.venue,
+            f"dexscreener:memecoin:{self.SOLANA_CHAIN}:{token_address}",
+            received_at,
+            received_at,
+            "solana-rpc-finalized-holder-activity-v1",
+            payload,
+            ingested_at=received_at,
         )
 
     def _holder_concentration_event(
@@ -382,6 +506,7 @@ class _MintAccountObservation:
 class _LargestAccountsObservation:
     slot: int
     amounts: tuple[int, ...]
+    addresses: tuple[str, ...] = ()
 
     @property
     def top_amount(self) -> int:
@@ -394,7 +519,9 @@ class _TokenSupplyObservation:
     amount: int
 
 
-def _parse_largest_accounts(response: Mapping[str, object]) -> _LargestAccountsObservation | None:
+def _parse_largest_accounts(
+    response: Mapping[str, object], *, require_addresses: bool = False
+) -> _LargestAccountsObservation | None:
     result = response.get("result")
     if not isinstance(result, Mapping):
         return None
@@ -405,6 +532,7 @@ def _parse_largest_accounts(response: Mapping[str, object]) -> _LargestAccountsO
     if not isinstance(values, list) or not values:
         return None
     amounts: list[int] = []
+    addresses: list[str] = []
     for value in values:
         if not isinstance(value, Mapping):
             return None
@@ -412,7 +540,27 @@ def _parse_largest_accounts(response: Mapping[str, object]) -> _LargestAccountsO
         if amount is None:
             return None
         amounts.append(amount)
-    return _LargestAccountsObservation(context["slot"], tuple(amounts))
+        address = value.get("address")
+        if require_addresses and not SolanaMintAuthorityCollector.is_valid_mint_address(address):
+            return None
+        if isinstance(address, str):
+            addresses.append(address)
+    return _LargestAccountsObservation(context["slot"], tuple(amounts), tuple(addresses))
+
+
+def _parse_finalized_signature_count(response: Mapping[str, object]) -> int | None:
+    result = response.get("result")
+    if not isinstance(result, list):
+        return None
+    count = 0
+    for item in result:
+        if not isinstance(item, Mapping):
+            return None
+        if item.get("confirmationStatus") != "finalized":
+            return None
+        if item.get("err") is None:
+            count += 1
+    return count
 
 
 def _parse_token_supply(response: Mapping[str, object]) -> _TokenSupplyObservation | None:
