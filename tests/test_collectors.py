@@ -197,12 +197,95 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(transport.allowed_host, "mainnet.provider.example")
         self.assertEqual(
             transport.allowed_methods,
-            frozenset({"getMultipleAccounts", "getTokenLargestAccounts", "getTokenSupply"}),
+            frozenset(
+                {
+                    "getMultipleAccounts",
+                    "getSignaturesForAddress",
+                    "getTokenLargestAccounts",
+                    "getTokenSupply",
+                }
+            ),
         )
         with self.assertRaisesRegex(ValueError, "HTTPS endpoint"):
             SolanaMintAuthorityCollector(
                 environment={"SOLANA_READ_ONLY_RPC_URL": "http://provider.example"}
             )
+
+    def test_solana_holder_activity_is_aggregate_finalized_and_never_a_safety_pass(self):
+        mint = "11111111111111111111111111111111"
+        account_one = "22222222222222222222222222222222"
+        account_two = "33333333333333333333333333333333"
+        transport = FakeSolanaTransport(
+            {
+                "getTokenLargestAccounts": {
+                    "result": {
+                        "context": {"slot": 456},
+                        "value": [
+                            {"address": account_one, "amount": "70"},
+                            {"address": account_two, "amount": "20"},
+                        ],
+                    }
+                },
+                "getSignaturesForAddress": {
+                    "result": [
+                        {"confirmationStatus": "finalized", "err": None},
+                        {"confirmationStatus": "finalized", "err": {"InstructionError": [0, "x"]}},
+                    ]
+                },
+            }
+        )
+
+        event = SolanaMintAuthorityCollector(transport).collect_holder_activity(
+            (mint,), collected_at=self.collected
+        ).events[0]
+
+        self.assertEqual(
+            transport.calls,
+            [
+                ("getTokenLargestAccounts", [mint, {"commitment": "finalized"}]),
+                (
+                    "getSignaturesForAddress",
+                    [account_one, {"commitment": "finalized", "limit": 10}],
+                ),
+                (
+                    "getSignaturesForAddress",
+                    [account_two, {"commitment": "finalized", "limit": 10}],
+                ),
+            ],
+        )
+        self.assertTrue(event.payload["holder_activity_observed"])
+        self.assertEqual(event.payload["sampled_token_account_count"], 2)
+        self.assertEqual(event.payload["sampled_successful_finalized_reference_count"], 2)
+        self.assertFalse(event.payload["transfer_behavior_observed"])
+        self.assertFalse(event.payload["round_trip_simulation_observed"])
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
+        self.assertFalse(event.payload["wallet_or_transaction_authority"])
+        self.assertFalse(event.payload["shadow_intent_created"])
+
+    def test_solana_holder_activity_fails_closed_on_unparseable_signature_response(self):
+        mint = "11111111111111111111111111111111"
+        account = "22222222222222222222222222222222"
+        transport = FakeSolanaTransport(
+            {
+                "getTokenLargestAccounts": {
+                    "result": {
+                        "context": {"slot": 456},
+                        "value": [{"address": account, "amount": "70"}],
+                    }
+                },
+                "getSignaturesForAddress": {
+                    "result": [{"confirmationStatus": "confirmed", "err": None}]
+                },
+            }
+        )
+
+        event = SolanaMintAuthorityCollector(transport).collect_holder_activity(
+            (mint,), collected_at=self.collected
+        ).events[0]
+
+        self.assertFalse(event.payload["holder_activity_observed"])
+        self.assertIn("holder_activity_unobserved", event.payload["safety_reasons"])
+        self.assertEqual(event.payload["safety_status"], "blocked_unverified")
 
     def test_solana_token_2022_transfer_controls_are_structurally_observed_and_blocked(self):
         address = "11111111111111111111111111111111"

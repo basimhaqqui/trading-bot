@@ -111,6 +111,7 @@ class FakeSolanaCollector:
     def __init__(self):
         self.addresses = ()
         self.holder_addresses = ()
+        self.activity_addresses = ()
 
     def collect_mint_authorities(self, addresses, **kwargs):
         self.addresses = addresses
@@ -118,6 +119,10 @@ class FakeSolanaCollector:
 
     def collect_holder_concentrations(self, addresses, **kwargs):
         self.holder_addresses = addresses
+        return CollectionBatch("solana")
+
+    def collect_holder_activity(self, addresses, **kwargs):
+        self.activity_addresses = addresses
         return CollectionBatch("solana")
 
 
@@ -247,6 +252,32 @@ class IngestionTests(unittest.TestCase):
         records = runner.run_plan(ShadowIngestionPlan("fixture", (job,)), collected_at=self.now)
         self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
         self.assertEqual(collector.holder_addresses, (mint,))
+
+    def test_solana_holder_activity_jobs_are_tightly_bounded_and_select_discovered_mints(self):
+        job = ObservationJob("holder-activity", "solana", "holder_activity", limit=10)
+        self.assertEqual(job.limit, 10)
+        with self.assertRaisesRegex(ValueError, "cannot exceed 10"):
+            ObservationJob("too-many-activity", "solana", "holder_activity", limit=11)
+        mint = "11111111111111111111111111111111"
+        instrument = Instrument(
+            f"dexscreener:memecoin:solana:{mint}",
+            "dexscreener",
+            mint,
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        self.store.register_instrument(instrument)
+        collector = FakeSolanaCollector()
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+
+        record = runner.run_plan(
+            ShadowIngestionPlan("fixture", (job,)), collected_at=self.now
+        )[0]
+
+        self.assertEqual(record.status, IngestionRunStatus.SUCCESS)
+        self.assertEqual(collector.activity_addresses, (mint,))
 
     def test_solana_safety_jobs_skip_invalid_discovery_addresses_without_blocking_valid_mints(self):
         valid_mint = "11111111111111111111111111111111"

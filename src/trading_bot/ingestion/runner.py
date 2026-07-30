@@ -344,6 +344,22 @@ class ShadowIngestionRunner:
                         request_cursor,
                         token_addresses=token_addresses,
                     )
+            elif job.venue == "solana" and job.dataset == "holder_activity":
+                token_addresses = self._pending_solana_holder_activity_addresses(
+                    collected_at or started_at, job.limit
+                )
+                if not token_addresses:
+                    batch = CollectionBatch(
+                        "solana", metadata={"pending_holder_activity_addresses": 0}
+                    )
+                else:
+                    batch = collect_job(
+                        collector,
+                        job,
+                        collected_at,
+                        request_cursor,
+                        token_addresses=token_addresses,
+                    )
             else:
                 batch = collect_job(
                     collector,
@@ -587,6 +603,34 @@ class ShadowIngestionRunner:
         )
         return tuple(address for _, _, address in candidates[:limit])
 
+    def _pending_solana_holder_activity_addresses(
+        self, as_of: datetime, limit: int
+    ) -> tuple[str, ...]:
+        """Select discovered mints missing aggregate finalized account-activity reads."""
+        candidates: list[tuple[bool, datetime | None, str]] = []
+        for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
+            if (
+                instrument.venue != "dexscreener"
+                or not SolanaMintAuthorityCollector.is_valid_mint_address(instrument.symbol)
+            ):
+                continue
+            events = self.store.events_available_at(
+                as_of,
+                instrument_id=instrument.instrument_id,
+                event_type=MarketEventType.ONCHAIN_STATE,
+            )
+            observations = [
+                event
+                for event in events
+                if event.source == "solana-rpc-finalized-holder-activity-v1"
+            ]
+            latest = max((event.available_at for event in observations), default=None)
+            candidates.append((bool(observations), latest, instrument.symbol))
+        candidates.sort(
+            key=lambda item: (item[0], item[1] is not None, item[1] or as_of, item[2])
+        )
+        return tuple(address for _, _, address in candidates[:limit])
+
 
 def default_collector_factory(venue: str, dataset: str) -> object:
     if venue == "kalshi":
@@ -595,7 +639,11 @@ def default_collector_factory(venue: str, dataset: str) -> object:
         return CoinbaseCollector()
     if venue == "dexscreener":
         return DexscreenerCollector()
-    if venue == "solana" and dataset in {"mint_authorities", "holder_concentrations"}:
+    if venue == "solana" and dataset in {
+        "mint_authorities",
+        "holder_concentrations",
+        "holder_activity",
+    }:
         return SolanaMintAuthorityCollector()
     if venue == "alpaca":
         key_id = os.getenv("ALPACA_MARKET_DATA_KEY_ID", "")
@@ -691,6 +739,10 @@ def collect_job(
         )
     if job.venue == "solana" and job.dataset == "holder_concentrations":
         return collector.collect_holder_concentrations(  # type: ignore[attr-defined,no-any-return]
+            token_addresses, collected_at=collected_at
+        )
+    if job.venue == "solana" and job.dataset == "holder_activity":
+        return collector.collect_holder_activity(  # type: ignore[attr-defined,no-any-return]
             token_addresses, collected_at=collected_at
         )
     if job.venue == "alpaca":

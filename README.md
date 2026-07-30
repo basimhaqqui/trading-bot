@@ -248,9 +248,12 @@ capacity. The
 reader structurally records legacy mint/freeze authorities and Token-2022 transfer controls
 (including permanent delegates, transfer hooks, pausable/default-frozen, non-transferable, and
 unknown extensions). It is restricted to Solana's documented `getMultipleAccounts`,
-`getTokenLargestAccounts`, and `getTokenSupply` methods, and rejects transaction or signing
-methods. A holder concentration is recorded only when the two independently returned finalized
-slots match; it retains counts and basis-point shares, never holder addresses. These
+`getTokenLargestAccounts`, `getTokenSupply`, and `getSignaturesForAddress` methods, and rejects
+transaction or signing methods. A holder concentration is recorded only when the two independently
+returned finalized slots match; it retains counts and basis-point shares, never holder addresses.
+Separately, a bounded holder-activity read samples public finalized transaction references for at
+most two large token accounts per mint and retains aggregate counts only. It is negative evidence
+only: it never proves transferability or clears a safety gate. These
 observations cannot create a safety snapshot, forecast, shadow intent, wallet, signed
 transaction, or venue order. Every observation is explicitly recorded as
 `blocked_unverified` until separate, point-in-time authority, holder-concentration,
@@ -259,12 +262,13 @@ extension gates follow Solana's primary token documentation.
 
 The shared public Solana endpoint is deliberately not used by the scheduled research plan:
 it is rate-limited and cannot provide reliable prospective evidence. The two Solana safety-read
-jobs use the `solana_read_only_rpc` activation profile and remain health-neutral
+jobs plus the bounded holder-activity job use the `solana_read_only_rpc` activation profile and remain health-neutral
 `waiting_credentials` jobs until an operator adds a dedicated **read-only** mainnet endpoint as
 the GitHub Actions secret `SOLANA_READ_ONLY_RPC_URL`. The endpoint must be HTTPS and may include
 the provider's path or query credential; its value is never rendered in logs. The transport
 remains pinned to that endpoint's host, refuses redirects and userinfo, and permits only
-`getMultipleAccounts`, `getTokenLargestAccounts`, and `getTokenSupply`. Configuring it does not
+`getMultipleAccounts`, `getTokenLargestAccounts`, `getTokenSupply`, and `getSignaturesForAddress`.
+Configuring it does not
 change any safety gate or grant wallet, signing, transaction, forecast, or order authority.
 
 Run the token and pool safety evaluator without a wallet, RPC connection, or signed

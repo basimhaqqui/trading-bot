@@ -250,6 +250,7 @@ class ReadOnlyJsonRpcTransport:
             not in {
                 "getAccountInfo",
                 "getMultipleAccounts",
+                "getSignaturesForAddress",
                 "getTokenLargestAccounts",
                 "getTokenSupply",
             }

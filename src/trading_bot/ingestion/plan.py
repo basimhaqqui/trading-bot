@@ -11,7 +11,7 @@ ALLOWED_DATASETS = {
     "kalshi": {"markets", "forecast_outcomes", "trades", "book"},
     "coinbase": {"products", "book", "candles"},
     "dexscreener": {"token_profiles"},
-    "solana": {"mint_authorities", "holder_concentrations"},
+    "solana": {"mint_authorities", "holder_concentrations", "holder_activity"},
     "alpaca": {"chain", "bars", "quotes"},
 }
 SENSITIVE_FRAGMENTS = (
@@ -71,6 +71,8 @@ class ObservationJob:
             raise ValueError("Dexscreener token profile limit cannot exceed 100")
         if self.dataset in {"mint_authorities", "holder_concentrations"} and self.limit > 25:
             raise ValueError("Solana safety-observation limit cannot exceed 25")
+        if self.dataset == "holder_activity" and self.limit > 10:
+            raise ValueError("Solana holder-activity limit cannot exceed 10")
         if type(self.include_pool_observations) is not bool:
             raise ValueError("include_pool_observations must be boolean")
         if self.include_pool_observations and not (
@@ -102,6 +104,7 @@ class ObservationJob:
             "token_profiles",
             "mint_authorities",
             "holder_concentrations",
+            "holder_activity",
         } and self.symbol is not None:
             raise ValueError(f"{self.dataset} jobs do not accept a symbol")
         if self.stock_feed not in {"iex", "sip", "delayed_sip"}:
