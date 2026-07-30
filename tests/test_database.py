@@ -3,6 +3,7 @@ import unittest
 from trading_bot.core.database import (
     DatabaseConfigurationError,
     _postgres_sql,
+    _postgres_row_factory,
     connect_database,
     database_display_name,
     is_postgres_location,
@@ -16,6 +17,12 @@ POOLER_URL = (
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_row_factory_accepts_commands_without_result_metadata(self):
+        class CommandCursor:
+            description = None
+
+        self.assertEqual(_postgres_row_factory(CommandCursor())(("ignored",)), ("ignored",))
+
     def test_pooled_neon_urls_select_postgres_without_exposing_the_url(self):
         self.assertTrue(is_postgres_location(POOLER_URL))
         self.assertEqual(database_display_name(POOLER_URL), "PostgreSQL")

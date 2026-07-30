@@ -108,6 +108,22 @@ class ShadowWorkflowTests(unittest.TestCase):
 
         self.assertEqual(deployment, workflow)
 
+    def test_one_time_migration_is_manual_and_fails_closed(self):
+        workflow = Path(".github/workflows/shadow-persistence-migration.yml").read_text()
+
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("MIGRATE-PERSISTENCE", workflow)
+        self.assertIn("actions/cache/restore@v5", workflow)
+        self.assertIn("fail-on-cache-miss: true", workflow)
+        self.assertIn("trading-bot migrate-sqlite --source var/trading.db", workflow)
+        self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
+
+    def test_migration_deployment_template_matches_live_workflow(self):
+        workflow = Path(".github/workflows/shadow-persistence-migration.yml").read_text()
+        deployment = Path("deployment/shadow-persistence-migration.github-actions.yml").read_text()
+
+        self.assertEqual(deployment, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

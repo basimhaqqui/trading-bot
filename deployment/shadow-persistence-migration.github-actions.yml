@@ -1,0 +1,59 @@
+name: Migrate shadow persistence
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type MIGRATE-PERSISTENCE to copy the retained SQLite evidence once
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: shadow-market-observation
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: ${{ inputs.confirmation == 'MIGRATE-PERSISTENCE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Require persistent shadow database
+        run: |
+          if [[ -z "$TRADING_DB_PATH" ]]; then
+            echo "SHADOW_DATABASE_URL must be configured for shadow persistence" >&2
+            exit 1
+          fi
+
+      - name: Restore the final legacy evidence cache
+        uses: actions/cache/restore@v5
+        with:
+          path: var/trading.db
+          key: shadow-persistence-migration-${{ github.run_id }}
+          restore-keys: |
+            shadow-db-
+          fail-on-cache-miss: true
+
+      - name: Require legacy SQLite evidence
+        run: test -s var/trading.db
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Import immutable evidence into PostgreSQL
+        run: trading-bot migrate-sqlite --source var/trading.db
+
+      - name: Verify imported controls and integrity
+        run: trading-bot doctor
