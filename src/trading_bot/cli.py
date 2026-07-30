@@ -668,9 +668,8 @@ def _shadow_cycle(
     )
     research = research_runner.run(as_of=research_as_of)
     _print_shadow_research(research, fast_prediction_eligibility)
-    report, locked = checkpointed_walk_forward_report(audit, as_of=utc_now())
-    _print_locked_decisions(locked)
-    _print_shadow_report(report, min_outcomes=30)
+    _print_locked_decisions(research.locked_decisions)
+    _print_shadow_report(research.report, min_outcomes=30)
     failed = any(record.status is IngestionRunStatus.FAILED for record in records)
     return 1 if failed or research.generation.errors or research.scoring.errors else 0
 
@@ -684,9 +683,8 @@ def _shadow_research(path: DatabaseLocation) -> int:
     )
     result = research_runner.run(as_of=research_as_of)
     _print_shadow_research(result, fast_prediction_eligibility)
-    report, locked = checkpointed_walk_forward_report(audit, as_of=utc_now())
-    _print_locked_decisions(locked)
-    _print_shadow_report(report, min_outcomes=30)
+    _print_locked_decisions(result.locked_decisions)
+    _print_shadow_report(result.report, min_outcomes=30)
     return 1 if result.generation.errors or result.scoring.errors else 0
 
 

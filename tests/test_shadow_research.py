@@ -563,7 +563,7 @@ class ShadowResearchTests(unittest.TestCase):
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
-    def test_rejected_fast_lane_freezes_new_forecasts_before_checkpoint(self):
+    def test_rejected_fast_lane_checkpoints_before_generating_new_forecasts(self):
         market = Instrument(
             "kalshi:prediction:FAST-REJECTED",
             "kalshi",
@@ -631,8 +631,10 @@ class ShadowResearchTests(unittest.TestCase):
                 )
             )
 
-        generated = self.runner.generate_forecasts(as_of=self.now)
+        result = self.runner.run(as_of=self.now)
+        generated = result.generation
 
+        self.assertTrue(result.locked_decisions)
         self.assertEqual(generated.candidates, 1)
         self.assertEqual(generated.appended, 0)
         self.assertEqual(generated.blocked_by_rejection, 1)
