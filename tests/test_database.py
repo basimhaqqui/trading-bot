@@ -103,6 +103,8 @@ class DatabaseTests(unittest.TestCase):
                 connection.execute("SELECT 1")
                 connection.commit()
                 connection.execute("SELECT 2")
+                connection.rollback()
+                connection.execute("SELECT 3")
 
         self.assertNotIn("options", connect_calls[0][1])
         self.assertEqual(
@@ -113,6 +115,9 @@ class DatabaseTests(unittest.TestCase):
                 ("commit",),
                 ("execute", ("SET LOCAL search_path TO shadow_evidence_v1",)),
                 ("execute", ("SELECT 2",)),
+                ("rollback",),
+                ("execute", ("SET LOCAL search_path TO shadow_evidence_v1",)),
+                ("execute", ("SELECT 3",)),
                 ("commit",),
                 ("close",),
             ],
