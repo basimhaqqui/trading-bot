@@ -624,6 +624,7 @@ class DailyScorecardTests(unittest.TestCase):
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+                    "latest_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
                 },
             ),
             (
@@ -776,7 +777,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("holder-concentration observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
-    def test_scorecard_explains_when_fast_lane_lacks_fixed_close_markets(self):
+    def test_scorecard_explains_when_fast_lane_lacks_documented_close_policy(self):
         self.append_public_run()
         market = Instrument(
             "kalshi:prediction:EARLY-CLOSE",
@@ -793,9 +794,11 @@ class DailyScorecardTests(unittest.TestCase):
                 {
                     "event_ticker": "EARLY-CLOSE-EVENT",
                     "status": "active",
-                    "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": (
+                        self.now + timedelta(hours=1)
+                    ).isoformat(),
+                    "latest_expiration_time": (
                         self.now + timedelta(hours=1)
                     ).isoformat(),
                 },
@@ -835,16 +838,16 @@ class DailyScorecardTests(unittest.TestCase):
         alert = next(
             item
             for item in scorecard.alerts
-            if item.code == "fast_prediction_fixed_close_unavailable"
+            if item.code == "fast_prediction_close_policy_unavailable"
         )
         self.assertEqual(alert.severity, AlertSeverity.INFO)
-        self.assertIn("can_close_early=false", alert.message)
-        self.assertIn("1 allow early close", alert.message)
+        self.assertIn("documented boolean can_close_early", alert.message)
+        self.assertIn("1 omit the field", alert.message)
         self.assertEqual(scorecard.fast_prediction_eligibility.active_markets, 1)
-        self.assertEqual(scorecard.fast_prediction_eligibility.fixed_close_markets, 0)
-        self.assertEqual(scorecard.fast_prediction_eligibility.early_close_allowed_markets, 1)
-        self.assertEqual(scorecard.fast_prediction_eligibility.missing_close_constraint_markets, 0)
-        self.assertEqual(scorecard.fast_prediction_eligibility.invalid_close_constraint_markets, 0)
+        self.assertEqual(scorecard.fast_prediction_eligibility.documented_close_policy_markets, 0)
+        self.assertEqual(scorecard.fast_prediction_eligibility.early_close_enabled_markets, 0)
+        self.assertEqual(scorecard.fast_prediction_eligibility.missing_close_policy_markets, 1)
+        self.assertEqual(scorecard.fast_prediction_eligibility.invalid_close_policy_markets, 0)
 
     def test_scorecard_counts_stable_specialist_ids_under_preregistered_lane(self):
         self.append_public_run()

@@ -519,6 +519,7 @@ class ShadowResearchTests(unittest.TestCase):
                         "can_close_early": False,
                         "settlement_timer_seconds": 900,
                         "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+                        "latest_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
                     },
                     event_time=self.now - timedelta(minutes=2),
                 )
@@ -535,15 +536,15 @@ class ShadowResearchTests(unittest.TestCase):
         candidates = self.runner._fast_prediction_candidates(self.now)
         self.assertEqual(len(candidates), 1)
         eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
-        self.assertEqual(eligibility.fixed_close_markets, 2)
-        self.assertEqual(eligibility.early_close_allowed_markets, 0)
-        self.assertEqual(eligibility.missing_close_constraint_markets, 0)
-        self.assertEqual(eligibility.invalid_close_constraint_markets, 0)
+        self.assertEqual(eligibility.documented_close_policy_markets, 2)
+        self.assertEqual(eligibility.early_close_enabled_markets, 0)
+        self.assertEqual(eligibility.missing_close_policy_markets, 0)
+        self.assertEqual(eligibility.invalid_close_policy_markets, 0)
         generated = self.runner.generate_forecasts(as_of=self.now)
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v4"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v5"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -569,6 +570,7 @@ class ShadowResearchTests(unittest.TestCase):
                     "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
                 },
                 event_time=book_time - timedelta(minutes=1),
             ),
@@ -589,6 +591,7 @@ class ShadowResearchTests(unittest.TestCase):
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
                 },
                 event_time=self.now - timedelta(minutes=1),
             ),
@@ -598,12 +601,16 @@ class ShadowResearchTests(unittest.TestCase):
         candidates = self.runner._fast_prediction_candidates(self.now)
         eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
 
-        self.assertEqual(candidates, [])
+        self.assertEqual(len(candidates), 1)
         self.assertEqual(eligibility.paired_markets, 1)
         self.assertEqual(eligibility.fresh_book_markets, 1)
         self.assertEqual(eligibility.active_markets, 1)
-        self.assertEqual(eligibility.fixed_close_markets, 0)
-        self.assertEqual(eligibility.selected_events, 0)
+        self.assertEqual(eligibility.documented_close_policy_markets, 1)
+        self.assertEqual(eligibility.early_close_enabled_markets, 1)
+        self.assertEqual(eligibility.selected_events, 1)
+        generated = self.runner.generate_forecasts(as_of=self.now)
+        self.assertEqual(generated.appended, 1)
+        self.assertTrue(self.audit.forecasts()[0].values["can_close_early"])
 
     def test_fast_prediction_eligibility_attributes_close_constraint_rejections(self):
         close_constraints = (
@@ -625,6 +632,7 @@ class ShadowResearchTests(unittest.TestCase):
                 "status": "active",
                 "settlement_timer_seconds": 900,
                 "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
+                "latest_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
                 **constraint,
             }
             self.store.append_event(
@@ -649,11 +657,11 @@ class ShadowResearchTests(unittest.TestCase):
         eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
 
         self.assertEqual(eligibility.active_markets, 3)
-        self.assertEqual(eligibility.fixed_close_markets, 0)
-        self.assertEqual(eligibility.early_close_allowed_markets, 1)
-        self.assertEqual(eligibility.missing_close_constraint_markets, 1)
-        self.assertEqual(eligibility.invalid_close_constraint_markets, 1)
-        self.assertEqual(eligibility.selected_events, 0)
+        self.assertEqual(eligibility.documented_close_policy_markets, 1)
+        self.assertEqual(eligibility.early_close_enabled_markets, 1)
+        self.assertEqual(eligibility.missing_close_policy_markets, 1)
+        self.assertEqual(eligibility.invalid_close_policy_markets, 1)
+        self.assertEqual(eligibility.selected_events, 1)
 
     def test_fast_prediction_rejects_settlement_after_recorded_deadline(self):
         market = Instrument(
@@ -676,6 +684,7 @@ class ShadowResearchTests(unittest.TestCase):
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
                 },
                 event_time=self.now - timedelta(minutes=1),
             )
@@ -706,7 +715,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.due_unmatched, 1)
 
-    def test_fast_prediction_v4_rejects_settlement_before_expected_expiration(self):
+    def test_fast_prediction_v5_accepts_early_close_within_recorded_latest_deadline(self):
         market = Instrument(
             "kalshi:prediction:FAST-EARLY",
             "kalshi",
@@ -724,9 +733,10 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-EARLY-EVENT",
                     "status": "active",
-                    "can_close_early": False,
+                    "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
                 },
                 event_time=self.now - timedelta(minutes=1),
             )
@@ -753,12 +763,10 @@ class ShadowResearchTests(unittest.TestCase):
 
         scored = self.runner.score_available(as_of=expiration - timedelta(seconds=1))
 
-        self.assertEqual(scored.appended, 0)
+        self.assertEqual(scored.appended, 1)
         self.assertEqual(scored.due_unmatched, 0)
-        due = self.runner.score_available(as_of=expiration)
-        self.assertEqual(due.due_unmatched, 1)
 
-    def test_fast_prediction_v4_rejects_settlement_from_a_different_event(self):
+    def test_fast_prediction_v5_rejects_settlement_from_a_different_event(self):
         market = Instrument(
             "kalshi:prediction:FAST-MISMATCH",
             "kalshi",
@@ -779,6 +787,7 @@ class ShadowResearchTests(unittest.TestCase):
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
                 },
                 event_time=self.now - timedelta(minutes=1),
             )

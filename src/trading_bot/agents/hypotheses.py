@@ -12,6 +12,7 @@ PREDICTION_FAST_V1_PROPOSED_AT = datetime(2026, 7, 26, 13, 10, tzinfo=timezone.u
 PREDICTION_FAST_V2_PROPOSED_AT = datetime(2026, 7, 27, tzinfo=timezone.utc)
 PREDICTION_FAST_V3_PROPOSED_AT = datetime(2026, 7, 27, 6, 25, tzinfo=timezone.utc)
 PREDICTION_FAST_V4_PROPOSED_AT = datetime(2026, 7, 28, 7, 5, tzinfo=timezone.utc)
+PREDICTION_FAST_V5_PROPOSED_AT = datetime(2026, 7, 30, 5, 0, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -255,6 +256,42 @@ PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-fast-settlement-baseline-v5",
+    family="prediction-market-fast-settlement",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "The executable probability of a short-dated, active binary market is a fixed "
+        "baseline for its finalized settlement. This lane is intentionally unadjusted. "
+        "Kalshi documents that can_close_early may move close_time earlier, so the "
+        "recorded expected expiration is not treated as a fixed lower label bound. "
+        "Instead, each forecast records the venue's latest_expiration_time and accepts "
+        "only its own event's public finalization from forecast creation through the "
+        "pre-recorded latest-expiration plus settlement-timer deadline."
+    ),
+    target="binary finalized settlement probability",
+    horizon="20 minutes to two hours until expected expiration and no more than two hours until latest expiration",
+    information_set=(
+        "current executable yes and no bids",
+        "Kalshi event ticker, expected expiration time, and latest expiration time",
+        "active market status and documented boolean can_close_early policy",
+        "a settlement timer no longer than fifteen minutes",
+        "a pre-declared maximum executable spread of ten cents",
+        "one public market-list page per cycle with the returned cursor resumed next cycle",
+        "the pre-recorded latest-expiration plus settlement-timer label deadline",
+        "Kalshi Market Lifecycle documentation: https://docs.kalshi.com/getting_started/market_lifecycle",
+    ),
+    invalidation_conditions=(
+        "market probabilities do not beat the fixed neutral benchmark out of sample",
+        "results disappear when one event ticker or resolution period is removed",
+        "the bounded latest-expiration label window leaves insufficient independent outcomes",
+        "cursor order or page coverage explains the apparent performance",
+        "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_FAST_V5_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -351,6 +388,7 @@ BASELINE_HYPOTHESES = (
     PREDICTION_FAST_SETTLEMENT_V2_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
@@ -384,6 +422,9 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
     ),
     PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS.hypothesis_id: (
         "prediction-market-fast-settlement-baseline-v4",
+    ),
+    PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v5",
     ),
     CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
         "crypto-range-breakout-continuation-baseline",
