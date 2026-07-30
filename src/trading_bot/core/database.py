@@ -50,6 +50,8 @@ def _validate_postgres_location(location: str) -> None:
 
 
 def _postgres_row_factory(cursor: Any):
+    if cursor.description is None:
+        return lambda values: values
     names = [column.name for column in cursor.description]
 
     def make_row(values: Sequence[Any]) -> _PostgresRow:
@@ -86,6 +88,9 @@ class PostgresConnection:
 
     def execute(self, query: str, parameters: Sequence[Any] | None = None):
         return self._connection.execute(_postgres_sql(query), parameters or ())
+
+    def executemany(self, query: str, parameters: Sequence[Sequence[Any]]):
+        return self._connection.executemany(_postgres_sql(query), parameters)
 
     def commit(self) -> None:
         self._connection.commit()
