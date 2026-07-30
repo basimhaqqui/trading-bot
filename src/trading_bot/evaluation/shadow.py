@@ -54,6 +54,11 @@ from trading_bot.evaluation.scoring import (
     score_volatility_forecast,
 )
 from trading_bot.evaluation.outcomes import forecast_outcome_target_time
+from trading_bot.evaluation.reporting import (
+    DECISION_SCOPE_AGGREGATE,
+    EdgeStatus,
+    build_walk_forward_report,
+)
 from trading_bot.replay import ReplayEngine
 
 
@@ -63,6 +68,7 @@ class ForecastGenerationSummary:
     appended: int
     existing: int
     skipped: int
+    blocked_by_rejection: int
     errors: tuple[str, ...]
 
 
@@ -155,8 +161,13 @@ class ShadowResearchRunner:
         appended = 0
         existing = 0
         skipped = 0
+        blocked_by_rejection = 0
         errors: list[str] = []
+        rejected_specialists = self._rejected_specialist_ids()
         for candidate in candidates:
+            if candidate.specialist.agent_id in rejected_specialists:
+                blocked_by_rejection += 1
+                continue
             try:
                 result = replay.run(
                     candidate.specialist,
@@ -176,8 +187,50 @@ class ShadowResearchRunner:
                     f"{candidate.instrument_id}: {type(exc).__name__}: {exc}"
                 )
         return ForecastGenerationSummary(
-            len(candidates), appended, existing, skipped, tuple(errors)
+            len(candidates),
+            appended,
+            existing,
+            skipped,
+            blocked_by_rejection,
+            tuple(errors),
         )
+
+    def _rejected_specialist_ids(self) -> frozenset[str]:
+        """Freeze new forecasts after a preregistered aggregate rejection.
+
+        Scores and existing forecasts remain append-only and continue through the
+        normal reconciliation path.  The gate also recognizes a mature rejection
+        before the caller checkpoints it, so a cycle that reaches its fixed
+        boundary cannot issue an additional forecast before recording the result.
+        A locked candidate is deliberately not frozen: its later monitoring is
+        reported separately and cannot revise the original decision.
+        """
+        decisions = self.audit.evaluation_decisions()
+        aggregate_decisions = {
+            (decision.specialist_id, decision.kind): decision
+            for decision in decisions
+            if decision.scope == DECISION_SCOPE_AGGREGATE
+        }
+        rejected = {
+            specialist_id
+            for (specialist_id, _), decision in aggregate_decisions.items()
+            if decision.status is EdgeStatus.REJECTED
+        }
+        report = build_walk_forward_report(
+            self.audit.forecasts(),
+            self.audit.forecast_scores(),
+            locked_decisions=decisions,
+        )
+        for group in report.groups:
+            # A recorded candidate remains a candidate for operational monitoring,
+            # even if later data would look worse.  Only an unrecorded mature
+            # rejection is frozen here; checkpointing will append it after the
+            # cycle completes.
+            if (group.specialist_id, group.kind) in aggregate_decisions:
+                continue
+            if group.status is EdgeStatus.REJECTED:
+                rejected.add(group.specialist_id)
+        return frozenset(rejected)
 
     def score_available(self, *, as_of: datetime) -> ForecastScoringSummary:
         as_of = require_aware(as_of, "as_of")
