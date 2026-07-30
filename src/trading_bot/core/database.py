@@ -87,7 +87,10 @@ class PostgresConnection:
         self._connection = connection
 
     def execute(self, query: str, parameters: Sequence[Any] | None = None):
-        return self._connection.execute(_postgres_sql(query), parameters or ())
+        translated = _postgres_sql(query)
+        if parameters is None:
+            return self._connection.execute(translated)
+        return self._connection.execute(translated, parameters)
 
     def executemany(self, query: str, parameters: Sequence[Sequence[Any]]):
         return self._connection.executemany(_postgres_sql(query), parameters)

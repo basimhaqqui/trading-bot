@@ -7,6 +7,7 @@ from trading_bot.core.database import (
     connect_database,
     database_display_name,
     is_postgres_location,
+    PostgresConnection,
 )
 
 
@@ -17,6 +18,18 @@ POOLER_URL = (
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_command_sql_with_percent_does_not_bind_an_empty_parameter_sequence(self):
+        class FakeConnection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, *args):
+                self.calls.append(args)
+
+        fake = FakeConnection()
+        PostgresConnection(fake).execute("SELECT '100%'")
+        self.assertEqual(fake.calls, [("SELECT '100%'",)])
+
     def test_row_factory_accepts_commands_without_result_metadata(self):
         class CommandCursor:
             description = None
