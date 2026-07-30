@@ -145,9 +145,12 @@ def connect_database(location: DatabaseLocation) -> Iterator[sqlite3.Connection 
         "prepare_threshold": None,
     }
     schema = postgres_schema()
-    if schema != DEFAULT_POSTGRES_SCHEMA:
-        connection_options["options"] = f"-csearch_path={schema}"
     raw_connection = psycopg.connect(dsn, **connection_options)
+    if schema != DEFAULT_POSTGRES_SCHEMA:
+        # Neon transaction poolers reject libpq startup ``options``. Scope the
+        # validated schema selection to this connection's transaction instead,
+        # so a pooled backend cannot retain it after the research operation.
+        raw_connection.execute(f"SET LOCAL search_path TO {schema}")
     connection = PostgresConnection(raw_connection)
     try:
         yield connection

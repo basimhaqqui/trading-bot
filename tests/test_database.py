@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from trading_bot.core.database import (
@@ -26,6 +27,47 @@ class DatabaseTests(unittest.TestCase):
         with patch.dict("os.environ", {"TRADING_DB_SCHEMA": "public; DROP SCHEMA public"}):
             with self.assertRaises(DatabaseConfigurationError):
                 postgres_schema()
+
+    def test_pooled_connection_sets_isolated_schema_after_connect(self):
+        class FakeConnection:
+            def __init__(self):
+                self.calls = []
+                self.committed = False
+                self.closed = False
+
+            def execute(self, *args):
+                self.calls.append(args)
+
+            def commit(self):
+                self.committed = True
+
+            def rollback(self):
+                raise AssertionError("unexpected rollback")
+
+            def close(self):
+                self.closed = True
+
+        fake_connection = FakeConnection()
+        connect_calls = []
+
+        def connect(*args, **kwargs):
+            connect_calls.append((args, kwargs))
+            return fake_connection
+
+        with patch.dict(
+            "sys.modules", {"psycopg": SimpleNamespace(connect=connect)}
+        ), patch.dict("os.environ", {"TRADING_DB_SCHEMA": "shadow_evidence_v1"}):
+            with connect_database(POOLER_URL):
+                pass
+
+        self.assertEqual(connect_calls[0][0], (POOLER_URL,))
+        self.assertNotIn("options", connect_calls[0][1])
+        self.assertEqual(
+            fake_connection.calls,
+            [("SET LOCAL search_path TO shadow_evidence_v1",)],
+        )
+        self.assertTrue(fake_connection.committed)
+        self.assertTrue(fake_connection.closed)
 
     def test_batch_sql_uses_a_postgres_cursor(self):
         class FakeCursor:
