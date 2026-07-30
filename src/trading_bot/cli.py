@@ -84,7 +84,11 @@ from trading_bot.evaluation.reporting import (
     EvaluationGateConfig,
     WalkForwardReport,
 )
-from trading_bot.evaluation.shadow import ShadowResearchResult, ShadowResearchRunner
+from trading_bot.evaluation.shadow import (
+    FastPredictionEligibilitySummary,
+    ShadowResearchResult,
+    ShadowResearchRunner,
+)
 from trading_bot.evaluation.scorecard import (
     ScorecardStatus,
     build_daily_scorecard,
@@ -630,8 +634,13 @@ def _shadow_cycle(
             print(f"  request_cursor={record.request_cursor}")
         if record.next_cursor:
             print(f"  next_cursor={record.next_cursor}")
-    research = ShadowResearchRunner(store, audit).run(as_of=utc_now())
-    _print_shadow_research(research)
+    research_runner = ShadowResearchRunner(store, audit)
+    research_as_of = utc_now()
+    fast_prediction_eligibility = research_runner.fast_prediction_eligibility(
+        as_of=research_as_of
+    )
+    research = research_runner.run(as_of=research_as_of)
+    _print_shadow_research(research, fast_prediction_eligibility)
     report, locked = checkpointed_walk_forward_report(audit, as_of=utc_now())
     _print_locked_decisions(locked)
     _print_shadow_report(report, min_outcomes=30)
@@ -641,8 +650,13 @@ def _shadow_cycle(
 
 def _shadow_research(path: Path) -> int:
     store, _, audit = _initialize(path)
-    result = ShadowResearchRunner(store, audit).run(as_of=utc_now())
-    _print_shadow_research(result)
+    research_runner = ShadowResearchRunner(store, audit)
+    research_as_of = utc_now()
+    fast_prediction_eligibility = research_runner.fast_prediction_eligibility(
+        as_of=research_as_of
+    )
+    result = research_runner.run(as_of=research_as_of)
+    _print_shadow_research(result, fast_prediction_eligibility)
     report, locked = checkpointed_walk_forward_report(audit, as_of=utc_now())
     _print_locked_decisions(locked)
     _print_shadow_report(report, min_outcomes=30)
@@ -658,7 +672,10 @@ def _print_locked_decisions(decisions: tuple[EvaluationDecision, ...]) -> None:
         )
 
 
-def _print_shadow_research(result: ShadowResearchResult) -> None:
+def _print_shadow_research(
+    result: ShadowResearchResult,
+    fast_prediction_eligibility: FastPredictionEligibilitySummary,
+) -> None:
     generation = result.generation
     scoring = result.scoring
     print(
@@ -672,6 +689,22 @@ def _print_shadow_research(result: ShadowResearchResult) -> None:
         f"due_unmatched={scoring.due_unmatched} quarantined={scoring.quarantined} "
         f"matched={scoring.matched} "
         f"new={scoring.appended} existing={scoring.existing}"
+    )
+    print(
+        "fast prediction eligibility (pre-generation; not evidence): "
+        f"paired={fast_prediction_eligibility.paired_markets} "
+        f"fresh={fast_prediction_eligibility.fresh_book_markets} "
+        f"active={fast_prediction_eligibility.active_markets} "
+        f"documented_close_policy="
+        f"{fast_prediction_eligibility.documented_close_policy_markets} "
+        f"early_close_enabled="
+        f"{fast_prediction_eligibility.early_close_enabled_markets} "
+        f"short_timer={fast_prediction_eligibility.short_timer_markets} "
+        f"horizon={fast_prediction_eligibility.horizon_markets} "
+        f"executable={fast_prediction_eligibility.executable_markets} "
+        f"unforecasted_events="
+        f"{fast_prediction_eligibility.unforecasted_event_candidates} "
+        f"selected={fast_prediction_eligibility.selected_events}"
     )
     if scoring.next_due_at is not None:
         print(f"  next_due_at={scoring.next_due_at.isoformat()}")
