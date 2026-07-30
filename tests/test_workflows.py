@@ -15,6 +15,8 @@ class ShadowWorkflowTests(unittest.TestCase):
         expected_cron = 'cron: "22,37,52 * * * *"'
         self.assertIn(expected_cron, rapid_workflow)
         self.assertIn(expected_cron, rapid_deployment)
+        self.assertIn("--research-profile rapid", rapid_workflow)
+        self.assertIn("--research-profile rapid", rapid_deployment)
         # The run must leave scheduler headroom while allowing the complete
         # Neon-backed observation to finish before the next 15-minute trigger.
         self.assertIn("timeout-minutes: 14", rapid_workflow)

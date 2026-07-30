@@ -17,7 +17,11 @@ from trading_bot.core.schemas import (
 )
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.cli import _print_shadow_research
-from trading_bot.evaluation.shadow import ShadowResearchConfig, ShadowResearchRunner
+from trading_bot.evaluation.shadow import (
+    ShadowResearchConfig,
+    ShadowResearchProfile,
+    ShadowResearchRunner,
+)
 from trading_bot.evaluation.scoring import score_binary_forecast
 
 
@@ -56,6 +60,44 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(selection.call_count, 1)
         self.assertEqual(result.fast_prediction_eligibility.selected_events, 0)
+
+    def test_rapid_profile_skips_full_market_candidate_scans(self):
+        rapid = ShadowResearchRunner(
+            self.store,
+            self.audit,
+            ShadowResearchConfig(profile=ShadowResearchProfile.RAPID),
+        )
+        with (
+            patch.object(rapid, "_breakout_candidates") as breakout,
+            patch.object(rapid, "_perpetual_candidates") as perpetual,
+            patch.object(rapid, "_option_candidates") as options,
+            patch.object(rapid, "_prediction_candidates") as prediction,
+            patch.object(rapid, "_intraday_momentum_candidates", return_value=[]) as intraday,
+            patch.object(rapid, "_intraday_momentum_v2_candidates", return_value=[]) as intraday_v2,
+        ):
+            self.assertEqual(
+                rapid._candidates(self.now, fast_prediction_candidates=[]), ()
+            )
+
+        intraday.assert_called_once_with(self.now)
+        intraday_v2.assert_called_once_with(self.now)
+        breakout.assert_not_called()
+        perpetual.assert_not_called()
+        options.assert_not_called()
+        prediction.assert_not_called()
+
+    def test_rapid_profile_scores_only_rapid_families(self):
+        rapid = ShadowResearchRunner(
+            self.store,
+            self.audit,
+            ShadowResearchConfig(profile=ShadowResearchProfile.RAPID),
+        )
+        with patch.object(rapid, "score_available", wraps=rapid.score_available) as scoring:
+            rapid.run(as_of=self.now)
+
+        self.assertEqual(
+            scoring.call_args.kwargs["specialist_ids"], rapid._rapid_specialist_ids()
+        )
 
     def event(
         self,
