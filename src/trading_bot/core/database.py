@@ -22,13 +22,20 @@ class DatabaseConfigurationError(ValueError):
 class _PostgresRow(dict[str, Any]):
     """Rows compatible with the SQLite access patterns used by the research store."""
 
+    def __init__(self, names: Sequence[str], values: Sequence[Any]) -> None:
+        # Keep the full positional result separately. A mapping necessarily collapses
+        # duplicate column names, but SQLite-style tuple unpacking must retain every
+        # selected value (for example two different ``available_at`` columns).
+        super().__init__(zip(names, values))
+        self._values = tuple(values)
+
     def __getitem__(self, key: str | int) -> Any:
         if isinstance(key, int):
-            return tuple(self.values())[key]
+            return self._values[key]
         return super().__getitem__(key)
 
     def __iter__(self):
-        return iter(self.values())
+        return iter(self._values)
 
 
 def is_postgres_location(location: DatabaseLocation) -> bool:
@@ -65,7 +72,7 @@ def _postgres_row_factory(cursor: Any):
     names = [column.name for column in cursor.description]
 
     def make_row(values: Sequence[Any]) -> _PostgresRow:
-        return _PostgresRow(zip(names, values))
+        return _PostgresRow(names, values)
 
     return make_row
 

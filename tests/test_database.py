@@ -129,6 +129,23 @@ class DatabaseTests(unittest.TestCase):
 
         self.assertEqual(_postgres_row_factory(CommandCursor())(("ignored",)), ("ignored",))
 
+    def test_row_factory_preserves_duplicate_result_columns_for_tuple_unpacking(self):
+        class QueryCursor:
+            description = (
+                SimpleNamespace(name="available_at"),
+                SimpleNamespace(name="payload_json"),
+                SimpleNamespace(name="available_at"),
+                SimpleNamespace(name="payload_json"),
+            )
+
+        row = _postgres_row_factory(QueryCursor())(("settled", "label", "book", "quote"))
+
+        self.assertEqual(tuple(row), ("settled", "label", "book", "quote"))
+        self.assertEqual(row[0], "settled")
+        self.assertEqual(row[2], "book")
+        self.assertEqual(row["available_at"], "book")
+        self.assertEqual(row["payload_json"], "quote")
+
     def test_pooled_neon_urls_select_postgres_without_exposing_the_url(self):
         self.assertTrue(is_postgres_location(POOLER_URL))
         self.assertEqual(database_display_name(POOLER_URL), "PostgreSQL")
