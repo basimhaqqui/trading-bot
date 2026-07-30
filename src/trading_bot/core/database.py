@@ -93,7 +93,8 @@ class PostgresConnection:
         return self._connection.execute(translated, parameters)
 
     def executemany(self, query: str, parameters: Sequence[Sequence[Any]]):
-        return self._connection.executemany(_postgres_sql(query), parameters)
+        with self._connection.cursor() as cursor:
+            cursor.executemany(_postgres_sql(query), parameters)
 
     def commit(self) -> None:
         self._connection.commit()
