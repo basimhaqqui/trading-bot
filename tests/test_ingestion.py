@@ -1006,6 +1006,22 @@ class IngestionTests(unittest.TestCase):
         )
         self.assertTrue(all(job.limit == 350 for job in intraday_jobs))
 
+    def test_rapid_crypto_plan_keeps_fixed_signal_lookback_with_bounded_payloads(self):
+        plan = load_plan("config/rapid-shadow-ingestion.json")
+        intraday_jobs = [
+            job
+            for job in plan.jobs
+            if job.venue == "coinbase"
+            and job.dataset == "candles"
+            and job.granularity == "FIFTEEN_MINUTE"
+        ]
+
+        self.assertEqual(len(intraday_jobs), 10)
+        # The specialist consumes eight completed bars.  Thirty-two preserves a
+        # fixed operational buffer while avoiding a 10 x 350-bar rapid payload.
+        self.assertTrue(all(job.limit == 32 for job in intraday_jobs))
+        self.assertTrue(all(job.limit >= 8 for job in intraday_jobs))
+
     def test_checked_in_perpetual_plan_pairs_btc_and_eth_books(self):
         plan = load_plan("config/shadow-ingestion.json")
         book_jobs = [
