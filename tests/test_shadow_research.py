@@ -573,6 +573,23 @@ class ShadowResearchTests(unittest.TestCase):
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
+    def test_fast_prediction_selection_reads_only_rules_and_books(self):
+        with patch.object(
+            self.store,
+            "events_available_at",
+            wraps=self.store.events_available_at,
+        ) as events_available_at:
+            self.runner._fast_prediction_candidates(self.now)
+
+        self.assertEqual(events_available_at.call_count, 2)
+        self.assertEqual(
+            {
+                call.kwargs.get("event_type")
+                for call in events_available_at.call_args_list
+            },
+            {MarketEventType.CONTRACT_RULE, MarketEventType.BOOK_SNAPSHOT},
+        )
+
     def test_rejected_fast_lane_checkpoints_before_generating_new_forecasts(self):
         market = Instrument(
             "kalshi:prediction:FAST-REJECTED",

@@ -831,13 +831,19 @@ class ShadowResearchRunner:
         }
         latest_books: dict[str, MarketEvent] = {}
         rules_by_instrument: dict[str, list[MarketEvent]] = {}
-        for event in self.store.events_available_at(as_of):
-            if event.instrument_id not in instrument_ids:
-                continue
-            if event.event_type is MarketEventType.CONTRACT_RULE:
+        # The rapid lane only needs contract rules and executable books.  Do
+        # not deserialize unrelated historical candles, trades, or settlements
+        # on every fifteen-minute cycle: they cannot affect this preregistered
+        # selection and eventually push the read-only job past its cadence.
+        for event in self.store.events_available_at(
+            as_of, event_type=MarketEventType.CONTRACT_RULE
+        ):
+            if event.instrument_id in instrument_ids:
                 rules_by_instrument.setdefault(event.instrument_id, []).append(event)
-                continue
-            if event.event_type is not MarketEventType.BOOK_SNAPSHOT:
+        for event in self.store.events_available_at(
+            as_of, event_type=MarketEventType.BOOK_SNAPSHOT
+        ):
+            if event.instrument_id not in instrument_ids:
                 continue
             existing = latest_books.get(event.instrument_id)
             if existing is None or (event.available_at, event.event_id) > (
