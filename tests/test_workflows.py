@@ -74,6 +74,20 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_condition, rapid_workflow)
         self.assertEqual(full_workflow.count(expected_condition), 2)
 
+    def test_workflows_attest_when_persistent_evidence_is_unavailable(self):
+        rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+
+        expected_condition = (
+            "if: ${{ always() && steps.persistence_check.outcome == 'failure' }}"
+        )
+        for workflow in (rapid_workflow, full_workflow):
+            self.assertIn("Attest unavailable persistent evidence", workflow)
+            self.assertIn(expected_condition, workflow)
+            self.assertIn("## Shadow evidence unavailable", workflow)
+            self.assertIn("retrospective replacement evidence", workflow)
+            self.assertIn("$GITHUB_STEP_SUMMARY", workflow)
+
     def test_only_scheduled_workflow_cycles_attest_scheduled_evidence(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
