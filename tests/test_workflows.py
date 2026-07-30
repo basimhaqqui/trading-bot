@@ -147,6 +147,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("contents: read", build)
         self.assertNotIn("contents: write", build)
         self.assertIn("contents: write", release)
+        self.assertIn("GH_REPO: ${{ github.repository }}", release)
         self.assertIn("gh release create", release)
         self.assertIn("--draft", release)
         self.assertIn("gh release edit", release)
