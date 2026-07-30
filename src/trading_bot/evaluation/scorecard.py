@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -16,6 +15,7 @@ from trading_bot.agents.hypotheses import (
 from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.agents.prediction import is_quarantined_prediction_identity_collision
 from trading_bot.core.audit import AuditLedger, AuditRecordType
+from trading_bot.core.database import connect_database
 from trading_bot.core.schemas import AssetClass, Forecast
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 from trading_bot.core.store import PointInTimeStore
@@ -573,7 +573,7 @@ def render_github_alerts(scorecard: DailyScorecard) -> str:
 
 
 def _database_counts(path: str | Path) -> tuple[dict[str, int], dict[AssetClass, int]]:
-    with sqlite3.connect(path) as connection:
+    with connect_database(path) as connection:
         totals = {
             "instruments": int(connection.execute("SELECT COUNT(*) FROM instruments").fetchone()[0]),
             "events": int(connection.execute("SELECT COUNT(*) FROM market_events").fetchone()[0]),
@@ -624,7 +624,7 @@ def _research_lane_summaries(
 def _memecoin_research_summary(
     path: str | Path, as_of: datetime
 ) -> MemecoinResearchSummary:
-    with sqlite3.connect(path) as connection:
+    with connect_database(path) as connection:
         rows = connection.execute(
             """
             SELECT event.instrument_id, event.source, event.available_at, event.event_id,
@@ -983,7 +983,7 @@ def _rapid_crypto_cadence(
     observed_at: list[datetime] = []
     cycle_counts: list[int] = []
     gaps: list[float] = []
-    with sqlite3.connect(path) as connection:
+    with connect_database(path) as connection:
         for job_id in job_ids:
             rows = connection.execute(
                 """
@@ -992,7 +992,7 @@ def _rapid_crypto_cadence(
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
                   AND json_extract(record_json, '$.observation_origin') = 'scheduled'
                   AND started_at >= ? AND started_at <= ?
-                ORDER BY started_at ASC, rowid ASC
+                ORDER BY started_at ASC, run_id ASC
                 """,
                 (
                     plan.name,
@@ -1060,7 +1060,7 @@ def _fast_prediction_cadence(
     observed_at: list[datetime] = []
     cycle_counts: list[int] = []
     gaps: list[float] = []
-    with sqlite3.connect(path) as connection:
+    with connect_database(path) as connection:
         for job_id in job_ids:
             rows = connection.execute(
                 """
@@ -1069,7 +1069,7 @@ def _fast_prediction_cadence(
                 WHERE plan_name = ? AND job_id = ? AND status IN (?, ?)
                   AND json_extract(record_json, '$.observation_origin') = 'scheduled'
                   AND started_at >= ? AND started_at <= ?
-                ORDER BY started_at ASC, rowid ASC
+                ORDER BY started_at ASC, run_id ASC
                 """,
                 (
                     plan.name,
@@ -1177,7 +1177,7 @@ def _prediction_outcome_polling(
     if not job_ids:
         return PredictionOutcomePollingSummary(job_ids, None, None, None, None)
     placeholders = ", ".join("?" for _ in job_ids)
-    with sqlite3.connect(path) as connection:
+    with connect_database(path) as connection:
         row = connection.execute(
             f"""
             SELECT finished_at, record_json
@@ -1186,7 +1186,7 @@ def _prediction_outcome_polling(
               AND job_id IN ({placeholders})
               AND status IN ('success', 'degraded')
               AND finished_at <= ?
-            ORDER BY finished_at DESC, rowid DESC
+            ORDER BY finished_at DESC, run_id DESC
             LIMIT 1
             """,
             (plan.name, *job_ids, as_of.isoformat()),
@@ -1254,7 +1254,7 @@ def _prediction_calibration_readiness(
     probability_bucket_radius: float = 0.10,
     required_bucket_events: int = 5,
 ) -> PredictionCalibrationReadiness:
-    with sqlite3.connect(path) as connection:
+    with connect_database(path) as connection:
         rows = connection.execute(
             """
             WITH ranked_settlements AS (

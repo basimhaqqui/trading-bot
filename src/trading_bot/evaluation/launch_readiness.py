@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import math
-import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
 from trading_bot.core.audit import AuditLedger
+from trading_bot.core.database import DatabaseLocation, postgres_integrity_ok
 from trading_bot.core.schemas import AssetClass, Instrument
 from trading_bot.core.serialization import require_aware
 from trading_bot.core.store import PointInTimeStore
@@ -256,7 +256,7 @@ def build_launch_readiness_report(
             LaunchGateCategory.INTEGRITY,
             integrity,
             True,
-            "SQLite, audit, ingestion, and paper ledgers verified"
+            "database, audit, ingestion, and paper ledgers verified"
             if integrity
             else "one or more local ledgers failed integrity verification",
         ),
@@ -413,7 +413,7 @@ def _cadence_gate(
     return LaunchGate(gate_id, LaunchGateCategory.OPERATIONS, passed, True, detail)
 
 
-def _initialize_readiness_stores(path: Path) -> None:
+def _initialize_readiness_stores(path: DatabaseLocation) -> None:
     PointInTimeStore(path).initialize()
     AuditLedger(path).initialize()
     IngestionRunLedger(path).initialize()
@@ -421,10 +421,9 @@ def _initialize_readiness_stores(path: Path) -> None:
     PaperExecutionLedger(path).initialize()
 
 
-def _database_integrity(path: Path) -> bool:
+def _database_integrity(path: DatabaseLocation) -> bool:
     try:
-        with sqlite3.connect(path) as connection:
-            database_ok = connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        database_ok = postgres_integrity_ok(path)
         AuditLedger(path).verify_integrity()
         IngestionRunLedger(path).verify_integrity()
         PaperExecutionLedger(path).verify_integrity()

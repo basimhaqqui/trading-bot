@@ -17,6 +17,8 @@ jobs:
   observe:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v6
 
@@ -24,31 +26,24 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Restore latest working state
-        uses: actions/cache/restore@v5
-        with:
-          path: var/trading.db
-          key: shadow-db-${{ github.run_id }}
-          restore-keys: shadow-db-
-
       - name: Install
         run: pip install -e .
+
+      - name: Require persistent shadow database
+        run: |
+          if [[ -z "$TRADING_DB_PATH" ]]; then
+            echo "SHADOW_DATABASE_URL must be configured for shadow persistence" >&2
+            exit 1
+          fi
 
       - name: Validate rapid observation plan
         run: trading-bot shadow-cycle --plan config/rapid-shadow-ingestion.json --validate-only
 
       - name: Register research baselines
-        run: trading-bot --db var/trading.db research-init
+        run: trading-bot research-init
 
       - name: Collect rapid evidence and score outcomes
         run: >-
-          trading-bot --db var/trading.db shadow-cycle
+          trading-bot shadow-cycle
           --plan config/rapid-shadow-ingestion.json
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
-
-      - name: Save next-cycle state
-        if: ${{ always() && hashFiles('var/trading.db') != '' }}
-        uses: actions/cache/save@v5
-        with:
-          path: var/trading.db
-          key: shadow-db-${{ github.run_id }}

@@ -10,6 +10,12 @@ from trading_bot.agents.catalog import SKILLS
 from trading_bot.agents.demo import DemoRegimeSpecialist
 from trading_bot.agents.hypotheses import BASELINE_HYPOTHESES
 from trading_bot.core.audit import AuditLedger
+from trading_bot.core.database import (
+    DatabaseLocation,
+    database_display_name,
+    is_postgres_location,
+    postgres_integrity_ok,
+)
 from trading_bot.core.experiments import ExperimentRegistry
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.serialization import utc_now
@@ -119,7 +125,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--db",
         default=os.getenv("TRADING_DB_PATH", "var/trading.db"),
-        help="SQLite research database path",
+        help="SQLite research database path or configured pooled PostgreSQL URL",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init", help="initialize the local point-in-time database")
@@ -366,7 +372,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _initialize(path: Path) -> tuple[PointInTimeStore, ExperimentRegistry, AuditLedger]:
+def _initialize(path: DatabaseLocation) -> tuple[PointInTimeStore, ExperimentRegistry, AuditLedger]:
     store = PointInTimeStore(path)
     store.initialize()
     registry = ExperimentRegistry(path)
@@ -414,7 +420,7 @@ def _paper_risk_limits() -> RiskLimits:
     )
 
 
-def _demo(path: Path) -> int:
+def _demo(path: DatabaseLocation) -> int:
     store, _, audit = _initialize(path)
     instrument = Instrument(
         instrument_id="demo:equity:SPY",
@@ -510,7 +516,7 @@ def _demo(path: Path) -> int:
     return 0
 
 
-def _collect(path: Path, args: argparse.Namespace) -> int:
+def _collect(path: DatabaseLocation, args: argparse.Namespace) -> int:
     store, _, _ = _initialize(path)
     collected_at = None
     if args.venue == "kalshi":
@@ -594,7 +600,7 @@ def _collect(path: Path, args: argparse.Namespace) -> int:
 
 
 def _shadow_cycle(
-    path: Path,
+    path: DatabaseLocation,
     plan_path: Path,
     *,
     validate_only: bool = False,
@@ -648,7 +654,7 @@ def _shadow_cycle(
     return 1 if failed or research.generation.errors or research.scoring.errors else 0
 
 
-def _shadow_research(path: Path) -> int:
+def _shadow_research(path: DatabaseLocation) -> int:
     store, _, audit = _initialize(path)
     research_runner = ShadowResearchRunner(store, audit)
     research_as_of = utc_now()
@@ -714,7 +720,7 @@ def _print_shadow_research(
         print(f"  research error: {error}")
 
 
-def _shadow_report(path: Path, *, min_outcomes: int) -> int:
+def _shadow_report(path: DatabaseLocation, *, min_outcomes: int) -> int:
     _, _, audit = _initialize(path)
     report = locked_walk_forward_report(
         audit,
@@ -798,7 +804,7 @@ def _optional_number(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.8g}"
 
 
-def _shadow_health(path: Path, args: argparse.Namespace) -> int:
+def _shadow_health(path: DatabaseLocation, args: argparse.Namespace) -> int:
     _initialize(path)
     report = ingestion_health(
         path,
@@ -811,7 +817,9 @@ def _shadow_health(path: Path, args: argparse.Namespace) -> int:
     return 0 if report.healthy else 1
 
 
-def _snapshot(path: Path, output: Path) -> int:
+def _snapshot(path: DatabaseLocation, output: Path) -> int:
+    if is_postgres_location(path):
+        raise ValueError("SQLite snapshots are unavailable for PostgreSQL persistence")
     summary = create_verified_snapshot(path, output)
     print(f"Snapshot: {summary.output_path}")
     print(f"Bytes: {summary.bytes_written}")
@@ -824,7 +832,7 @@ def _snapshot(path: Path, output: Path) -> int:
     return 0
 
 
-def _economic_report(path: Path, args: argparse.Namespace) -> int:
+def _economic_report(path: DatabaseLocation, args: argparse.Namespace) -> int:
     _, _, audit = _initialize(path)
     forecasts = audit.forecasts()
     scores = audit.forecast_scores()
@@ -875,7 +883,7 @@ def _economic_report(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _daily_scorecard(path: Path, args: argparse.Namespace) -> int:
+def _daily_scorecard(path: DatabaseLocation, args: argparse.Namespace) -> int:
     _initialize(path)
     scorecard = build_daily_scorecard(
         path,
@@ -914,7 +922,7 @@ def _daily_scorecard(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _paper_status(path: Path, args: argparse.Namespace) -> int:
+def _paper_status(path: DatabaseLocation, args: argparse.Namespace) -> int:
     store, _, audit = _initialize(path)
     client = _paper_client()
     account = client.account()
@@ -941,7 +949,7 @@ def _paper_status(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _paper_reconcile(path: Path) -> int:
+def _paper_reconcile(path: DatabaseLocation) -> int:
     _, _, audit = _initialize(path)
     result = PaperReconciler(
         _paper_client(), PaperExecutionLedger(path), audit
@@ -968,7 +976,7 @@ def _paper_reconcile(path: Path) -> int:
     return 0 if result.clean else 1
 
 
-def _paper_control(path: Path, args: argparse.Namespace) -> int:
+def _paper_control(path: DatabaseLocation, args: argparse.Namespace) -> int:
     _initialize(path)
     controls = PaperControlStore(path)
     if args.action == "enable":
@@ -1003,7 +1011,7 @@ def _paper_control(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _paper_plan(path: Path, args: argparse.Namespace) -> int:
+def _paper_plan(path: DatabaseLocation, args: argparse.Namespace) -> int:
     store, _, audit = _initialize(path)
     policy = load_paper_risk_config(args.policy)
     plan = AlpacaPaperAllocator(
@@ -1030,7 +1038,7 @@ def _paper_plan(path: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _paper_cycle(path: Path, args: argparse.Namespace) -> int:
+def _paper_cycle(path: DatabaseLocation, args: argparse.Namespace) -> int:
     store, _, audit = _initialize(path)
     submission_enabled = False
     if args.execute:
@@ -1129,7 +1137,7 @@ def _memecoin_sandbox(args: argparse.Namespace) -> int:
     return 0 if report.successful else 1
 
 
-def _launch_readiness(path: Path, args: argparse.Namespace) -> int:
+def _launch_readiness(path: DatabaseLocation, args: argparse.Namespace) -> int:
     report = build_launch_readiness_report(
         path,
         plan_path=args.plan,
@@ -1152,11 +1160,11 @@ def _launch_readiness(path: Path, args: argparse.Namespace) -> int:
 
 def main() -> int:
     args = _parser().parse_args()
-    path = Path(args.db)
+    path: DatabaseLocation = args.db
     try:
         if args.command == "init":
             _initialize(path)
-            print(f"Initialized {path.resolve()}")
+            print(f"Initialized {database_display_name(path)}")
             return 0
         if args.command == "skills":
             for skill in SKILLS:
@@ -1230,7 +1238,7 @@ def main() -> int:
         if args.command == "doctor":
             store, _, audit = _initialize(path)
             with store.connect() as connection:
-                integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+                integrity = "ok" if postgres_integrity_ok(path) else "failed"
                 event_count = connection.execute("SELECT COUNT(*) FROM market_events").fetchone()[0]
             audit_count = audit.verify_integrity()
             ingestion_count = IngestionRunLedger(path).verify_integrity()

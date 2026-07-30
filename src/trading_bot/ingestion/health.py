@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Mapping
 
+from trading_bot.core.database import connect_database
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 from trading_bot.ingestion.plan import ShadowIngestionPlan
 from trading_bot.ingestion.runner import IngestionRunStatus
@@ -53,8 +53,7 @@ def ingestion_health(
         raise ValueError("max_consecutive_failures cannot be negative")
 
     jobs: list[JobHealth] = []
-    with sqlite3.connect(path) as connection:
-        connection.row_factory = sqlite3.Row
+    with connect_database(path) as connection:
         for job in plan.jobs:
             if not job.enabled:
                 continue
@@ -84,7 +83,7 @@ def ingestion_health(
                 SELECT status, finished_at, record_json
                 FROM ingestion_runs
                 WHERE plan_name = ? AND job_id = ?
-                ORDER BY finished_at DESC, rowid DESC
+                ORDER BY finished_at DESC, run_id DESC
                 """,
                 (plan.name, job.job_id),
             ).fetchall()
