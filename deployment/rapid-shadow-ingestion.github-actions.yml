@@ -39,6 +39,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify persistent shadow database
+        run: trading-bot persistence-check
+
       - name: Validate rapid observation plan
         run: trading-bot shadow-cycle --plan config/rapid-shadow-ingestion.json --validate-only
 
