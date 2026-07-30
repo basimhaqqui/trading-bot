@@ -116,6 +116,7 @@ jobs:
       - name: Publish complete immutable release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
         run: |
           cat > release-notes.md <<'EOF'
