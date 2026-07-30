@@ -1,0 +1,36 @@
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+
+from trading_bot.core.migration import _legacy_connection, _require_locked_paper_control, migrate_sqlite_to_postgres
+
+
+class MigrationTests(unittest.TestCase):
+    def test_migration_refuses_non_postgres_target_before_reading_source(self):
+        with self.assertRaisesRegex(ValueError, "target must be PostgreSQL"):
+            migrate_sqlite_to_postgres(Path("missing.db"), "var/trading.db")
+
+    def test_unlocked_legacy_paper_control_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.db"
+            connection = sqlite3.connect(path)
+            connection.execute(
+                "CREATE TABLE paper_execution_control "
+                "(environment TEXT, enabled INTEGER, kill_switch_active INTEGER)"
+            )
+            connection.execute(
+                "INSERT INTO paper_execution_control VALUES ('paper', 1, 0)"
+            )
+            connection.commit()
+            connection.close()
+            source = _legacy_connection(path)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "unlocked paper-control"):
+                    _require_locked_paper_control(source)
+            finally:
+                source.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

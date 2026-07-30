@@ -16,6 +16,7 @@ from trading_bot.core.database import (
     is_postgres_location,
     postgres_integrity_ok,
 )
+from trading_bot.core.migration import migrate_sqlite_to_postgres
 from trading_bot.core.experiments import ExperimentRegistry
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.serialization import utc_now
@@ -124,11 +125,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--db",
-        default=os.getenv("TRADING_DB_PATH", "var/trading.db"),
+        default=os.getenv("TRADING_DB_PATH") or "var/trading.db",
         help="SQLite research database path or configured pooled PostgreSQL URL",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init", help="initialize the local point-in-time database")
+    migrate = subparsers.add_parser(
+        "migrate-sqlite",
+        help="one-time fail-closed import of legacy SQLite evidence into PostgreSQL",
+    )
+    migrate.add_argument("--source", required=True, help="read-only legacy SQLite database path")
     subparsers.add_parser("skills", help="list specialist and control skills")
     subparsers.add_parser("demo", help="run a safe end-to-end replay and shadow order")
     subparsers.add_parser("doctor", help="check the database and safety defaults")
@@ -383,6 +389,15 @@ def _initialize(path: DatabaseLocation) -> tuple[PointInTimeStore, ExperimentReg
     PaperControlStore(path).initialize()
     PaperExecutionLedger(path).initialize()
     return store, registry, audit
+
+
+def _migrate_sqlite(path: DatabaseLocation, source: Path) -> int:
+    _initialize(path)
+    digest, counts = migrate_sqlite_to_postgres(source, path)
+    rendered_counts = " ".join(f"{table}={count}" for table, count in sorted(counts.items()))
+    print(f"Migrated immutable SQLite evidence source_sha256={digest}")
+    print(rendered_counts)
+    return 0
 
 
 def _risk_signer() -> ApprovalSigner:
@@ -1166,6 +1181,8 @@ def main() -> int:
             _initialize(path)
             print(f"Initialized {database_display_name(path)}")
             return 0
+        if args.command == "migrate-sqlite":
+            return _migrate_sqlite(path, Path(args.source))
         if args.command == "skills":
             for skill in SKILLS:
                 print(f"{skill.name}: {skill.purpose} [{', '.join(skill.permissions)}]")
