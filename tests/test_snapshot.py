@@ -1,4 +1,5 @@
 import hashlib
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
-from trading_bot.core.snapshot import create_verified_snapshot
+from trading_bot.core.snapshot import create_verified_snapshot, snapshot_manifest
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.ingestion.runner import (
     IngestionRunLedger,
@@ -80,6 +81,21 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(
             summary.sha256, hashlib.sha256(self.output.read_bytes()).hexdigest()
         )
+        manifest = snapshot_manifest(summary)
+        self.assertEqual(manifest["format"], "trading-bot-sqlite-snapshot")
+        self.assertEqual(manifest["version"], 1)
+        self.assertEqual(manifest["file"], "snapshot.db")
+        self.assertEqual(manifest["sha256"], summary.sha256)
+        self.assertEqual(
+            manifest["counts"],
+            {
+                "market_events": 1,
+                "audit_records": 0,
+                "ingestion_runs": 1,
+                "paper_records": 0,
+            },
+        )
+        json.dumps(manifest)
         with sqlite3.connect(self.output) as connection:
             self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM market_events").fetchone()[0], 1)

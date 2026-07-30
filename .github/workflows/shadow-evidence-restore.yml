@@ -1,0 +1,98 @@
+name: Verify shadow evidence restore
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Immutable shadow-evidence release tag to restore
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Validate immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^shadow-evidence-[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]]
+          gh api \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            | jq -e '.draft == false and .immutable == true'
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release download "$RELEASE_TAG" --dir archive
+
+      - name: Verify and reconstruct archive
+        run: |
+          (
+            cd archive
+            sha256sum --check SHA256SUMS
+          )
+          mkdir -p restore
+          if [[ -f archive/shadow-evidence.sqlite.zst ]]; then
+            cp archive/shadow-evidence.sqlite.zst restore/shadow-evidence.sqlite.zst
+          else
+            parts=(archive/shadow-evidence.sqlite.zst.part-*)
+            test -f "${parts[0]}"
+            cat "${parts[@]}" > restore/shadow-evidence.sqlite.zst
+          fi
+          zstd --decompress restore/shadow-evidence.sqlite.zst \
+            -o restore/shadow-evidence.sqlite
+          expected_sha="$(jq -r '.sha256' archive/snapshot-manifest.json)"
+          actual_sha="$(sha256sum restore/shadow-evidence.sqlite | cut -d ' ' -f 1)"
+          test "$expected_sha" = "$actual_sha"
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Rebuild and verify database
+        run: |
+          trading-bot --db restore/shadow-evidence.sqlite snapshot \
+            --output restore/rebuilt.sqlite \
+            --json-output restore/rebuilt-manifest.json
+          trading-bot --db restore/rebuilt.sqlite doctor
+          jq -S '{counts, paper_control_ready}' archive/snapshot-manifest.json \
+            > restore/expected-summary.json
+          jq -S '{counts, paper_control_ready}' restore/rebuilt-manifest.json \
+            > restore/rebuilt-summary.json
+          diff -u restore/expected-summary.json restore/rebuilt-summary.json
+          jq -n \
+            --arg release_tag "${{ inputs.release_tag }}" \
+            --arg restored_sha256 "$(
+              sha256sum restore/shadow-evidence.sqlite | cut -d ' ' -f 1
+            )" \
+            --arg verified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+              release_tag: $release_tag,
+              restored_sha256: $restored_sha256,
+              verified_at: $verified_at,
+              integrity: "ok",
+              audit_and_evaluation_decisions: "verified"
+            }' > restore/restore-report.json
+
+      - name: Upload restore proof
+        uses: actions/upload-artifact@v7
+        with:
+          name: shadow-evidence-restore-${{ github.run_id }}
+          path: |
+            restore/restore-report.json
+            restore/rebuilt-manifest.json
+          if-no-files-found: error
+          retention-days: 90

@@ -130,6 +130,55 @@ class ShadowWorkflowTests(unittest.TestCase):
 
         self.assertEqual(deployment, workflow)
 
+    def test_archive_is_manual_full_fidelity_and_release_write_isolated(self):
+        workflow = Path(".github/workflows/shadow-evidence-archive.yml").read_text()
+
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("ARCHIVE-EVIDENCE", workflow)
+        self.assertIn("actions/cache/restore@v5", workflow)
+        self.assertIn("fail-on-cache-miss: true", workflow)
+        self.assertIn("--json-output archive/snapshot-manifest.json", workflow)
+        self.assertIn("zstd -T0 -19", workflow)
+        self.assertIn("split --bytes=1900000000", workflow)
+        self.assertIn("sha256sum > SHA256SUMS", workflow)
+        self.assertIn("retention-days: 1", workflow)
+        build = workflow.split("  build:", 1)[1].split("  release:", 1)[0]
+        release = workflow.split("  release:", 1)[1]
+        self.assertIn("contents: read", build)
+        self.assertNotIn("contents: write", build)
+        self.assertIn("contents: write", release)
+        self.assertIn("gh release create", release)
+        self.assertIn("--draft", release)
+        self.assertIn("gh release edit", release)
+        self.assertIn(".immutable == true", release)
+
+    def test_restore_requires_immutable_release_and_rebuilds_database(self):
+        workflow = Path(".github/workflows/shadow-evidence-restore.yml").read_text()
+
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertIn(".immutable == true", workflow)
+        self.assertIn("sha256sum --check SHA256SUMS", workflow)
+        self.assertIn("shadow-evidence.sqlite.zst.part-*", workflow)
+        self.assertIn("zstd --decompress", workflow)
+        self.assertIn("--output restore/rebuilt.sqlite", workflow)
+        self.assertIn("trading-bot --db restore/rebuilt.sqlite doctor", workflow)
+        self.assertIn("retention-days: 90", workflow)
+
+    def test_archive_and_restore_deployment_templates_match(self):
+        archive = Path(".github/workflows/shadow-evidence-archive.yml").read_text()
+        archive_deployment = Path(
+            "deployment/shadow-evidence-archive.github-actions.yml"
+        ).read_text()
+        restore = Path(".github/workflows/shadow-evidence-restore.yml").read_text()
+        restore_deployment = Path(
+            "deployment/shadow-evidence-restore.github-actions.yml"
+        ).read_text()
+
+        self.assertEqual(archive_deployment, archive)
+        self.assertEqual(restore_deployment, restore)
+
 
 if __name__ == "__main__":
     unittest.main()

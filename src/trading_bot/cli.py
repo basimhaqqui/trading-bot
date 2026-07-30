@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -21,7 +22,7 @@ from trading_bot.core.migration import migrate_sqlite_to_postgres
 from trading_bot.core.experiments import ExperimentRegistry
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.serialization import utc_now
-from trading_bot.core.snapshot import create_verified_snapshot
+from trading_bot.core.snapshot import create_verified_snapshot, snapshot_manifest
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.data.collectors import (
     AlpacaOptionsCollector,
@@ -356,6 +357,9 @@ def _parser() -> argparse.ArgumentParser:
         "snapshot", help="create an atomic, integrity-checked database snapshot"
     )
     snapshot.add_argument("--output", required=True, help="snapshot database output path")
+    snapshot.add_argument(
+        "--json-output", help="optional machine-readable snapshot manifest path"
+    )
     collect = subparsers.add_parser("collect", help="collect and store read-only venue data")
     collect.add_argument("venue", choices=("kalshi", "coinbase", "alpaca"))
     collect.add_argument(
@@ -834,7 +838,9 @@ def _shadow_health(path: DatabaseLocation, args: argparse.Namespace) -> int:
     return 0 if report.healthy else 1
 
 
-def _snapshot(path: DatabaseLocation, output: Path) -> int:
+def _snapshot(
+    path: DatabaseLocation, output: Path, json_output: Path | None = None
+) -> int:
     if is_postgres_location(path):
         raise ValueError("SQLite snapshots are unavailable for PostgreSQL persistence")
     summary = create_verified_snapshot(path, output)
@@ -846,6 +852,12 @@ def _snapshot(path: DatabaseLocation, output: Path) -> int:
         f"ingestion_runs={summary.ingestion_runs} paper_records={summary.paper_records} "
         f"paper_ready={str(summary.paper_control_ready).lower()}"
     )
+    if json_output is not None:
+        json_output.parent.mkdir(parents=True, exist_ok=True)
+        json_output.write_text(
+            json.dumps(snapshot_manifest(summary), sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     return 0
 
 
@@ -1227,7 +1239,11 @@ def main() -> int:
         if args.command == "shadow-health":
             return _shadow_health(path, args)
         if args.command == "snapshot":
-            return _snapshot(path, Path(args.output))
+            return _snapshot(
+                path,
+                Path(args.output),
+                Path(args.json_output) if args.json_output else None,
+            )
         if args.command == "economic-report":
             return _economic_report(path, args)
         if args.command == "daily-scorecard":
