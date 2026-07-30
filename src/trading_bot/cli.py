@@ -133,6 +133,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init", help="initialize the local point-in-time database")
+    subparsers.add_parser(
+        "persistence-check",
+        help="verify the configured durable PostgreSQL evidence store is reachable",
+    )
     migrate = subparsers.add_parser(
         "migrate-sqlite",
         help="one-time fail-closed import of legacy SQLite evidence into PostgreSQL",
@@ -401,6 +405,16 @@ def _initialize(path: DatabaseLocation) -> tuple[PointInTimeStore, ExperimentReg
     PaperControlStore(path).initialize()
     PaperExecutionLedger(path).initialize()
     return store, registry, audit
+
+
+def _persistence_check(path: DatabaseLocation) -> int:
+    """Fail before collection when the durable evidence store cannot be reached."""
+    if not is_postgres_location(path):
+        raise RuntimeError("persistent shadow evidence requires a PostgreSQL database URL")
+    if not postgres_integrity_ok(path):
+        raise RuntimeError("persistent shadow evidence database integrity check failed")
+    print("Persistent shadow evidence database: reachable")
+    return 0
 
 
 def _migrate_sqlite(path: DatabaseLocation, source: Path) -> int:
@@ -1202,6 +1216,8 @@ def main() -> int:
             _initialize(path)
             print(f"Initialized {database_display_name(path)}")
             return 0
+        if args.command == "persistence-check":
+            return _persistence_check(path)
         if args.command == "migrate-sqlite":
             return _migrate_sqlite(path, Path(args.source))
         if args.command == "skills":
