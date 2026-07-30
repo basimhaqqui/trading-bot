@@ -52,6 +52,7 @@ jobs:
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 
       - name: Enforce rapid ingestion health
+        if: always()
         run: >-
           trading-bot shadow-health
           --plan config/rapid-shadow-ingestion.json
