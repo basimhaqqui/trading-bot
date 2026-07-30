@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 14
     env:
       TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}
-      TRADING_DB_SCHEMA: shadow_evidence_v1
+      TRADING_DB_SCHEMA: shadow_evidence_v2
     steps:
       - uses: actions/checkout@v6
 
