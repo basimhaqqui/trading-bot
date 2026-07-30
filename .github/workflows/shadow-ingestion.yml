@@ -41,6 +41,7 @@ jobs:
           fi
 
       - name: Verify persistent shadow database
+        id: persistence_check
         run: trading-bot persistence-check
 
       - name: Validate observation plan
@@ -65,7 +66,10 @@ jobs:
             --costs config/economic-costs.json
 
       - name: Enforce ingestion health
-        if: always()
+        # A failed preflight means the durable store is unavailable, so a second
+        # connection cannot yield a trustworthy health report. Still attest health
+        # after any later collection failure once preflight has succeeded.
+        if: ${{ always() && steps.persistence_check.outcome == 'success' }}
         run: |
           trading-bot shadow-health \
             --plan config/shadow-ingestion.json \
@@ -73,7 +77,9 @@ jobs:
             --format text
 
       - name: Publish operational scorecard
-        if: always()
+        # The scorecard is derived from durable evidence and must not be generated
+        # from an unavailable store.
+        if: ${{ always() && steps.persistence_check.outcome == 'success' }}
         run: |
           trading-bot daily-scorecard \
             --plan config/shadow-ingestion.json \
