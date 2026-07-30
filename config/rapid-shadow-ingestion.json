@@ -6,7 +6,7 @@
       "venue": "kalshi",
       "dataset": "markets",
       "status": "open",
-      "limit": 1000,
+      "limit": 250,
       "cursor_mode": "resume",
       "mve_filter": "exclude"
     },
