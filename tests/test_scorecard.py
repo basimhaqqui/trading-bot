@@ -846,6 +846,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(scorecard.fast_prediction_eligibility.active_markets, 1)
         self.assertEqual(scorecard.fast_prediction_eligibility.documented_close_policy_markets, 0)
         self.assertEqual(scorecard.fast_prediction_eligibility.early_close_enabled_markets, 0)
+        self.assertEqual(scorecard.fast_prediction_eligibility.early_close_disabled_markets, 0)
         self.assertEqual(scorecard.fast_prediction_eligibility.missing_close_policy_markets, 1)
         self.assertEqual(scorecard.fast_prediction_eligibility.invalid_close_policy_markets, 0)
 

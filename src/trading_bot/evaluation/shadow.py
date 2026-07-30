@@ -93,6 +93,7 @@ class FastPredictionEligibilitySummary:
     active_markets: int
     documented_close_policy_markets: int
     early_close_enabled_markets: int
+    early_close_disabled_markets: int
     missing_close_policy_markets: int
     invalid_close_policy_markets: int
     short_timer_markets: int
@@ -747,6 +748,7 @@ class ShadowResearchRunner:
         active_markets = 0
         documented_close_policy_markets = 0
         early_close_enabled_markets = 0
+        early_close_disabled_markets = 0
         missing_close_policy_markets = 0
         invalid_close_policy_markets = 0
         short_timer_markets = 0
@@ -789,6 +791,8 @@ class ShadowResearchRunner:
             documented_close_policy_markets += 1
             if close_constraint:
                 early_close_enabled_markets += 1
+            else:
+                early_close_disabled_markets += 1
             timer = rule.payload.get("settlement_timer_seconds")
             if isinstance(timer, bool) or (
                 isinstance(timer, float)
@@ -853,6 +857,7 @@ class ShadowResearchRunner:
             active_markets,
             documented_close_policy_markets,
             early_close_enabled_markets,
+            early_close_disabled_markets,
             missing_close_policy_markets,
             invalid_close_policy_markets,
             short_timer_markets,

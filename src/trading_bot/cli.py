@@ -726,6 +726,8 @@ def _print_shadow_research(
         f"{fast_prediction_eligibility.documented_close_policy_markets} "
         f"early_close_enabled="
         f"{fast_prediction_eligibility.early_close_enabled_markets} "
+        f"early_close_disabled="
+        f"{fast_prediction_eligibility.early_close_disabled_markets} "
         f"short_timer={fast_prediction_eligibility.short_timer_markets} "
         f"horizon={fast_prediction_eligibility.horizon_markets} "
         f"executable={fast_prediction_eligibility.executable_markets} "
