@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from collections.abc import Iterator, Sequence
@@ -10,6 +11,8 @@ from urllib.parse import urlsplit
 
 
 DatabaseLocation = str | Path
+DEFAULT_POSTGRES_SCHEMA = "public"
+_POSTGRES_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 class DatabaseConfigurationError(ValueError):
@@ -34,6 +37,13 @@ def is_postgres_location(location: DatabaseLocation) -> bool:
 
 def database_display_name(location: DatabaseLocation) -> str:
     return "PostgreSQL" if is_postgres_location(location) else str(location)
+
+
+def postgres_schema() -> str:
+    schema = os.getenv("TRADING_DB_SCHEMA", DEFAULT_POSTGRES_SCHEMA)
+    if not _POSTGRES_IDENTIFIER.fullmatch(schema):
+        raise DatabaseConfigurationError("shadow database schema name is invalid")
+    return schema
 
 
 def _validate_postgres_location(location: str) -> None:
@@ -130,11 +140,14 @@ def connect_database(location: DatabaseLocation) -> Iterator[sqlite3.Connection 
         import psycopg
     except ImportError as exc:  # pragma: no cover - exercised in deployment
         raise RuntimeError("PostgreSQL persistence requires psycopg") from exc
-    raw_connection = psycopg.connect(
-        dsn,
-        row_factory=_postgres_row_factory,
-        prepare_threshold=None,
-    )
+    connection_options: dict[str, Any] = {
+        "row_factory": _postgres_row_factory,
+        "prepare_threshold": None,
+    }
+    schema = postgres_schema()
+    if schema != DEFAULT_POSTGRES_SCHEMA:
+        connection_options["options"] = f"-csearch_path={schema}"
+    raw_connection = psycopg.connect(dsn, **connection_options)
     connection = PostgresConnection(raw_connection)
     try:
         yield connection
@@ -144,6 +157,22 @@ def connect_database(location: DatabaseLocation) -> Iterator[sqlite3.Connection 
         raise
     finally:
         connection.close()
+
+
+def bootstrap_postgres_schema(location: DatabaseLocation) -> None:
+    if not is_postgres_location(location):
+        raise ValueError("schema bootstrap requires PostgreSQL")
+    dsn = str(location)
+    _validate_postgres_location(dsn)
+    schema = postgres_schema()
+    if schema == DEFAULT_POSTGRES_SCHEMA:
+        return
+    try:
+        import psycopg
+    except ImportError as exc:  # pragma: no cover - exercised in deployment
+        raise RuntimeError("PostgreSQL persistence requires psycopg") from exc
+    with psycopg.connect(dsn, prepare_threshold=None) as connection:
+        connection.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
 
 
 def initialize_schema(

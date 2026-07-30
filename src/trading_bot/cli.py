@@ -12,6 +12,7 @@ from trading_bot.agents.hypotheses import BASELINE_HYPOTHESES
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.database import (
     DatabaseLocation,
+    bootstrap_postgres_schema,
     database_display_name,
     is_postgres_location,
     postgres_integrity_ok,
@@ -392,6 +393,7 @@ def _initialize(path: DatabaseLocation) -> tuple[PointInTimeStore, ExperimentReg
 
 
 def _migrate_sqlite(path: DatabaseLocation, source: Path) -> int:
+    bootstrap_postgres_schema(path)
     _initialize(path)
     digest, counts = migrate_sqlite_to_postgres(source, path)
     rendered_counts = " ".join(f"{table}={count}" for table, count in sorted(counts.items()))
