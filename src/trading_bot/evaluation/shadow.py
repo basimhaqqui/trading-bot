@@ -95,6 +95,7 @@ class ShadowResearchResult:
     scoring: ForecastScoringSummary
     report: WalkForwardReport
     locked_decisions: tuple[EvaluationDecision, ...]
+    fast_prediction_eligibility: FastPredictionEligibilitySummary
 
 
 @dataclass(frozen=True)
@@ -166,20 +167,37 @@ class ShadowResearchRunner:
             for item in report.groups
             if item.locked_status is EdgeStatus.REJECTED
         )
+        # The rapid CLI publishes this funnel as telemetry and then generates
+        # forecasts from the identical immutable observation set. Reuse the
+        # selection so a bounded rapid cycle does not perform the same full
+        # point-in-time scan twice.
+        fast_prediction_candidates, fast_prediction_eligibility = (
+            self._fast_prediction_selection(as_of)
+        )
         generation = self.generate_forecasts(
             as_of=as_of,
             rejected_specialists=rejected_specialists,
+            fast_prediction_candidates=fast_prediction_candidates,
         )
-        return ShadowResearchResult(generation, scoring, report, locked_decisions)
+        return ShadowResearchResult(
+            generation,
+            scoring,
+            report,
+            locked_decisions,
+            fast_prediction_eligibility,
+        )
 
     def generate_forecasts(
         self,
         *,
         as_of: datetime,
         rejected_specialists: frozenset[str] | None = None,
+        fast_prediction_candidates: list[_Candidate] | None = None,
     ) -> ForecastGenerationSummary:
         as_of = require_aware(as_of, "as_of")
-        candidates = self._candidates(as_of)
+        candidates = self._candidates(
+            as_of, fast_prediction_candidates=fast_prediction_candidates
+        )
         replay = ReplayEngine(self.store)
         appended = 0
         existing = 0
@@ -314,7 +332,12 @@ class ShadowResearchRunner:
             tuple(errors),
         )
 
-    def _candidates(self, as_of: datetime) -> tuple[_Candidate, ...]:
+    def _candidates(
+        self,
+        as_of: datetime,
+        *,
+        fast_prediction_candidates: list[_Candidate] | None = None,
+    ) -> tuple[_Candidate, ...]:
         candidates: list[_Candidate] = []
         candidates.extend(self._breakout_candidates(as_of))
         candidates.extend(self._intraday_momentum_candidates(as_of))
@@ -322,7 +345,11 @@ class ShadowResearchRunner:
         candidates.extend(self._perpetual_candidates(as_of))
         candidates.extend(self._option_candidates(as_of))
         candidates.extend(self._prediction_candidates(as_of))
-        candidates.extend(self._fast_prediction_candidates(as_of))
+        candidates.extend(
+            fast_prediction_candidates
+            if fast_prediction_candidates is not None
+            else self._fast_prediction_candidates(as_of)
+        )
         return tuple(candidates)
 
     def _breakout_candidates(self, as_of: datetime) -> list[_Candidate]:

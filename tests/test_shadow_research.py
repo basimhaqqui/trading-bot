@@ -37,15 +37,25 @@ class ShadowResearchTests(unittest.TestCase):
 
     def test_fast_prediction_funnel_output_is_explicitly_non_evidence(self):
         result = self.runner.run(as_of=self.now)
-        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
 
         with patch("builtins.print") as output:
-            _print_shadow_research(result, eligibility)
+            _print_shadow_research(result)
 
         rendered = "\n".join(str(call.args[0]) for call in output.call_args_list)
         self.assertIn("fast prediction eligibility (pre-generation; not evidence)", rendered)
         self.assertIn("documented_close_policy=0", rendered)
         self.assertIn("selected=0", rendered)
+
+    def test_run_reuses_fast_prediction_selection_for_telemetry_and_generation(self):
+        with patch.object(
+            self.runner,
+            "_fast_prediction_selection",
+            wraps=self.runner._fast_prediction_selection,
+        ) as selection:
+            result = self.runner.run(as_of=self.now)
+
+        self.assertEqual(selection.call_count, 1)
+        self.assertEqual(result.fast_prediction_eligibility.selected_events, 0)
 
     def event(
         self,

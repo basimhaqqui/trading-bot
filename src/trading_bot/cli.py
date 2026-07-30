@@ -94,7 +94,6 @@ from trading_bot.evaluation.reporting import (
     WalkForwardReport,
 )
 from trading_bot.evaluation.shadow import (
-    FastPredictionEligibilitySummary,
     ShadowResearchResult,
     ShadowResearchRunner,
 )
@@ -663,11 +662,8 @@ def _shadow_cycle(
             print(f"  next_cursor={record.next_cursor}")
     research_runner = ShadowResearchRunner(store, audit)
     research_as_of = utc_now()
-    fast_prediction_eligibility = research_runner.fast_prediction_eligibility(
-        as_of=research_as_of
-    )
     research = research_runner.run(as_of=research_as_of)
-    _print_shadow_research(research, fast_prediction_eligibility)
+    _print_shadow_research(research)
     _print_locked_decisions(research.locked_decisions)
     _print_shadow_report(research.report, min_outcomes=30)
     failed = any(record.status is IngestionRunStatus.FAILED for record in records)
@@ -678,11 +674,8 @@ def _shadow_research(path: DatabaseLocation) -> int:
     store, _, audit = _initialize(path)
     research_runner = ShadowResearchRunner(store, audit)
     research_as_of = utc_now()
-    fast_prediction_eligibility = research_runner.fast_prediction_eligibility(
-        as_of=research_as_of
-    )
     result = research_runner.run(as_of=research_as_of)
-    _print_shadow_research(result, fast_prediction_eligibility)
+    _print_shadow_research(result)
     _print_locked_decisions(result.locked_decisions)
     _print_shadow_report(result.report, min_outcomes=30)
     return 1 if result.generation.errors or result.scoring.errors else 0
@@ -699,10 +692,10 @@ def _print_locked_decisions(decisions: tuple[EvaluationDecision, ...]) -> None:
 
 def _print_shadow_research(
     result: ShadowResearchResult,
-    fast_prediction_eligibility: FastPredictionEligibilitySummary,
 ) -> None:
     generation = result.generation
     scoring = result.scoring
+    fast_prediction_eligibility = result.fast_prediction_eligibility
     print(
         "shadow forecasts: "
         f"candidates={generation.candidates} new={generation.appended} "
