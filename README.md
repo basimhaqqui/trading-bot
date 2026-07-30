@@ -40,6 +40,7 @@ Project build: `[##################] 18/18 (100%)`
 - Readiness reporting that refuses repeated polls as independent funding observations and rejects post-settlement books as calibration labels.
 - Automatic, capped shadow candidate selection for perpetual funding, option volatility, and prediction-market calibration.
 - A separately preregistered fast-settlement prediction lane that clusters related Kalshi strikes by event ticker and scores only public finalization timestamps inside each forecast's immutable expected-expiration-to-settlement-deadline window.
+- Fast-settlement prediction v6 records Kalshi's latest possible expiry without treating it as a short-horizon promise; it accepts only same-event finalizations from forecast creation through a fixed expected-expiration, settlement-timer, and one-hour deadline. Delayed or missing labels remain unscored and are never recategorized as evidence.
 - Deterministic forecast deduplication and outcome matching that cannot score a label before it became available.
 - Next-distinct-period funding scores, full-horizon option volatility scores, and public-settlement prediction scores.
 - Outcome-clustered walk-forward reports that keep repeated forecasts for one result from inflating sample size.

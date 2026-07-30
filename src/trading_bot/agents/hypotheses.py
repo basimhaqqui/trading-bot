@@ -13,6 +13,7 @@ PREDICTION_FAST_V2_PROPOSED_AT = datetime(2026, 7, 27, tzinfo=timezone.utc)
 PREDICTION_FAST_V3_PROPOSED_AT = datetime(2026, 7, 27, 6, 25, tzinfo=timezone.utc)
 PREDICTION_FAST_V4_PROPOSED_AT = datetime(2026, 7, 28, 7, 5, tzinfo=timezone.utc)
 PREDICTION_FAST_V5_PROPOSED_AT = datetime(2026, 7, 30, 5, 0, tzinfo=timezone.utc)
+PREDICTION_FAST_V6_PROPOSED_AT = datetime(2026, 7, 30, 9, 0, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -292,6 +293,46 @@ PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_FAST_SETTLEMENT_V6_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-fast-settlement-baseline-v6",
+    family="prediction-market-fast-settlement",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "The executable probability of a short-dated, active binary market is a fixed "
+        "baseline for a fast finalization. This lane is intentionally unadjusted. "
+        "Kalshi documents latest_expiration_time as the latest possible expiration, not "
+        "a short-horizon promise, so it is recorded for audit but does not exclude a "
+        "market whose expected expiration is 20 minutes to two hours away. Each forecast "
+        "accepts only its own event's public finalization from forecast creation through "
+        "the pre-recorded expected-expiration plus settlement-timer plus one-hour "
+        "fast-finalization deadline. Late or absent labels remain unscored and cannot be "
+        "reclassified into evidence."
+    ),
+    target="binary finalized settlement probability for a pre-registered fast-finalization window",
+    horizon="20 minutes to two hours until expected expiration; finalization no later than one hour plus the recorded settlement timer afterward",
+    information_set=(
+        "current executable yes and no bids",
+        "Kalshi event ticker, expected expiration time, and latest expiration time",
+        "active market status and documented boolean can_close_early policy",
+        "a settlement timer no longer than fifteen minutes",
+        "a pre-declared maximum executable spread of ten cents",
+        "one public market-list page per cycle with the returned cursor resumed next cycle",
+        "the pre-recorded expected-expiration plus settlement-timer plus one-hour label deadline",
+        "Kalshi Market Lifecycle documentation: https://docs.kalshi.com/getting_started/market_lifecycle",
+        "Kalshi Market Settlement documentation: https://docs.kalshi.com/getting_started/market_settlement",
+    ),
+    invalidation_conditions=(
+        "market probabilities do not beat the fixed neutral benchmark out of sample",
+        "results disappear when one event ticker or resolution period is removed",
+        "the fixed fast-finalization window leaves insufficient independent outcomes",
+        "late or missing label rates indicate that the lane is not operationally representative",
+        "cursor order or page coverage explains the apparent performance",
+        "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_FAST_V6_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -389,6 +430,7 @@ BASELINE_HYPOTHESES = (
     PREDICTION_FAST_SETTLEMENT_V3_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V6_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
@@ -425,6 +467,9 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
     ),
     PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS.hypothesis_id: (
         "prediction-market-fast-settlement-baseline-v5",
+    ),
+    PREDICTION_FAST_SETTLEMENT_V6_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v6",
     ),
     CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
         "crypto-range-breakout-continuation-baseline",
