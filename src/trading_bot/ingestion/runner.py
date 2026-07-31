@@ -41,7 +41,10 @@ from trading_bot.data.collectors import (
     SolanaMintAuthorityCollector,
 )
 from trading_bot.data.schemas import CollectionBatch, DataQualityDiagnostic, DiagnosticSeverity
-from trading_bot.evaluation.outcomes import forecast_outcome_target_time
+from trading_bot.evaluation.outcomes import (
+    forecast_label_deadline,
+    forecast_outcome_target_time,
+)
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
 
 
@@ -468,6 +471,24 @@ class ShadowIngestionRunner:
                 latest_rules[event.instrument_id] = event
         def priority(item: tuple[Forecast, datetime]) -> tuple[object, ...]:
             forecast, target_time = item
+            label_deadline = forecast_label_deadline(forecast)
+            # Fast-lane labels are only useful while their immutable
+            # finalization window remains open. Prioritize them over an
+            # unbounded legacy overdue queue so the fixed 100-ticker request
+            # cap cannot erase prospective rapid evidence.
+            if (
+                target_time <= as_of
+                and label_deadline is not None
+                and label_deadline > target_time
+                and as_of <= label_deadline
+            ):
+                return (
+                    0,
+                    label_deadline,
+                    target_time,
+                    forecast.generated_at,
+                    forecast.forecast_id,
+                )
             rule = latest_rules.get(forecast.instrument_id)
             checked_at = (
                 rule.available_at
@@ -479,7 +500,7 @@ class ShadowIngestionRunner:
                 # receipt exists after the forecast target, prefer the overdue
                 # ticker so a 100-ticker API cap cannot permanently starve it.
                 return (
-                    0,
+                    1,
                     checked_at is not None,
                     checked_at or target_time,
                     target_time,
@@ -487,7 +508,7 @@ class ShadowIngestionRunner:
                     forecast.forecast_id,
                 )
             return (
-                1,
+                2,
                 target_time,
                 forecast.generated_at,
                 forecast.forecast_id,
