@@ -56,6 +56,10 @@ class CollectorTests(unittest.TestCase):
                 "O" * 32
             )
         )
+        # Character and text-length checks alone accept these, but neither
+        # base58 value decodes to Solana's required 32-byte public-key form.
+        self.assertFalse(SolanaMintAuthorityCollector.is_valid_mint_address("z" * 32))
+        self.assertFalse(SolanaMintAuthorityCollector.is_valid_mint_address("z" * 44))
 
     def test_dexscreener_solana_profiles_are_point_in_time_and_safety_blocked(self):
         raw_profile = {
@@ -213,8 +217,8 @@ class CollectorTests(unittest.TestCase):
 
     def test_solana_holder_activity_is_aggregate_finalized_and_never_a_safety_pass(self):
         mint = "11111111111111111111111111111111"
-        account_one = "22222222222222222222222222222222"
-        account_two = "33333333333333333333333333333333"
+        account_one = "11111111111111111111111111111112"
+        account_two = "11111111111111111111111111111113"
         transport = FakeSolanaTransport(
             {
                 "getTokenLargestAccounts": {
@@ -264,7 +268,7 @@ class CollectorTests(unittest.TestCase):
 
     def test_solana_holder_activity_fails_closed_on_unparseable_signature_response(self):
         mint = "11111111111111111111111111111111"
-        account = "22222222222222222222222222222222"
+        account = "11111111111111111111111111111112"
         transport = FakeSolanaTransport(
             {
                 "getTokenLargestAccounts": {
@@ -406,7 +410,7 @@ class CollectorTests(unittest.TestCase):
     def test_solana_holder_reads_are_paced_without_widening_the_bound(self, sleep):
         addresses = (
             "11111111111111111111111111111111",
-            "22222222222222222222222222222222",
+            "11111111111111111111111111111112",
         )
         transport = FakeSolanaTransport(
             {
