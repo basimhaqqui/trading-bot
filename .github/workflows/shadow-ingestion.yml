@@ -62,6 +62,26 @@ jobs:
             echo "Restore the configured persistent database before a later scheduled observation can count as prospective evidence."
           } >> "$GITHUB_STEP_SUMMARY"
 
+          mkdir -p var/reports
+          observed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > var/reports/persistence-unavailable.json <<EOF
+          {
+            "observed_at": "${observed_at}",
+            "status": "persistent_preflight_failed",
+            "evidence_collected": false,
+            "retrospective_replacement_used": false
+          }
+          EOF
+
+      - name: Upload persistent-evidence availability attestation
+        if: ${{ always() && hashFiles('var/reports/persistence-unavailable.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-persistence-unavailable-${{ github.run_id }}
+          path: var/reports/persistence-unavailable.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Validate observation plan
         run: trading-bot shadow-cycle --plan config/shadow-ingestion.json --validate-only
 
