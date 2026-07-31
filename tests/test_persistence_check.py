@@ -24,6 +24,24 @@ class PersistenceCheckTests(unittest.TestCase):
 
         integrity.assert_called_once_with("postgresql://configured")
 
+    def test_redacts_connection_details_when_neon_quota_is_exhausted(self):
+        with (
+            patch("trading_bot.cli.is_postgres_location", return_value=True),
+            patch(
+                "trading_bot.cli.postgres_integrity_ok",
+                side_effect=RuntimeError(
+                    "connection to server at 'ep-example-pooler.c-4.aws.neon.tech' "
+                    "failed: Your project has exceeded the data transfer quota"
+                ),
+            ),
+            self.assertRaisesRegex(
+                RuntimeError, "Neon data-transfer quota exceeded"
+            ) as raised,
+        ):
+            _persistence_check("postgresql://configured")
+
+        self.assertNotIn("ep-example-pooler", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
