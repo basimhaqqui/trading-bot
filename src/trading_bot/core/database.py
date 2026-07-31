@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from contextvars import ContextVar
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -13,10 +15,46 @@ from urllib.parse import urlsplit
 DatabaseLocation = str | Path
 DEFAULT_POSTGRES_SCHEMA = "public"
 _POSTGRES_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+_POSTGRES_EGRESS_METER: ContextVar["PostgresEgressMeter | None"] = ContextVar(
+    "postgres_egress_meter", default=None
+)
 
 
 class DatabaseConfigurationError(ValueError):
     pass
+
+
+@dataclass
+class PostgresEgressMeter:
+    """Conservative client-side estimate of PostgreSQL result-set egress."""
+
+    bytes_received: int = 0
+    rows_received: int = 0
+
+    def record_row(self, names: Sequence[str], values: Sequence[Any]) -> None:
+        # Add fixed framing overhead per value and row so the report never
+        # presents decoded payload bytes as exact wire accounting.
+        self.rows_received += 1
+        self.bytes_received += 48
+        for name, value in zip(names, values):
+            self.bytes_received += len(name.encode("utf-8")) + 16
+            if value is None:
+                self.bytes_received += 4
+            elif isinstance(value, bytes):
+                self.bytes_received += len(value)
+            else:
+                self.bytes_received += len(str(value).encode("utf-8"))
+
+
+@contextmanager
+def measure_postgres_egress() -> Iterator[PostgresEgressMeter]:
+    """Measure PostgreSQL rows decoded during one command without altering storage."""
+    meter = PostgresEgressMeter()
+    token = _POSTGRES_EGRESS_METER.set(meter)
+    try:
+        yield meter
+    finally:
+        _POSTGRES_EGRESS_METER.reset(token)
 
 
 class _PostgresRow(dict[str, Any]):
@@ -66,12 +104,14 @@ def _validate_postgres_location(location: str) -> None:
         raise DatabaseConfigurationError("shadow database URL must require TLS")
 
 
-def _postgres_row_factory(cursor: Any):
+def _postgres_row_factory(cursor: Any, meter: PostgresEgressMeter | None = None):
     if cursor.description is None:
         return lambda values: values
     names = [column.name for column in cursor.description]
 
     def make_row(values: Sequence[Any]) -> _PostgresRow:
+        if meter is not None:
+            meter.record_row(names, values)
         return _PostgresRow(names, values)
 
     return make_row
@@ -160,9 +200,10 @@ def connect_database(location: DatabaseLocation) -> Iterator[sqlite3.Connection 
     except ImportError as exc:  # pragma: no cover - exercised in deployment
         raise RuntimeError("PostgreSQL persistence requires psycopg") from exc
     schema = postgres_schema()
+    meter = _POSTGRES_EGRESS_METER.get()
     raw_connection = psycopg.connect(
         dsn,
-        row_factory=_postgres_row_factory,
+        row_factory=lambda cursor: _postgres_row_factory(cursor, meter),
         prepare_threshold=None,
     )
     connection = PostgresConnection(raw_connection, schema)

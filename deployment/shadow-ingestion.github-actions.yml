@@ -30,6 +30,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore disposable full working set
+        uses: actions/cache/restore@v5
+        with:
+          path: var/full-working-set.db
+          key: full-working-set-v1-${{ github.run_id }}
+          restore-keys: full-working-set-v1-
+
       - name: Install
         run: pip install -e .
 
@@ -65,7 +72,21 @@ jobs:
         run: >-
           trading-bot shadow-cycle
           --plan config/shadow-ingestion.json
+          --working-set-cache var/full-working-set.db
+          --max-neon-egress-bytes 1600000
+          --egress-report var/reports/full-neon-egress.md
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+
+      - name: Publish full-cycle egress accounting
+        if: ${{ always() && hashFiles('var/reports/full-neon-egress.md') != '' }}
+        run: cat var/reports/full-neon-egress.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save disposable full working set
+        if: ${{ always() && steps.persistence_check.outcome == 'success' && hashFiles('var/full-working-set.db') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: var/full-working-set.db
+          key: full-working-set-v1-${{ github.run_id }}
 
       - name: Reconcile Alpaca paper account
         if: ${{ env.ALPACA_MARKET_DATA_KEY_ID != '' && env.ALPACA_MARKET_DATA_SECRET_KEY != '' }}

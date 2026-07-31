@@ -10,6 +10,7 @@ from trading_bot.core.database import (
     connect_database,
     database_display_name,
     is_postgres_location,
+    measure_postgres_egress,
     PostgresConnection,
     postgres_schema,
 )
@@ -145,6 +146,17 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(row[2], "book")
         self.assertEqual(row["available_at"], "book")
         self.assertEqual(row["payload_json"], "quote")
+
+    def test_postgres_egress_meter_counts_decoded_result_rows(self):
+        class QueryCursor:
+            description = (SimpleNamespace(name="payload_json"),)
+
+        with measure_postgres_egress() as meter:
+            row = _postgres_row_factory(QueryCursor(), meter)(('{"price":1}',))
+
+        self.assertEqual(row["payload_json"], '{"price":1}')
+        self.assertEqual(meter.rows_received, 1)
+        self.assertGreater(meter.bytes_received, len('{"price":1}'))
 
     def test_pooled_neon_urls_select_postgres_without_exposing_the_url(self):
         self.assertTrue(is_postgres_location(POOLER_URL))

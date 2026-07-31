@@ -16,6 +16,7 @@ from trading_bot.core.database import (
     bootstrap_postgres_schema,
     database_display_name,
     is_postgres_location,
+    measure_postgres_egress,
     postgres_integrity_ok,
 )
 from trading_bot.core.migration import migrate_sqlite_to_postgres
@@ -171,6 +172,19 @@ def _parser() -> argparse.ArgumentParser:
         choices=tuple(item.value for item in ShadowResearchProfile),
         default=ShadowResearchProfile.FULL.value,
         help="bound research work to the observation lane (default: full)",
+    )
+    shadow_cycle.add_argument(
+        "--working-set-cache",
+        help="disposable local SQLite working set; canonical evidence remains PostgreSQL",
+    )
+    shadow_cycle.add_argument(
+        "--max-neon-egress-bytes",
+        type=int,
+        help="fail the cycle after the conservative PostgreSQL result-set egress budget",
+    )
+    shadow_cycle.add_argument(
+        "--egress-report",
+        help="write the PostgreSQL egress accounting markdown report",
     )
     subparsers.add_parser(
         "shadow-research",
@@ -659,7 +673,12 @@ def _shadow_cycle(
     validate_only: bool = False,
     observation_origin: str = IngestionObservationOrigin.MANUAL.value,
     research_profile: str = ShadowResearchProfile.FULL.value,
+    working_set_cache: Path | None = None,
+    max_neon_egress_bytes: int | None = None,
+    egress_report: Path | None = None,
 ) -> int:
+    if max_neon_egress_bytes is not None and max_neon_egress_bytes < 1:
+        raise ValueError("max_neon_egress_bytes must be positive")
     plan = load_plan(plan_path)
     if validate_only:
         for job in plan.jobs:
@@ -671,58 +690,87 @@ def _shadow_cycle(
                 state = "enabled"
             print(f"{job.job_id}: {job.venue}/{job.dataset} {state}")
         return 0
-    store, _, audit = _initialize(path)
-    ledger = IngestionRunLedger(path)
-    records = ShadowIngestionRunner(store, ledger, audit=audit).run_plan(
-        plan,
-        observation_origin=IngestionObservationOrigin(observation_origin),
-    )
-    for record in records:
-        requested = (
-            ""
-            if record.requested_instruments is None
-            else f" requested={record.requested_instruments}"
+    with measure_postgres_egress() as egress:
+        store, _, audit = _initialize(path)
+        working_set = None
+        research_store = store
+        if working_set_cache is not None:
+            if not is_postgres_location(path):
+                raise ValueError("working-set cache requires canonical PostgreSQL persistence")
+            working_set = PointInTimeStore(working_set_cache)
+            working_set.initialize()
+            research_store = working_set
+        ledger = IngestionRunLedger(path)
+        records = ShadowIngestionRunner(
+            store, ledger, audit=audit, working_set=working_set
+        ).run_plan(
+            plan,
+            observation_origin=IngestionObservationOrigin(observation_origin),
         )
-        print(
-            f"{record.job_id}: {record.status.value} "
-            f"instruments={record.instruments_seen}{requested} events={record.events_inserted} "
-            f"diagnostics={len(record.diagnostics)}"
+        for record in records:
+            requested = (
+                ""
+                if record.requested_instruments is None
+                else f" requested={record.requested_instruments}"
+            )
+            print(
+                f"{record.job_id}: {record.status.value} "
+                f"instruments={record.instruments_seen}{requested} events={record.events_inserted} "
+                f"diagnostics={len(record.diagnostics)}"
+            )
+            if record.error_type:
+                print(f"  {record.error_type}: {record.error_message}")
+            if record.request_cursor:
+                print(f"  request_cursor={record.request_cursor}")
+            if record.next_cursor:
+                print(f"  next_cursor={record.next_cursor}")
+        profile = ShadowResearchProfile(research_profile)
+        rapid_crypto_symbols = tuple(
+            job.symbol
+            for job in plan.jobs
+            if (
+                job.enabled
+                and job.venue == "coinbase"
+                and job.dataset == "candles"
+                and job.granularity == "FIFTEEN_MINUTE"
+                and job.symbol is not None
+            )
         )
-        if record.error_type:
-            print(f"  {record.error_type}: {record.error_message}")
-        if record.request_cursor:
-            print(f"  request_cursor={record.request_cursor}")
-        if record.next_cursor:
-            print(f"  next_cursor={record.next_cursor}")
-    profile = ShadowResearchProfile(research_profile)
-    rapid_crypto_symbols = tuple(
-        job.symbol
-        for job in plan.jobs
-        if (
-            job.enabled
-            and job.venue == "coinbase"
-            and job.dataset == "candles"
-            and job.granularity == "FIFTEEN_MINUTE"
-            and job.symbol is not None
-        )
-    )
-    research_runner = ShadowResearchRunner(
-        store,
-        audit,
-        ShadowResearchConfig(
-            profile=profile,
-            rapid_crypto_symbols=(
-                rapid_crypto_symbols if profile is ShadowResearchProfile.RAPID else ()
+        research_runner = ShadowResearchRunner(
+            research_store,
+            audit,
+            ShadowResearchConfig(
+                profile=profile,
+                rapid_crypto_symbols=(
+                    rapid_crypto_symbols if profile is ShadowResearchProfile.RAPID else ()
+                ),
             ),
-        ),
+            source_store=store,
+        )
+        research_as_of = utc_now()
+        research = research_runner.run(as_of=research_as_of)
+        _print_shadow_research(research)
+        _print_locked_decisions(research.locked_decisions)
+        _print_shadow_report(research.report, min_outcomes=30)
+        failed = any(record.status is IngestionRunStatus.FAILED for record in records)
+        exit_code = 1 if failed or research.generation.errors or research.scoring.errors else 0
+    report = (
+        "## PostgreSQL egress\n\n"
+        f"Conservative decoded result-set estimate: **{egress.bytes_received:,} bytes** "
+        f"across **{egress.rows_received:,} rows**."
     )
-    research_as_of = utc_now()
-    research = research_runner.run(as_of=research_as_of)
-    _print_shadow_research(research)
-    _print_locked_decisions(research.locked_decisions)
-    _print_shadow_report(research.report, min_outcomes=30)
-    failed = any(record.status is IngestionRunStatus.FAILED for record in records)
-    return 1 if failed or research.generation.errors or research.scoring.errors else 0
+    if max_neon_egress_bytes is not None:
+        report += f" Budget: **{max_neon_egress_bytes:,} bytes**."
+        if egress.bytes_received > max_neon_egress_bytes:
+            report += " **Exceeded**."
+            exit_code = 1
+        else:
+            report += " Within budget."
+    print(report.replace("\n", " "))
+    if egress_report is not None:
+        egress_report.parent.mkdir(parents=True, exist_ok=True)
+        egress_report.write_text(report + "\n", encoding="utf-8")
+    return exit_code
 
 
 def _shadow_research(path: DatabaseLocation) -> int:
@@ -1283,6 +1331,11 @@ def main() -> int:
                 validate_only=args.validate_only,
                 observation_origin=args.observation_origin,
                 research_profile=args.research_profile,
+                working_set_cache=(
+                    Path(args.working_set_cache) if args.working_set_cache else None
+                ),
+                max_neon_egress_bytes=args.max_neon_egress_bytes,
+                egress_report=Path(args.egress_report) if args.egress_report else None,
             )
         if args.command == "shadow-research":
             return _shadow_research(path)
