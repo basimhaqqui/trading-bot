@@ -25,6 +25,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV4Specialist,
     FastPredictionSettlementV5Specialist,
     FastPredictionSettlementV6Specialist,
+    FastPredictionSettlementV7Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
@@ -312,7 +313,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV6Specialist().agent_id,
+                FastPredictionSettlementV7Specialist().agent_id,
             )
         )
 
@@ -885,7 +886,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV6Specialist()
+        specialist = FastPredictionSettlementV7Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -1237,6 +1238,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV4Specialist.agent_id,
             FastPredictionSettlementV5Specialist.agent_id,
             FastPredictionSettlementV6Specialist.agent_id,
+            FastPredictionSettlementV7Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1249,6 +1251,7 @@ class ShadowResearchRunner:
                 FastPredictionSettlementV4Specialist.agent_id,
                 FastPredictionSettlementV5Specialist.agent_id,
                 FastPredictionSettlementV6Specialist.agent_id,
+                FastPredictionSettlementV7Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1286,8 +1289,15 @@ class ShadowResearchRunner:
                 in {
                     FastPredictionSettlementV5Specialist.agent_id,
                     FastPredictionSettlementV6Specialist.agent_id,
+                    FastPredictionSettlementV7Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
+            ):
+                continue
+            if (
+                forecast.specialist_id == FastPredictionSettlementV7Specialist.agent_id
+                and event.event_time < target_time
+                and forecast.values.get("can_close_early") is not True
             ):
                 continue
             return score_binary_forecast(
