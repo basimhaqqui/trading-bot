@@ -54,7 +54,10 @@ from trading_bot.evaluation.scoring import (
     score_return_forecast,
     score_volatility_forecast,
 )
-from trading_bot.evaluation.outcomes import forecast_outcome_target_time
+from trading_bot.evaluation.outcomes import (
+    forecast_label_deadline,
+    forecast_outcome_target_time,
+)
 from trading_bot.evaluation.checkpoint import checkpointed_walk_forward_report
 from trading_bot.evaluation.reporting import (
     DECISION_SCOPE_AGGREGATE,
@@ -343,17 +346,17 @@ class ShadowResearchRunner:
                     continue
                 score = self._match_score(forecast, as_of)
                 if score is None:
-                    target_time = forecast_outcome_target_time(forecast)
-                    if target_time is None:
+                    label_deadline = forecast_label_deadline(forecast)
+                    if label_deadline is None:
                         quarantined += 1
-                    elif target_time > as_of:
+                    elif label_deadline > as_of:
                         not_due += 1
-                        if next_due_at is None or target_time < next_due_at:
-                            next_due_at = target_time
+                        if next_due_at is None or label_deadline < next_due_at:
+                            next_due_at = label_deadline
                     else:
                         due_unmatched += 1
-                        if oldest_due_at is None or target_time < oldest_due_at:
-                            oldest_due_at = target_time
+                        if oldest_due_at is None or label_deadline < oldest_due_at:
+                            oldest_due_at = label_deadline
                     continue
                 matched += 1
                 if self.audit.append_forecast_score(score):

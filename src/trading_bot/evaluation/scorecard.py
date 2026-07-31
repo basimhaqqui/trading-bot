@@ -26,7 +26,7 @@ from trading_bot.evaluation.economics import (
     build_economic_report,
 )
 from trading_bot.evaluation.checkpoint import checkpointed_walk_forward_report
-from trading_bot.evaluation.outcomes import forecast_outcome_target_time
+from trading_bot.evaluation.outcomes import forecast_label_deadline
 from trading_bot.evaluation.reporting import (
     EdgeStatus,
     EvaluationGateConfig,
@@ -1170,9 +1170,7 @@ def _outcome_queue(
     unscored = [
         forecast for forecast in forecasts if forecast.forecast_id not in scored_ids
     ]
-    targets = [
-        (forecast, forecast_outcome_target_time(forecast)) for forecast in unscored
-    ]
+    targets = [(forecast, forecast_label_deadline(forecast)) for forecast in unscored]
     future = [target for _, target in targets if target is not None and target > as_of]
     due = [target for _, target in targets if target is not None and target <= as_of]
     quarantined = sum(target is None for _, target in targets)
@@ -1248,7 +1246,7 @@ def _strategy_outcome_queues(
     for forecast in forecasts:
         if forecast.forecast_id in scored_ids:
             continue
-        target = forecast_outcome_target_time(forecast)
+        target = forecast_label_deadline(forecast)
         if target is None:
             continue
         key = (forecast.specialist_id, forecast.kind.value)
