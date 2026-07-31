@@ -966,6 +966,98 @@ class IngestionTests(unittest.TestCase):
         self.assertIn("KXCAP-100", tickers)
         self.assertNotIn("KXCAP-099", tickers)
 
+    def test_forecast_outcome_polling_prioritizes_open_fast_label_window(self):
+        audit = AuditLedger(self.db_path)
+        audit.initialize()
+        runner = ShadowIngestionRunner(self.store, self.ledger, audit=audit)
+        for index in range(100):
+            symbol = f"KXSTALE-{index:03d}"
+            instrument = Instrument(
+                f"kalshi:prediction:{symbol}",
+                "kalshi",
+                symbol,
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(instrument)
+            target_time = self.now - timedelta(days=2, minutes=index)
+            rule = MarketEvent(
+                f"rule-{symbol}",
+                MarketEventType.CONTRACT_RULE,
+                "kalshi",
+                instrument.instrument_id,
+                target_time - timedelta(minutes=1),
+                target_time - timedelta(minutes=1),
+                "fixture",
+                {},
+                ingested_at=target_time - timedelta(minutes=1),
+            )
+            self.store.append_event(rule)
+            audit.append_forecast(
+                Forecast(
+                    f"forecast-{symbol}",
+                    "prediction-market-calibration-baseline-v3",
+                    "baseline-v3",
+                    instrument.instrument_id,
+                    ForecastKind.BINARY_PROBABILITY,
+                    target_time - timedelta(hours=1),
+                    target_time,
+                    {"probability": 0.5, "target_time": target_time.isoformat()},
+                    0.25,
+                    {"market_spread": 0.1},
+                    (rule.event_id,),
+                    ("fixture",),
+                )
+            )
+
+        fast = Instrument(
+            "kalshi:prediction:KXFAST-WINDOW",
+            "kalshi",
+            "KXFAST-WINDOW",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(fast)
+        target_time = self.now - timedelta(minutes=10)
+        fast_rule = MarketEvent(
+            "rule-KXFAST-WINDOW",
+            MarketEventType.CONTRACT_RULE,
+            "kalshi",
+            fast.instrument_id,
+            target_time - timedelta(minutes=1),
+            target_time - timedelta(minutes=1),
+            "fixture",
+            {},
+            ingested_at=target_time - timedelta(minutes=1),
+        )
+        self.store.append_event(fast_rule)
+        audit.append_forecast(
+            Forecast(
+                "forecast-KXFAST-WINDOW",
+                "prediction-market-fast-settlement-baseline-v6",
+                "baseline-v6",
+                fast.instrument_id,
+                ForecastKind.BINARY_PROBABILITY,
+                target_time - timedelta(hours=1),
+                target_time,
+                {
+                    "probability": 0.5,
+                    "target_time": target_time.isoformat(),
+                    "settlement_deadline": (self.now + timedelta(minutes=20)).isoformat(),
+                },
+                0.25,
+                {"market_spread": 0.1},
+                (fast_rule.event_id,),
+                ("fixture",),
+            )
+        )
+
+        tickers = runner._pending_prediction_tickers(self.now, 100)
+
+        self.assertEqual(len(tickers), 100)
+        self.assertIn("KXFAST-WINDOW", tickers)
+        self.assertEqual(sum(ticker.startswith("KXSTALE-") for ticker in tickers), 99)
+
     def test_checked_in_option_plan_pairs_breadth_and_repeat_cohorts(self):
         plan = load_plan("config/shadow-ingestion.json")
         option_jobs = [job for job in plan.jobs if job.dataset == "chain"]
