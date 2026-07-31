@@ -346,7 +346,7 @@ class IngestionTests(unittest.TestCase):
 
     def test_solana_transfer_control_reads_upgrade_v1_before_refreshing_v2(self):
         v1_mint = "11111111111111111111111111111111"
-        v2_mint = "22222222222222222222222222222222"
+        v2_mint = "11111111111111111111111111111112"
         for mint, source in (
             (v1_mint, "solana-rpc-get-multiple-accounts-finalized-v1"),
             (v2_mint, "solana-rpc-get-multiple-accounts-finalized-v2"),
@@ -361,7 +361,7 @@ class IngestionTests(unittest.TestCase):
             self.store.register_instrument(instrument)
             self.store.append_event(
                 MarketEvent(
-                    f"authority-{mint[0]}",
+                    f"authority-{mint[-1]}",
                     MarketEventType.ONCHAIN_STATE,
                     "solana",
                     instrument.instrument_id,
