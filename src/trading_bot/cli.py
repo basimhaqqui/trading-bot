@@ -411,7 +411,18 @@ def _persistence_check(path: DatabaseLocation) -> int:
     """Fail before collection when the durable evidence store cannot be reached."""
     if not is_postgres_location(path):
         raise RuntimeError("persistent shadow evidence requires a PostgreSQL database URL")
-    if not postgres_integrity_ok(path):
+    try:
+        integrity_ok = postgres_integrity_ok(path)
+    except Exception as exc:
+        # Driver errors can include endpoint addresses and connection attempts.
+        # The scheduled research workflow needs an actionable but non-sensitive
+        # operator message instead.
+        if "data transfer quota" in str(exc).casefold():
+            raise RuntimeError(
+                "persistent shadow evidence unavailable: Neon data-transfer quota exceeded"
+            ) from None
+        raise RuntimeError("persistent shadow evidence database is unavailable") from None
+    if not integrity_ok:
         raise RuntimeError("persistent shadow evidence database integrity check failed")
     print("Persistent shadow evidence database: reachable")
     return 0
