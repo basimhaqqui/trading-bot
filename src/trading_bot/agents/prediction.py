@@ -15,6 +15,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V4_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V6_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V7_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -566,6 +567,14 @@ class FastPredictionSettlementV6Specialist:
         )
 
 
+class FastPredictionSettlementV7Specialist(FastPredictionSettlementV6Specialist):
+    """Preregistered successor that rejects policy-inconsistent early labels."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v7"
+    model_version = "baseline-v7"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V7_HYPOTHESIS
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -689,5 +698,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV4Specialist.agent_id,
         FastPredictionSettlementV5Specialist.agent_id,
         FastPredictionSettlementV6Specialist.agent_id,
+        FastPredictionSettlementV7Specialist.agent_id,
     }
 )
