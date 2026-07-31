@@ -391,12 +391,31 @@ class PointInTimeStore:
             raise KeyError(instrument_id)
         return self._instrument_from_row(row)
 
-    def instruments(self, *, asset_class: AssetClass | None = None) -> list[Instrument]:
+    def instruments(
+        self,
+        *,
+        asset_class: AssetClass | None = None,
+        venue: str | None = None,
+        symbols: Iterable[str] | None = None,
+    ) -> list[Instrument]:
+        selected_symbols = tuple(dict.fromkeys(symbols or ()))
+        if symbols is not None and not selected_symbols:
+            return []
         query = "SELECT * FROM instruments"
-        parameters: tuple[str, ...] = ()
+        clauses: list[str] = []
+        parameters: list[str] = []
         if asset_class is not None:
-            query += " WHERE asset_class = ?"
-            parameters = (asset_class.value,)
+            clauses.append("asset_class = ?")
+            parameters.append(asset_class.value)
+        if venue is not None:
+            clauses.append("venue = ?")
+            parameters.append(venue)
+        if selected_symbols:
+            placeholders = ", ".join("?" for _ in selected_symbols)
+            clauses.append(f"symbol IN ({placeholders})")
+            parameters.extend(selected_symbols)
+        if clauses:
+            query += f" WHERE {' AND '.join(clauses)}"
         query += " ORDER BY instrument_id"
         with self.connect() as connection:
             rows = connection.execute(query, parameters).fetchall()

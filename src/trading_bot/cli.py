@@ -683,10 +683,27 @@ def _shadow_cycle(
             print(f"  request_cursor={record.request_cursor}")
         if record.next_cursor:
             print(f"  next_cursor={record.next_cursor}")
+    profile = ShadowResearchProfile(research_profile)
+    rapid_crypto_symbols = tuple(
+        job.symbol
+        for job in plan.jobs
+        if (
+            job.enabled
+            and job.venue == "coinbase"
+            and job.dataset == "candles"
+            and job.granularity == "FIFTEEN_MINUTE"
+            and job.symbol is not None
+        )
+    )
     research_runner = ShadowResearchRunner(
         store,
         audit,
-        ShadowResearchConfig(profile=ShadowResearchProfile(research_profile)),
+        ShadowResearchConfig(
+            profile=profile,
+            rapid_crypto_symbols=(
+                rapid_crypto_symbols if profile is ShadowResearchProfile.RAPID else ()
+            ),
+        ),
     )
     research_as_of = utc_now()
     research = research_runner.run(as_of=research_as_of)
