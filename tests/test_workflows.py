@@ -32,8 +32,15 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("Require persistent shadow database", workflow)
         self.assertIn("Verify persistent shadow database", workflow)
         self.assertIn("trading-bot persistence-check", workflow)
-        self.assertNotIn("actions/cache/", workflow)
+        self.assertIn("Restore disposable rapid working set", workflow)
+        self.assertIn("actions/cache/restore@v5", workflow)
+        self.assertIn("Save disposable rapid working set", workflow)
+        self.assertIn("actions/cache/save@v5", workflow)
+        self.assertIn("var/rapid-working-set.db", workflow)
         self.assertNotIn("var/trading.db", workflow)
+        self.assertIn("--max-neon-egress-bytes 1600000", workflow)
+        self.assertIn("--egress-report var/reports/rapid-neon-egress.md", workflow)
+        self.assertIn("Publish rapid egress accounting", workflow)
         self.assertIn("config/rapid-shadow-ingestion.json", workflow)
         self.assertEqual(plan["name"], "public-shadow-observation")
         self.assertEqual(
@@ -117,7 +124,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn(expected_binding, workflow)
         self.assertIn(expected_binding, deployment)
 
-    def test_full_workflow_requires_neon_and_never_falls_back_to_cache(self):
+    def test_full_workflow_requires_neon_and_uses_only_a_disposable_working_cache(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
         self.assertIn("TRADING_DB_PATH: ${{ secrets.SHADOW_DATABASE_URL }}", workflow)
@@ -126,9 +133,15 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("SHADOW_DATABASE_URL must be configured", workflow)
         self.assertIn("Verify persistent shadow database", workflow)
         self.assertIn("trading-bot persistence-check", workflow)
-        self.assertNotIn("actions/cache/", workflow)
+        self.assertIn("Restore disposable full working set", workflow)
+        self.assertIn("actions/cache/restore@v5", workflow)
+        self.assertIn("Save disposable full working set", workflow)
+        self.assertIn("actions/cache/save@v5", workflow)
+        self.assertIn("var/full-working-set.db", workflow)
         self.assertNotIn("shadow-database", workflow)
         self.assertNotIn("var/trading.db", workflow)
+        self.assertIn("--max-neon-egress-bytes 1600000", workflow)
+        self.assertIn("--egress-report var/reports/full-neon-egress.md", workflow)
 
     def test_scorecards_are_retained_even_when_a_continuity_gate_fails(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()

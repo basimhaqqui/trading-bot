@@ -281,8 +281,13 @@ class PointInTimeStore:
         instrument_id: str | None = None,
         instrument_ids: Iterable[str] | None = None,
         event_type: MarketEventType | None = None,
+        available_since: datetime | None = None,
     ) -> list[MarketEvent]:
         as_of = require_aware(as_of, "as_of")
+        if available_since is not None:
+            available_since = require_aware(available_since, "available_since")
+            if available_since > as_of:
+                raise ValueError("available_since cannot be after as_of")
         selected_ids = tuple(dict.fromkeys(instrument_ids or ()))
         if instrument_id is not None and instrument_ids is not None:
             raise ValueError("instrument_id and instrument_ids are mutually exclusive")
@@ -290,6 +295,9 @@ class PointInTimeStore:
             return []
         clauses = ["available_at <= ?"]
         parameters: list[str] = [as_of.isoformat()]
+        if available_since is not None:
+            clauses.append("available_at >= ?")
+            parameters.append(available_since.isoformat())
         if instrument_id:
             clauses.append("instrument_id = ?")
             parameters.append(instrument_id)
@@ -308,6 +316,23 @@ class PointInTimeStore:
         with self.connect() as connection:
             rows = connection.execute(query, parameters).fetchall()
         return [self._event_from_row(row) for row in rows]
+
+    def has_events(self, event_ids: Iterable[str]) -> bool:
+        """Check canonical evidence IDs without transferring their payloads."""
+        selected = tuple(dict.fromkeys(event_ids))
+        if not selected:
+            return True
+        found: set[str] = set()
+        with self.connect() as connection:
+            for offset in range(0, len(selected), BATCH_LOOKUP_SIZE):
+                chunk = selected[offset : offset + BATCH_LOOKUP_SIZE]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"SELECT event_id FROM market_events WHERE event_id IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(str(row["event_id"]) for row in rows)
+        return len(found) == len(selected)
 
     def latest_events(
         self,

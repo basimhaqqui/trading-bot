@@ -85,6 +85,36 @@ class PointInTimeStoreTests(unittest.TestCase):
                 instrument_ids=(other.instrument_id,),
             )
 
+    def test_events_can_be_read_from_a_bounded_availability_window(self):
+        self.store.append_event(self.event)
+        later = MarketEvent(
+            "event-2",
+            MarketEventType.TRADE,
+            self.instrument.venue,
+            self.instrument.instrument_id,
+            self.event_time + timedelta(minutes=1),
+            self.available_at + timedelta(minutes=1),
+            "test",
+            {"price": 101.0},
+            sequence=2,
+            ingested_at=self.available_at + timedelta(minutes=1),
+        )
+        self.store.append_event(later)
+
+        selected = self.store.events_available_at(
+            later.available_at,
+            available_since=later.available_at,
+        )
+
+        self.assertEqual([item.event_id for item in selected], [later.event_id])
+        self.assertTrue(self.store.has_events((self.event.event_id, later.event_id)))
+        self.assertFalse(self.store.has_events((self.event.event_id, "missing")))
+        with self.assertRaisesRegex(ValueError, "cannot be after"):
+            self.store.events_available_at(
+                self.available_at,
+                available_since=later.available_at,
+            )
+
     def test_instruments_can_be_read_for_a_bounded_venue_cohort(self):
         other = Instrument(
             "coinbase:ETH-USD", "coinbase", "ETH-USD", AssetClass.CRYPTO, "USD"

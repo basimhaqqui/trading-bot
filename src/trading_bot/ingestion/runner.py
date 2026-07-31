@@ -228,11 +228,13 @@ class ShadowIngestionRunner:
         ledger: IngestionRunLedger,
         collector_factory: CollectorFactory | None = None,
         audit: AuditLedger | None = None,
+        working_set: PointInTimeStore | None = None,
     ) -> None:
         self.store = store
         self.ledger = ledger
         self.collector_factory = collector_factory or default_collector_factory
         self.audit = audit
+        self.working_set = working_set
 
     def run_plan(
         self,
@@ -375,6 +377,11 @@ class ShadowIngestionRunner:
                     f"next_cursor must be a string no longer than {MAX_CURSOR_LENGTH} characters"
                 )
             instruments_seen, events_inserted = self.store.append_batch(batch)
+            # This is a disposable local read cache. Canonical persistence always
+            # precedes it, so an eviction can delay research but cannot replace or
+            # fabricate durable evidence.
+            if self.working_set is not None:
+                self.working_set.append_batch(batch)
             status = (
                 IngestionRunStatus.DEGRADED
                 if any(item.severity is not DiagnosticSeverity.INFO for item in batch.diagnostics)
@@ -435,17 +442,19 @@ class ShadowIngestionRunner:
             target_time = forecast_outcome_target_time(forecast)
             if target_time is not None:
                 forecasts_with_targets.append((forecast, target_time))
-        instruments = {
-            item.instrument_id: item
-            for item in self.store.instruments(asset_class=AssetClass.PREDICTION)
-        }
+        forecast_instrument_ids = tuple(
+            dict.fromkeys(forecast.instrument_id for forecast, _ in forecasts_with_targets)
+        )
         latest_rules: dict[str, MarketEvent] = {}
-        valid_settlements: set[str] = set()
         for event in self.store.events_available_at(
-            as_of, event_type=MarketEventType.CONTRACT_RULE
+            as_of,
+            instrument_ids=forecast_instrument_ids,
+            event_type=MarketEventType.CONTRACT_RULE,
+            # A receipt after an overdue target changes poll priority. Older
+            # receipts cannot make a current request more urgent, so this
+            # bounded window avoids re-reading the full Kalshi rule history.
+            available_since=as_of - timedelta(days=1),
         ):
-            if event.instrument_id not in instruments:
-                continue
             current = latest_rules.get(event.instrument_id)
             if current is None or (
                 event.available_at,
@@ -457,12 +466,6 @@ class ShadowIngestionRunner:
                 current.event_id,
             ):
                 latest_rules[event.instrument_id] = event
-        for event in self.store.events_available_at(
-            as_of, event_type=MarketEventType.SETTLEMENT
-        ):
-            if str(event.payload.get("result", "")).lower() in {"yes", "no"}:
-                valid_settlements.add(event.instrument_id)
-
         def priority(item: tuple[Forecast, datetime]) -> tuple[object, ...]:
             forecast, target_time = item
             rule = latest_rules.get(forecast.instrument_id)
@@ -495,21 +498,20 @@ class ShadowIngestionRunner:
         selected: list[str] = []
         selected_instruments: set[str] = set()
         for forecast, _ in forecasts_with_targets:
-            if (
-                forecast.instrument_id in selected_instruments
-                or forecast.instrument_id in valid_settlements
-            ):
+            if forecast.instrument_id in selected_instruments:
                 continue
-            instrument = instruments.get(forecast.instrument_id)
             rule = latest_rules.get(forecast.instrument_id)
-            if instrument is None or instrument.venue != "kalshi" or rule is None:
+            prefix = "kalshi:prediction:"
+            if not forecast.instrument_id.startswith(prefix):
                 continue
-            if rule.payload.get("mve_collection_ticker") or instrument.symbol.startswith(
-                "KXMVE"
+            ticker = forecast.instrument_id.removeprefix(prefix)
+            if (
+                (rule is not None and rule.payload.get("mve_collection_ticker"))
+                or ticker.startswith("KXMVE")
             ):
                 continue
-            selected.append(instrument.symbol)
-            selected_instruments.add(instrument.instrument_id)
+            selected.append(ticker)
+            selected_instruments.add(forecast.instrument_id)
             if len(selected) >= min(limit, 100):
                 break
         return tuple(selected)

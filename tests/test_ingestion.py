@@ -180,6 +180,40 @@ class IngestionTests(unittest.TestCase):
                 limit=351,
             )
 
+    def test_working_set_is_copied_only_after_canonical_batch_persists(self):
+        working_set = PointInTimeStore(self.path / "working-set.db")
+        working_set.initialize()
+        instrument = Instrument(
+            "coinbase:product:BTC-USD", "coinbase", "BTC-USD", AssetClass.CRYPTO, "USD"
+        )
+        event = MarketEvent(
+            "working-set-event",
+            MarketEventType.BAR,
+            "coinbase",
+            instrument.instrument_id,
+            self.now,
+            self.now,
+            "fixture",
+            {"close": "100", "granularity_seconds": 900},
+            ingested_at=self.now,
+        )
+        collector = FakeCoinbaseCollector(CollectionBatch("coinbase", (instrument,), (event,)))
+        runner = ShadowIngestionRunner(
+            self.store,
+            self.ledger,
+            collector_factory=lambda venue, dataset: collector,
+            working_set=working_set,
+        )
+
+        record = runner.run_plan(
+            ShadowIngestionPlan("fixture", (ObservationJob("btc", "coinbase", "products"),)),
+            collected_at=self.now,
+        )[0]
+
+        self.assertIs(record.status, IngestionRunStatus.SUCCESS)
+        self.assertTrue(self.store.has_events((event.event_id,)))
+        self.assertTrue(working_set.has_events((event.event_id,)))
+
     def test_dexscreener_profiles_are_bounded_and_need_no_symbol(self):
         job = ObservationJob(
             "solana-profiles",

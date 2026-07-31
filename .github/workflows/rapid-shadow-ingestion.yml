@@ -29,6 +29,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore disposable rapid working set
+        uses: actions/cache/restore@v5
+        with:
+          path: var/rapid-working-set.db
+          key: rapid-working-set-v1-${{ github.run_id }}
+          restore-keys: rapid-working-set-v1-
+
       - name: Install
         run: pip install -e .
 
@@ -65,7 +72,21 @@ jobs:
           trading-bot shadow-cycle
           --plan config/rapid-shadow-ingestion.json
           --research-profile rapid
+          --working-set-cache var/rapid-working-set.db
+          --max-neon-egress-bytes 1600000
+          --egress-report var/reports/rapid-neon-egress.md
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+
+      - name: Publish rapid egress accounting
+        if: ${{ always() && hashFiles('var/reports/rapid-neon-egress.md') != '' }}
+        run: cat var/reports/rapid-neon-egress.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save disposable rapid working set
+        if: ${{ always() && steps.persistence_check.outcome == 'success' && hashFiles('var/rapid-working-set.db') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: var/rapid-working-set.db
+          key: rapid-working-set-v1-${{ github.run_id }}
 
       - name: Enforce rapid ingestion health
         # A failed preflight means the durable store is unavailable, so a second

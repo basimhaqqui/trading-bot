@@ -167,10 +167,12 @@ class ShadowResearchRunner:
         store: PointInTimeStore,
         audit: AuditLedger,
         config: ShadowResearchConfig | None = None,
+        source_store: PointInTimeStore | None = None,
     ) -> None:
         self.store = store
         self.audit = audit
         self.config = config or ShadowResearchConfig()
+        self.source_store = source_store or store
 
     def run(self, *, as_of: datetime) -> ShadowResearchResult:
         as_of = require_aware(as_of, "as_of")
@@ -245,6 +247,8 @@ class ShadowResearchRunner:
                 if not result.forecasts:
                     skipped += 1
                     continue
+                if not self.source_store.has_events(result.forecasts[0].evidence_event_ids):
+                    raise RuntimeError("forecast evidence is absent from canonical persistence")
                 if self.audit.append_forecast(result.forecasts[0]):
                     appended += 1
                 else:
