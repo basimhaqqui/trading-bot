@@ -85,6 +85,25 @@ class PointInTimeStoreTests(unittest.TestCase):
                 instrument_ids=(other.instrument_id,),
             )
 
+    def test_instruments_can_be_read_for_a_bounded_venue_cohort(self):
+        other = Instrument(
+            "coinbase:ETH-USD", "coinbase", "ETH-USD", AssetClass.CRYPTO, "USD"
+        )
+        different_venue = Instrument(
+            "other:BTC-USD", "other", "BTC-USD", AssetClass.CRYPTO, "USD"
+        )
+        self.store.register_instrument(other)
+        self.store.register_instrument(different_venue)
+
+        selected = self.store.instruments(
+            asset_class=AssetClass.CRYPTO,
+            venue="coinbase",
+            symbols=("ETH-USD",),
+        )
+
+        self.assertEqual([item.instrument_id for item in selected], [other.instrument_id])
+        self.assertEqual(self.store.instruments(symbols=()), [])
+
     def test_identical_event_is_idempotent(self):
         self.assertTrue(self.store.append_event(self.event))
         self.assertFalse(self.store.append_event(self.event))

@@ -138,12 +138,19 @@ class ShadowResearchConfig:
     max_prediction_forecasts: int = 25
     max_prediction_history: int = 250
     profile: ShadowResearchProfile = ShadowResearchProfile.FULL
+    rapid_crypto_symbols: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.max_prediction_forecasts < 1 or self.max_prediction_history < 1:
             raise ValueError("shadow research limits must be positive")
         if not isinstance(self.profile, ShadowResearchProfile):
             raise ValueError("shadow research profile must be supported")
+        if any(not symbol for symbol in self.rapid_crypto_symbols):
+            raise ValueError("rapid crypto symbols must be non-empty")
+        if len(set(self.rapid_crypto_symbols)) != len(self.rapid_crypto_symbols):
+            raise ValueError("rapid crypto symbols must be unique")
+        if self.profile is ShadowResearchProfile.RAPID and not self.rapid_crypto_symbols:
+            raise ValueError("rapid research requires an explicit crypto cohort")
 
 
 @dataclass(frozen=True)
@@ -423,7 +430,7 @@ class ShadowResearchRunner:
     def _intraday_momentum_candidates(self, as_of: datetime) -> list[_Candidate]:
         specialist = CryptoIntradayMomentumSpecialist()
         candidates: list[_Candidate] = []
-        for instrument in self.store.instruments(asset_class=AssetClass.CRYPTO):
+        for instrument in self._intraday_crypto_instruments():
             bars = self.store.events_available_at(
                 as_of,
                 instrument_id=instrument.instrument_id,
@@ -453,7 +460,7 @@ class ShadowResearchRunner:
         """Select one pre-assigned instrument per target, before signal evaluation."""
         specialist = CryptoIntradayMomentumV2Specialist()
         candidates: list[_Candidate] = []
-        for instrument in self.store.instruments(asset_class=AssetClass.CRYPTO):
+        for instrument in self._intraday_crypto_instruments():
             if instrument.symbol.upper() not in specialist.assignment_universe:
                 continue
             bars = self.store.events_available_at(
@@ -487,6 +494,16 @@ class ShadowResearchRunner:
                 _Candidate(specialist, instrument.instrument_id, (), decision_time)
             )
         return candidates
+
+    def _intraday_crypto_instruments(self) -> list[Instrument]:
+        """Read only the scheduled rapid cohort during the fifteen-minute cycle."""
+        if self.config.profile is ShadowResearchProfile.RAPID:
+            return self.store.instruments(
+                asset_class=AssetClass.CRYPTO,
+                venue="coinbase",
+                symbols=self.config.rapid_crypto_symbols,
+            )
+        return self.store.instruments(asset_class=AssetClass.CRYPTO)
 
     def _perpetual_candidates(self, as_of: datetime) -> list[_Candidate]:
         specialist = PerpetualFundingBasisSpecialist()

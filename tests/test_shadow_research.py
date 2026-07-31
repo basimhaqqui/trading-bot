@@ -65,7 +65,10 @@ class ShadowResearchTests(unittest.TestCase):
         rapid = ShadowResearchRunner(
             self.store,
             self.audit,
-            ShadowResearchConfig(profile=ShadowResearchProfile.RAPID),
+            ShadowResearchConfig(
+                profile=ShadowResearchProfile.RAPID,
+                rapid_crypto_symbols=("BTC-USD",),
+            ),
         )
         with (
             patch.object(rapid, "_breakout_candidates") as breakout,
@@ -90,7 +93,10 @@ class ShadowResearchTests(unittest.TestCase):
         rapid = ShadowResearchRunner(
             self.store,
             self.audit,
-            ShadowResearchConfig(profile=ShadowResearchProfile.RAPID),
+            ShadowResearchConfig(
+                profile=ShadowResearchProfile.RAPID,
+                rapid_crypto_symbols=("BTC-USD",),
+            ),
         )
         with patch.object(rapid, "score_available", wraps=rapid.score_available) as scoring:
             rapid.run(as_of=self.now)
@@ -98,6 +104,41 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(
             scoring.call_args.kwargs["specialist_ids"], rapid._rapid_specialist_ids()
         )
+
+    def test_rapid_profile_reads_only_the_preregistered_crypto_cohort(self):
+        rapid = ShadowResearchRunner(
+            self.store,
+            self.audit,
+            ShadowResearchConfig(
+                profile=ShadowResearchProfile.RAPID,
+                rapid_crypto_symbols=("BTC-USD",),
+            ),
+        )
+        selected = Instrument(
+            "coinbase:product:BTC-USD", "coinbase", "BTC-USD", AssetClass.CRYPTO, "USD"
+        )
+        excluded = Instrument(
+            "coinbase:product:ETH-USD", "coinbase", "ETH-USD", AssetClass.CRYPTO, "USD"
+        )
+        for instrument in (selected, excluded):
+            self.store.register_instrument(instrument)
+            self.store.append_event(
+                self.event(
+                    f"{instrument.symbol}-bar",
+                    MarketEventType.BAR,
+                    instrument,
+                    {"granularity_seconds": 900},
+                    event_time=self.now,
+                )
+            )
+
+        candidates = rapid._intraday_momentum_candidates(self.now)
+
+        self.assertEqual([item.instrument_id for item in candidates], [selected.instrument_id])
+
+    def test_rapid_profile_requires_an_explicit_crypto_cohort(self):
+        with self.assertRaisesRegex(ValueError, "explicit crypto cohort"):
+            ShadowResearchConfig(profile=ShadowResearchProfile.RAPID)
 
     def event(
         self,
