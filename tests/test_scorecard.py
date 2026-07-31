@@ -28,6 +28,7 @@ from trading_bot.evaluation.scorecard import (
     render_github_alerts,
     render_scorecard,
 )
+from trading_bot.evaluation.outcomes import forecast_label_deadline
 from trading_bot.evaluation.scoring import ScoreKind
 from trading_bot.evaluation.scoring import score_return_forecast
 from trading_bot.ingestion.plan import ObservationJob, ShadowIngestionPlan
@@ -183,6 +184,32 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("Paper execution", markdown)
         self.assertIn("alpaca-spy-options", markdown)
         self.assertIn("::warning", render_github_alerts(scorecard))
+
+    def test_fast_prediction_label_deadline_waits_for_preregistered_finalization_window(self):
+        forecast = Forecast(
+            "fast-awaiting-finalization",
+            "prediction-market-fast-settlement-baseline-v6",
+            "baseline-v6",
+            "kalshi:prediction:FAST-AWAITING",
+            ForecastKind.BINARY_PROBABILITY,
+            self.now - timedelta(hours=1),
+            self.now,
+            {
+                "probability": 0.5,
+                "market_probability": 0.5,
+                "event_ticker": "FAST-AWAITING-EVENT",
+                "target_time": self.now.isoformat(),
+                "settlement_deadline": (self.now + timedelta(minutes=75)).isoformat(),
+            },
+            0.5,
+            {},
+            ("fast-evidence",),
+            ("test fixture",),
+        )
+
+        self.assertEqual(
+            forecast_label_deadline(forecast), self.now + timedelta(minutes=75)
+        )
 
     def test_scorecard_distinguishes_solana_read_only_activation_from_alpaca(self):
         self.append_public_run()

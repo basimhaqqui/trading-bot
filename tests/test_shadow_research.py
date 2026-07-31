@@ -970,6 +970,53 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 1)
         self.assertEqual(scored.due_unmatched, 0)
 
+    def test_fast_prediction_v6_is_not_overdue_before_its_fixed_label_deadline(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-AWAITING-FINALIZATION",
+            "kalshi",
+            "FAST-AWAITING-FINALIZATION",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expiration = self.now + timedelta(hours=1)
+        for event in (
+            self.event(
+                "fast-awaiting-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-AWAITING-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            ),
+            self.event(
+                "fast-awaiting-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            ),
+        ):
+            self.store.append_event(event)
+
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
+        awaiting_finalization = self.runner.score_available(
+            as_of=expiration + timedelta(minutes=30)
+        )
+
+        self.assertEqual(awaiting_finalization.not_due, 1)
+        self.assertEqual(awaiting_finalization.due_unmatched, 0)
+        self.assertEqual(
+            awaiting_finalization.next_due_at,
+            expiration + timedelta(hours=1, minutes=15),
+        )
+
     def test_fast_prediction_v6_rejects_settlement_from_a_different_event(self):
         market = Instrument(
             "kalshi:prediction:FAST-MISMATCH",
@@ -1019,7 +1066,8 @@ class ShadowResearchTests(unittest.TestCase):
         scored = self.runner.score_available(as_of=expiration + timedelta(minutes=1))
 
         self.assertEqual(scored.appended, 0)
-        self.assertEqual(scored.due_unmatched, 1)
+        self.assertEqual(scored.not_due, 1)
+        self.assertEqual(scored.due_unmatched, 0)
 
     def test_fast_prediction_v6_records_long_latest_expiration_without_excluding_fast_target(self):
         market = Instrument(
