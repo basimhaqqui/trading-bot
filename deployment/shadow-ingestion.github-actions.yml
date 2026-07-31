@@ -73,7 +73,7 @@ jobs:
           trading-bot shadow-cycle
           --plan config/shadow-ingestion.json
           --working-set-cache var/full-working-set.db
-          --max-neon-egress-bytes 1600000
+          --max-neon-egress-bytes 1400000
           --egress-report var/reports/full-neon-egress.md
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 
