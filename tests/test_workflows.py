@@ -95,6 +95,22 @@ class ShadowWorkflowTests(unittest.TestCase):
             self.assertIn("retrospective replacement evidence", workflow)
             self.assertIn("$GITHUB_STEP_SUMMARY", workflow)
 
+    def test_persistent_preflight_failures_publish_sanitized_availability_artifacts(self):
+        rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+
+        for workflow, artifact_name in (
+            (rapid_workflow, "rapid-persistence-unavailable-${{ github.run_id }}"),
+            (full_workflow, "full-persistence-unavailable-${{ github.run_id }}"),
+        ):
+            self.assertIn("Upload persistent-evidence availability attestation", workflow)
+            self.assertIn("persistence-unavailable.json", workflow)
+            self.assertIn(artifact_name, workflow)
+            self.assertIn('"status": "persistent_preflight_failed"', workflow)
+            self.assertIn('"evidence_collected": false', workflow)
+            self.assertIn('"retrospective_replacement_used": false', workflow)
+            self.assertIn("retention-days: 90", workflow)
+
     def test_only_scheduled_workflow_cycles_attest_scheduled_evidence(self):
         workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
         deployment = Path("deployment/shadow-ingestion.github-actions.yml").read_text()
