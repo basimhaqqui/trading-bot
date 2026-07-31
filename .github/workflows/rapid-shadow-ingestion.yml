@@ -73,7 +73,7 @@ jobs:
           --plan config/rapid-shadow-ingestion.json
           --research-profile rapid
           --working-set-cache var/rapid-working-set.db
-          --max-neon-egress-bytes 1600000
+          --max-neon-egress-bytes 1400000
           --egress-report var/reports/rapid-neon-egress.md
           --observation-origin ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
 

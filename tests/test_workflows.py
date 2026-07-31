@@ -38,7 +38,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("actions/cache/save@v5", workflow)
         self.assertIn("var/rapid-working-set.db", workflow)
         self.assertNotIn("var/trading.db", workflow)
-        self.assertIn("--max-neon-egress-bytes 1600000", workflow)
+        self.assertIn("--max-neon-egress-bytes 1400000", workflow)
         self.assertIn("--egress-report var/reports/rapid-neon-egress.md", workflow)
         self.assertIn("Publish rapid egress accounting", workflow)
         self.assertIn("config/rapid-shadow-ingestion.json", workflow)
@@ -140,7 +140,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("var/full-working-set.db", workflow)
         self.assertNotIn("shadow-database", workflow)
         self.assertNotIn("var/trading.db", workflow)
-        self.assertIn("--max-neon-egress-bytes 1600000", workflow)
+        self.assertIn("--max-neon-egress-bytes 1400000", workflow)
         self.assertIn("--egress-report var/reports/full-neon-egress.md", workflow)
 
     def test_scorecards_are_retained_even_when_a_continuity_gate_fails(self):
