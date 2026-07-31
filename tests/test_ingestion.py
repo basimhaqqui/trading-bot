@@ -745,6 +745,34 @@ class IngestionTests(unittest.TestCase):
                 mve_filter="invalid",
             )
 
+    def test_close_lookahead_uses_legal_kalshi_filters_and_local_active_state(self):
+        collector = FakeKalshiCollector()
+        job = ObservationJob(
+            "closing-markets",
+            "kalshi",
+            "markets",
+            status="open",
+            limit=250,
+            mve_filter="exclude",
+            close_lookahead_hours=48,
+        )
+
+        collect_job(collector, job, self.now, "next-page")
+
+        self.assertEqual(
+            collector.market_kwargs,
+            {
+                "collected_at": self.now,
+                "status": None,
+                "limit": 250,
+                "cursor": "next-page",
+                "mve_filter": "exclude",
+                "min_close_ts": int(self.now.timestamp()),
+                "max_close_ts": int((self.now + timedelta(hours=48)).timestamp()),
+                "active_only": True,
+            },
+        )
+
     def test_forecast_outcome_job_polls_due_then_future_unscored_binary_markets(self):
         audit = AuditLedger(self.db_path)
         audit.initialize()

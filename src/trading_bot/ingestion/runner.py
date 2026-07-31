@@ -699,6 +699,10 @@ def collect_job(
                 max_close_ts = int(
                     (window_start + timedelta(hours=job.close_lookahead_hours)).timestamp()
                 )
+                # Kalshi documents close-time filters as incompatible with the
+                # public `status=open` filter. Fetch the legal unfiltered
+                # window, then keep only the REST `active` lifecycle state in
+                # the read-only collector.
                 status = None
                 active_only = True
             return collector.collect_markets(  # type: ignore[attr-defined,no-any-return]
