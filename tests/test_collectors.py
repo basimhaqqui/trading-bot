@@ -62,16 +62,18 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(SolanaMintAuthorityCollector.is_valid_mint_address("z" * 44))
 
     def test_dexscreener_solana_profiles_are_point_in_time_and_safety_blocked(self):
+        mint = "11111111111111111111111111111111"
         raw_profile = {
-            "url": "https://dexscreener.com/solana/ExampleMint",
+            "url": f"https://dexscreener.com/solana/{mint}",
             "chainId": "solana",
-            "tokenAddress": "ExampleMint",
+            "tokenAddress": mint,
             "description": "untrusted profile text",
             "links": [{"type": "website", "url": "https://example.invalid"}],
         }
         transport = FakeTransport(
             {
                 "/token-profiles/latest/v1": [
+                    {"chainId": "solana", "tokenAddress": "ExampleMint"},
                     raw_profile,
                     {
                         "chainId": "ethereum",
@@ -88,7 +90,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(transport.calls, [("/token-profiles/latest/v1", {})])
         self.assertEqual(len(batch.instruments), 1)
         self.assertEqual(batch.instruments[0].asset_class, AssetClass.MEMECOIN)
-        self.assertEqual(batch.instruments[0].symbol, "ExampleMint")
+        self.assertEqual(batch.instruments[0].symbol, mint)
         event = batch.events[0]
         self.assertIs(event.event_type, MarketEventType.ONCHAIN_STATE)
         self.assertEqual(event.event_time, self.collected)
@@ -97,23 +99,25 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(event.payload["safety_status"], "blocked_unverified")
         self.assertTrue(all(reason.endswith("_unobserved") for reason in event.payload["safety_reasons"]))
         self.assertFalse(event.payload["wallet_or_transaction_authority"])
+        self.assertEqual(batch.metadata["invalid_solana_addresses_skipped"], 1)
 
     def test_dexscreener_pool_observations_are_bounded_and_remain_blocked(self):
+        mint = "11111111111111111111111111111111"
         raw_profile = {
             "chainId": "solana",
-            "tokenAddress": "ExampleMint",
+            "tokenAddress": mint,
         }
         smaller_pool = {
             "chainId": "solana",
             "pairAddress": "SmallPool",
-            "baseToken": {"address": "ExampleMint"},
+            "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 5},
         }
         selected_pool = {
             "chainId": "solana",
             "pairAddress": "LargePool",
-            "baseToken": {"address": "ExampleMint"},
+            "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 100_000},
             "pairCreatedAt": 1_700_000_000_000,
@@ -122,7 +126,7 @@ class CollectorTests(unittest.TestCase):
         transport = FakeTransport(
             {
                 "/token-profiles/latest/v1": [raw_profile],
-                "/tokens/v1/solana/ExampleMint": [smaller_pool, selected_pool],
+                f"/tokens/v1/solana/{mint}": [smaller_pool, selected_pool],
             }
         )
 
@@ -134,7 +138,7 @@ class CollectorTests(unittest.TestCase):
             transport.calls,
             [
                 ("/token-profiles/latest/v1", {}),
-                ("/tokens/v1/solana/ExampleMint", {}),
+                (f"/tokens/v1/solana/{mint}", {}),
             ],
         )
         self.assertEqual(len(batch.instruments), 1)
@@ -152,27 +156,28 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(batch.metadata["pool_observations_seen"], 1)
 
     def test_dexscreener_duplicate_profiles_do_not_amplify_discovery_or_pool_reads(self):
+        mint = "11111111111111111111111111111111"
         first_profile = {
             "chainId": "solana",
-            "tokenAddress": "ExampleMint",
+            "tokenAddress": mint,
             "description": "first point-in-time profile",
         }
         duplicate_profile = {
             "chainId": "solana",
-            "tokenAddress": "ExampleMint",
+            "tokenAddress": mint,
             "description": "later duplicate profile",
         }
         pool = {
             "chainId": "solana",
             "pairAddress": "OnlyPool",
-            "baseToken": {"address": "ExampleMint"},
+            "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 100_000},
         }
         transport = FakeTransport(
             {
                 "/token-profiles/latest/v1": [first_profile, duplicate_profile],
-                "/tokens/v1/solana/ExampleMint": [pool],
+                f"/tokens/v1/solana/{mint}": [pool],
             }
         )
 
@@ -189,7 +194,7 @@ class CollectorTests(unittest.TestCase):
             transport.calls,
             [
                 ("/token-profiles/latest/v1", {}),
-                ("/tokens/v1/solana/ExampleMint", {}),
+                (f"/tokens/v1/solana/{mint}", {}),
             ],
         )
 

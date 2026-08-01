@@ -10,15 +10,9 @@ from urllib.parse import urlsplit
 
 from trading_bot.core.schemas import MarketEvent, MarketEventType
 from trading_bot.core.serialization import require_aware, utc_now
-from trading_bot.data.collectors.common import stable_event_id
+from trading_bot.data.collectors.common import is_valid_solana_public_key, stable_event_id
 from trading_bot.data.http import ReadOnlyJsonRpcTransport
 from trading_bot.data.schemas import CollectionBatch
-
-
-_BASE58_VALUE = {
-    character: index
-    for index, character in enumerate("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
-}
 
 
 class SolanaAccountTransport(Protocol):
@@ -76,8 +70,6 @@ class SolanaMintAuthorityCollector:
             PAUSABLE,
         }
     )
-    _BASE58_ALPHABET = frozenset("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
-
     def __init__(
         self,
         transport: SolanaAccountTransport | None = None,
@@ -89,25 +81,7 @@ class SolanaMintAuthorityCollector:
     @classmethod
     def is_valid_mint_address(cls, value: object) -> bool:
         """Accept only 32-byte base58 public keys before a bounded RPC read."""
-        if (
-            not isinstance(value, str)
-            or not 32 <= len(value) <= 44
-            or any(character not in cls._BASE58_ALPHABET for character in value)
-        ):
-            return False
-
-        # A base58 string in Solana's usual 32–44 character range is not
-        # necessarily an Ed25519 public key: it can decode to fewer or more
-        # than 32 bytes.  Reject those values locally before they can consume
-        # a read-only RPC slot from untrusted discovery metadata.
-        decoded = 0
-        for character in value:
-            decoded = decoded * 58 + _BASE58_VALUE[character]
-        encoded_bytes = (
-            decoded.to_bytes((decoded.bit_length() + 7) // 8, "big") if decoded else b""
-        )
-        leading_zero_bytes = len(value) - len(value.lstrip("1"))
-        return leading_zero_bytes + len(encoded_bytes) == 32
+        return is_valid_solana_public_key(value)
 
     @classmethod
     def _read_only_transport(
