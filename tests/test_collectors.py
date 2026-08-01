@@ -198,6 +198,40 @@ class CollectorTests(unittest.TestCase):
             ],
         )
 
+    def test_dexscreener_skips_malformed_discovery_and_pool_records(self):
+        mint = "11111111111111111111111111111111"
+        profile = {"chainId": "solana", "tokenAddress": mint}
+        pool = {
+            "chainId": "solana",
+            "pairAddress": "ValidPool",
+            "baseToken": {"address": mint},
+            "quoteToken": {"address": "USDC"},
+            "liquidity": {"usd": 50_000},
+        }
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [
+                    "not-an-object",
+                    {"chainId": "solana"},
+                    {"chainId": 123, "tokenAddress": mint},
+                    profile,
+                ],
+                f"/tokens/v1/solana/{mint}": ["not-an-object", pool],
+            }
+        )
+
+        batch = DexscreenerCollector(transport).collect_token_profiles(
+            collected_at=self.collected, include_pool_observations=True
+        )
+
+        self.assertEqual(len(batch.instruments), 1)
+        self.assertEqual(len(batch.events), 2)
+        self.assertEqual(batch.metadata["malformed_profiles_skipped"], 3)
+        self.assertEqual(
+            batch.events[1].payload["malformed_pool_records_skipped"], 1
+        )
+        self.assertEqual(batch.events[1].payload["pair_address"], "ValidPool")
+
     def test_solana_finalized_authority_observation_stays_safety_blocked(self):
         address = "11111111111111111111111111111111"
         mint = bytearray(82)

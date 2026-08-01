@@ -7,8 +7,6 @@ from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, Market
 from trading_bot.core.serialization import require_aware, utc_now
 from trading_bot.data.collectors.common import (
     is_valid_solana_public_key,
-    require_object,
-    require_string,
     stable_event_id,
 )
 from trading_bot.data.http import ReadOnlyHttpTransport, ReadOnlyTransport
@@ -60,14 +58,26 @@ class DexscreenerCollector:
         discovered_addresses: set[str] = set()
         duplicate_profiles_skipped = 0
         invalid_solana_addresses_skipped = 0
+        malformed_profiles_skipped = 0
         for raw in raw_profiles:
-            profile = require_object(raw, "token profile")
-            chain_id = require_string(profile.get("chainId"), "token profile.chainId").lower()
+            # This public discovery feed is untrusted. A malformed item must not
+            # abort the bounded collection or prevent valid later discoveries,
+            # but it must never become a candidate instrument either.
+            if not isinstance(raw, dict):
+                malformed_profiles_skipped += 1
+                continue
+            profile = raw
+            chain_value = profile.get("chainId")
+            if not isinstance(chain_value, str) or not chain_value:
+                malformed_profiles_skipped += 1
+                continue
+            chain_id = chain_value.lower()
             if chain_id != self.SOLANA_CHAIN:
                 continue
-            token_address = require_string(
-                profile.get("tokenAddress"), "token profile.tokenAddress"
-            )
+            token_address = profile.get("tokenAddress")
+            if not isinstance(token_address, str) or not token_address:
+                malformed_profiles_skipped += 1
+                continue
             # Dexscreener profile metadata is public but untrusted. Do not let
             # a malformed address become an apparent token discovery or a
             # future RPC target; continue scanning the bounded response so one
@@ -144,6 +154,7 @@ class DexscreenerCollector:
                 "solana_profiles_seen": len(token_addresses),
                 "duplicate_profiles_skipped": duplicate_profiles_skipped,
                 "invalid_solana_addresses_skipped": invalid_solana_addresses_skipped,
+                "malformed_profiles_skipped": malformed_profiles_skipped,
                 "pool_observations_seen": len(events) - len(token_addresses),
                 "pool_observations_enabled": include_pool_observations,
                 "safety_status": "blocked_unverified",
@@ -162,8 +173,15 @@ class DexscreenerCollector:
         )
         candidates: dict[str, tuple[float, str, dict[str, object]]] = {}
         requested = set(token_addresses)
+        malformed_pool_records_skipped = 0
         for item in raw_pairs:
-            pair = require_object(item, "token pair")
+            # Pool metadata is an untrusted observation. Ignore malformed
+            # records so they cannot turn a read-only discovery cycle into a
+            # broader availability failure or be mistaken for a price record.
+            if not isinstance(item, dict):
+                malformed_pool_records_skipped += 1
+                continue
+            pair = item
             if str(pair.get("chainId", "")).lower() != self.SOLANA_CHAIN:
                 continue
             pair_address = pair.get("pairAddress")
@@ -238,6 +256,7 @@ class DexscreenerCollector:
                         "wallet_or_transaction_authority": False,
                         "forecast_created": False,
                         "shadow_intent_created": False,
+                        "malformed_pool_records_skipped": malformed_pool_records_skipped,
                     },
                     ingested_at=received_at,
                 )
