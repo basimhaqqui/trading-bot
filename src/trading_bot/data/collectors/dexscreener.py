@@ -5,7 +5,12 @@ import math
 
 from trading_bot.core.schemas import AssetClass, Instrument, MarketEvent, MarketEventType
 from trading_bot.core.serialization import require_aware, utc_now
-from trading_bot.data.collectors.common import require_object, require_string, stable_event_id
+from trading_bot.data.collectors.common import (
+    is_valid_solana_public_key,
+    require_object,
+    require_string,
+    stable_event_id,
+)
 from trading_bot.data.http import ReadOnlyHttpTransport, ReadOnlyTransport
 from trading_bot.data.quality import inspect_events
 from trading_bot.data.schemas import CollectionBatch
@@ -54,6 +59,7 @@ class DexscreenerCollector:
         token_addresses: list[str] = []
         discovered_addresses: set[str] = set()
         duplicate_profiles_skipped = 0
+        invalid_solana_addresses_skipped = 0
         for raw in raw_profiles:
             profile = require_object(raw, "token profile")
             chain_id = require_string(profile.get("chainId"), "token profile.chainId").lower()
@@ -62,6 +68,13 @@ class DexscreenerCollector:
             token_address = require_string(
                 profile.get("tokenAddress"), "token profile.tokenAddress"
             )
+            # Dexscreener profile metadata is public but untrusted. Do not let
+            # a malformed address become an apparent token discovery or a
+            # future RPC target; continue scanning the bounded response so one
+            # bad profile cannot suppress valid, later discoveries.
+            if not is_valid_solana_public_key(token_address):
+                invalid_solana_addresses_skipped += 1
+                continue
             # A discovery response may repeat a mint with different untrusted
             # profile metadata.  Keep the first point-in-time observation only:
             # duplicates must not consume the bounded follow-up RPC budget or
@@ -130,6 +143,7 @@ class DexscreenerCollector:
                 "source_documentation_url": self.PROFILE_DOCUMENTATION_URL,
                 "solana_profiles_seen": len(token_addresses),
                 "duplicate_profiles_skipped": duplicate_profiles_skipped,
+                "invalid_solana_addresses_skipped": invalid_solana_addresses_skipped,
                 "pool_observations_seen": len(events) - len(token_addresses),
                 "pool_observations_enabled": include_pool_observations,
                 "safety_status": "blocked_unverified",

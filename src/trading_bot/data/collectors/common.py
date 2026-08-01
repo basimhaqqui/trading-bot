@@ -15,6 +15,34 @@ class CollectorPayloadError(ValueError):
     pass
 
 
+_BASE58_CHARACTERS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_BASE58_ALPHABET = frozenset(_BASE58_CHARACTERS)
+_BASE58_VALUE = {character: index for index, character in enumerate(_BASE58_CHARACTERS)}
+
+
+def is_valid_solana_public_key(value: object) -> bool:
+    """Return whether ``value`` is exactly one 32-byte base58 public key.
+
+    Discovery metadata is untrusted. Checking the encoded byte length locally
+    keeps malformed identifiers from becoming instruments or consuming the
+    bounded read-only RPC follow-up budget.
+    """
+    if (
+        not isinstance(value, str)
+        or not 32 <= len(value) <= 44
+        or any(character not in _BASE58_ALPHABET for character in value)
+    ):
+        return False
+    decoded = 0
+    for character in value:
+        decoded = decoded * 58 + _BASE58_VALUE[character]
+    encoded_bytes = (
+        decoded.to_bytes((decoded.bit_length() + 7) // 8, "big") if decoded else b""
+    )
+    leading_zero_bytes = len(value) - len(value.lstrip("1"))
+    return leading_zero_bytes + len(encoded_bytes) == 32
+
+
 def require_object(value: object, field_name: str) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise CollectorPayloadError(f"{field_name} must be an object")
