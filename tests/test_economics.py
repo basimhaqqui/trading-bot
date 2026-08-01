@@ -193,8 +193,8 @@ class EconomicReplayTests(unittest.TestCase):
 
     def test_checked_in_cost_registry_is_strict_and_versioned(self):
         registry = load_cost_registry("config/economic-costs.json")
-        self.assertEqual(registry.version, "public-shadow-costs-v8")
-        self.assertEqual(len(registry.models), 10)
+        self.assertEqual(registry.version, "public-shadow-costs-v9")
+        self.assertEqual(len(registry.models), 11)
         self.assertEqual(registry.models[0].fee_bps, 120)
         self.assertEqual(
             registry.models[2].specialist_id,
@@ -228,6 +228,16 @@ class EconomicReplayTests(unittest.TestCase):
             registry.models[9].specialist_id,
             "prediction-market-fast-settlement-baseline-v4",
         )
+        v7 = registry.models[10]
+        self.assertEqual(
+            v7.specialist_id,
+            "prediction-market-fast-settlement-baseline-v7",
+        )
+        self.assertEqual(v7.model_id, "kalshi-general-contract-fee-fast-v7")
+        self.assertEqual(v7.binary_fee_coefficient, 0.07)
+        self.assertEqual(v7.binary_fee_increment, 0.01)
+        self.assertEqual(v7.slippage_bps, 5)
+        self.assertEqual(v7.latency_bps, 5)
 
     def test_binary_replay_uses_executable_side_and_rounded_contract_fee(self):
         observations = []
