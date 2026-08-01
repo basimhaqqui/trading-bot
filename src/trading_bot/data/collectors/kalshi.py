@@ -80,50 +80,62 @@ class KalshiCollector:
         instruments: list[Instrument] = []
         events: list[MarketEvent] = []
         diagnostics: list[DataQualityDiagnostic] = []
+        malformed_markets_skipped = 0
         for raw in markets:
-            market = require_object(raw, "market")
-            if active_only and str(market.get("status", "")).lower() != "active":
-                continue
-            ticker = require_string(market.get("ticker"), "market.ticker")
-            instrument = self._instrument(ticker, market)
-            instruments.append(instrument)
-            source_time = self._market_time(market, collected_at)
-            event_time = observed_event_time(
-                source_time,
-                collected_at,
-                instrument_id=instrument.instrument_id,
-                diagnostics=diagnostics,
-            )
-            event_payload = dict(market)
-            events.append(
-                MarketEvent(
-                    event_id=stable_event_id(
-                        "kalshi:contract-rule",
-                        {
-                            "ticker": ticker,
-                            "source_time": source_time,
-                            "collected_at": collected_at,
-                            "payload": event_payload,
-                        },
-                    ),
-                    event_type=MarketEventType.CONTRACT_RULE,
-                    venue=self.venue,
+            # The bounded public page is untrusted. One malformed market must
+            # not abort a rapid observation or suppress valid later contracts,
+            # but a partially parsed record must never become an instrument or
+            # a point-in-time event.
+            try:
+                market = require_object(raw, "market")
+                if active_only and str(market.get("status", "")).lower() != "active":
+                    continue
+                ticker = require_string(market.get("ticker"), "market.ticker")
+                instrument = self._instrument(ticker, market)
+                source_time = self._market_time(market, collected_at)
+                market_diagnostics: list[DataQualityDiagnostic] = []
+                event_time = observed_event_time(
+                    source_time,
+                    collected_at,
                     instrument_id=instrument.instrument_id,
-                    event_time=event_time,
-                    available_at=collected_at,
-                    source="kalshi-rest-markets-v2",
-                    payload=event_payload,
-                    ingested_at=collected_at,
+                    diagnostics=market_diagnostics,
                 )
-            )
-            settlement_event = self._settlement_event(
-                instrument, market, collected_at, diagnostics
-            )
-            if settlement_event is not None:
-                events.append(settlement_event)
-            book_event = self._market_book_event(instrument, market, collected_at)
-            if book_event is not None:
-                events.append(book_event)
+                event_payload = dict(market)
+                market_events = [
+                    MarketEvent(
+                        event_id=stable_event_id(
+                            "kalshi:contract-rule",
+                            {
+                                "ticker": ticker,
+                                "source_time": source_time,
+                                "collected_at": collected_at,
+                                "payload": event_payload,
+                            },
+                        ),
+                        event_type=MarketEventType.CONTRACT_RULE,
+                        venue=self.venue,
+                        instrument_id=instrument.instrument_id,
+                        event_time=event_time,
+                        available_at=collected_at,
+                        source="kalshi-rest-markets-v2",
+                        payload=event_payload,
+                        ingested_at=collected_at,
+                    )
+                ]
+                settlement_event = self._settlement_event(
+                    instrument, market, collected_at, market_diagnostics
+                )
+                if settlement_event is not None:
+                    market_events.append(settlement_event)
+                book_event = self._market_book_event(instrument, market, collected_at)
+                if book_event is not None:
+                    market_events.append(book_event)
+            except (CollectorPayloadError, TypeError, ValueError):
+                malformed_markets_skipped += 1
+                continue
+            instruments.append(instrument)
+            events.extend(market_events)
+            diagnostics.extend(market_diagnostics)
         diagnostics.extend(inspect_events(events))
         next_cursor = response.get("cursor")
         if next_cursor is not None and not isinstance(next_cursor, str):
@@ -141,6 +153,7 @@ class KalshiCollector:
                 "active_only": active_only,
                 "min_close_ts": min_close_ts,
                 "max_close_ts": max_close_ts,
+                "malformed_markets_skipped": malformed_markets_skipped,
             },
         )
 

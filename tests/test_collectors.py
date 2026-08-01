@@ -630,6 +630,39 @@ class CollectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid Kalshi ticker"):
             KalshiCollector(transport).collect_markets(tickers=("KX/BAD",))
 
+    def test_kalshi_skips_malformed_market_records_without_partial_evidence(self):
+        valid_market = {
+            "ticker": "KXVALID-YES",
+            "event_ticker": "KXVALID",
+            "updated_time": "2026-07-21T19:55:00Z",
+            "yes_bid_dollars": "0.54",
+            "no_bid_dollars": "0.44",
+        }
+        transport = FakeTransport(
+            {
+                "/markets": {
+                    "markets": [
+                        "not-an-object",
+                        {"ticker": "KXBROKEN-YES", "updated_time": "not-a-time"},
+                        valid_market,
+                    ],
+                    "cursor": "next",
+                }
+            }
+        )
+
+        batch = KalshiCollector(transport).collect_markets(
+            collected_at=self.collected
+        )
+
+        self.assertEqual([item.symbol for item in batch.instruments], ["KXVALID-YES"])
+        self.assertEqual(
+            [event.instrument_id for event in batch.events],
+            ["kalshi:prediction:KXVALID-YES", "kalshi:prediction:KXVALID-YES"],
+        )
+        self.assertEqual(batch.metadata["malformed_markets_skipped"], 2)
+        self.assertEqual(batch.cursor, "next")
+
     def test_kalshi_close_window_filters_out_nonactive_markets(self):
         transport = FakeTransport(
             {
