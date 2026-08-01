@@ -1121,6 +1121,36 @@ class CollectorTests(unittest.TestCase):
         )
         self.assertNotEqual(settlements[0].event_id, repeated_settlement.event_id)
 
+    def test_kalshi_determined_market_never_emits_a_settlement_label(self):
+        transport = FakeTransport(
+            {
+                "/markets": {
+                    "markets": [
+                        {
+                            "ticker": "KXDETERMINED-YES",
+                            "event_ticker": "KXDETERMINED",
+                            "market_type": "binary",
+                            "status": "determined",
+                            "updated_time": "2026-07-21T18:00:00Z",
+                            # Treat a contradictory timestamp as untrusted;
+                            # the terminal lifecycle status is still required.
+                            "settlement_ts": "2026-07-21T19:00:00Z",
+                            "result": "yes",
+                        }
+                    ],
+                    "cursor": "",
+                }
+            }
+        )
+
+        batch = KalshiCollector(transport).collect_markets(
+            collected_at=self.collected, status="closed"
+        )
+
+        self.assertFalse(
+            any(event.event_type is MarketEventType.SETTLEMENT for event in batch.events)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
