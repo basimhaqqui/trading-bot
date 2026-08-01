@@ -16,6 +16,7 @@ from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.agents.prediction import (
     FastPredictionSettlementV7Specialist,
     FastPredictionSettlementV8Specialist,
+    FastPredictionSettlementV9Specialist,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_settlement_event_ticker,
@@ -1222,6 +1223,7 @@ def _policy_inconsistent_fast_labels(
         if forecast.specialist_id not in {
             FastPredictionSettlementV7Specialist.agent_id,
             FastPredictionSettlementV8Specialist.agent_id,
+            FastPredictionSettlementV9Specialist.agent_id,
         }:
             continue
         expected_event_ticker = forecast.values.get("event_ticker")
@@ -1272,6 +1274,11 @@ def _early_fast_label_is_excluded(
         close_time = parse_datetime(close_value)
     except (TypeError, ValueError):
         return True
+    if forecast.specialist_id == FastPredictionSettlementV9Specialist.agent_id:
+        return not (
+            forecast.generated_at < close_time < event.event_time
+            and close_time < target_time
+        )
     return not (
         forecast.generated_at < close_time <= event.event_time
         and close_time < target_time

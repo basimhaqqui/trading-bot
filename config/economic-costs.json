@@ -1,5 +1,5 @@
 {
-  "version": "public-shadow-costs-v10",
+  "version": "public-shadow-costs-v11",
   "models": [
     {
       "model_id": "coinbase-advanced-retail-taker-round-trip-v1",
@@ -134,6 +134,18 @@
     {
       "model_id": "kalshi-general-contract-fee-fast-v8",
       "specialist_id": "prediction-market-fast-settlement-baseline-v8",
+      "kind": "binary",
+      "basis": "binary_contract",
+      "source_url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+      "effective_date": "2026-08-01",
+      "slippage_bps": 5.0,
+      "latency_bps": 5.0,
+      "binary_fee_coefficient": 0.07,
+      "binary_fee_increment": 0.01
+    },
+    {
+      "model_id": "kalshi-general-contract-fee-fast-v9",
+      "specialist_id": "prediction-market-fast-settlement-baseline-v9",
       "kind": "binary",
       "basis": "binary_contract",
       "source_url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
