@@ -652,7 +652,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v7"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v8"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -713,8 +713,8 @@ class ShadowResearchTests(unittest.TestCase):
             target_time = generated_at + timedelta(minutes=30)
             forecast = Forecast(
                 f"rejected-fast-{index}",
-                "prediction-market-fast-settlement-baseline-v7",
-                "baseline-v7",
+                "prediction-market-fast-settlement-baseline-v8",
+                "baseline-v8",
                 f"kalshi:prediction:REJECTED-{index}",
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
@@ -919,7 +919,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.due_unmatched, 1)
 
-    def test_fast_prediction_v7_accepts_early_close_within_recorded_deadline(self):
+    def test_fast_prediction_v8_accepts_recorded_early_close_within_deadline(self):
         market = Instrument(
             "kalshi:prediction:FAST-EARLY",
             "kalshi",
@@ -960,7 +960,13 @@ class ShadowResearchTests(unittest.TestCase):
                 "fast-early-settlement",
                 MarketEventType.SETTLEMENT,
                 market,
-                {"result": "yes", "event_ticker": "FAST-EARLY-EVENT"},
+                {
+                    "result": "yes",
+                    "event_ticker": "FAST-EARLY-EVENT",
+                    "raw_market": {
+                        "close_time": (expiration - timedelta(minutes=2)).isoformat()
+                    },
+                },
                 event_time=expiration - timedelta(seconds=1),
             )
         )
@@ -970,7 +976,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 1)
         self.assertEqual(scored.due_unmatched, 0)
 
-    def test_fast_prediction_v7_rejects_early_label_without_early_close_policy(self):
+    def test_fast_prediction_v8_rejects_early_label_without_early_close_policy(self):
         market = Instrument(
             "kalshi:prediction:FAST-POLICY-INCONSISTENT",
             "kalshi",
@@ -1007,7 +1013,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v7")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v8")
         self.store.append_event(
             self.event(
                 "fast-policy-early-settlement",
@@ -1022,6 +1028,76 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.not_due, 1)
+
+    def test_fast_prediction_v8_requires_recorded_early_close_for_early_label(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-V8-EARLY",
+            "kalshi",
+            "FAST-V8-EARLY",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expiration = self.now + timedelta(hours=1)
+        for event in (
+            self.event(
+                "fast-v8-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-V8-EVENT",
+                    "status": "active",
+                    "can_close_early": True,
+                    "settlement_timer_seconds": 900,
+                    "expected_expiration_time": expiration.isoformat(),
+                    "latest_expiration_time": expiration.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            ),
+            self.event(
+                "fast-v8-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            ),
+        ):
+            self.store.append_event(event)
+
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
+        forecast = self.audit.forecasts()[0]
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v8")
+        early_settlement = expiration - timedelta(minutes=1)
+        self.store.append_event(
+            self.event(
+                "fast-v8-uncorroborated-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {"result": "yes", "event_ticker": "FAST-V8-EVENT"},
+                event_time=early_settlement,
+            )
+        )
+        self.assertEqual(self.runner.score_available(as_of=early_settlement).appended, 0)
+
+        self.store.append_event(
+            self.event(
+                "fast-v8-corroborated-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {
+                    "result": "yes",
+                    "event_ticker": "FAST-V8-EVENT",
+                    "raw_market": {
+                        "close_time": (expiration - timedelta(minutes=2)).isoformat()
+                    },
+                },
+                event_time=early_settlement + timedelta(seconds=1),
+            )
+        )
+
+        scored = self.runner.score_available(as_of=early_settlement + timedelta(seconds=1))
+        self.assertEqual(scored.appended, 1)
+        self.assertEqual(scored.due_unmatched, 0)
 
     def test_fast_prediction_v6_is_not_overdue_before_its_fixed_label_deadline(self):
         market = Instrument(

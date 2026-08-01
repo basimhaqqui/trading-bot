@@ -15,13 +15,14 @@ from trading_bot.agents.hypotheses import (
 from trading_bot.agents.market_math import prediction_book_payload
 from trading_bot.agents.prediction import (
     FastPredictionSettlementV7Specialist,
+    FastPredictionSettlementV8Specialist,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_settlement_event_ticker,
 )
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.database import connect_database
-from trading_bot.core.schemas import AssetClass, Forecast, MarketEventType
+from trading_bot.core.schemas import AssetClass, Forecast, MarketEvent, MarketEventType
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.costs import EconomicCostRegistry
@@ -882,8 +883,8 @@ def _build_alerts(
                 "fast_prediction_policy_inconsistent_labels",
                 AlertSeverity.WARNING,
                 f"{outcome_queue.policy_inconsistent_early_labels} fast prediction label(s) "
-                "finalized before expected expiration despite recorded "
-                "can_close_early=false; excluded from evidence",
+                "finalized before expected expiration without the registered "
+                "early-close policy and venue corroboration; excluded from evidence",
             )
         )
     if (
@@ -1209,7 +1210,7 @@ def _policy_inconsistent_fast_labels(
     forecasts: Sequence[Forecast],
     as_of: datetime,
 ) -> int:
-    """Count v7 early labels that its recorded close policy explicitly excludes.
+    """Count early labels that the active fast-lane policy excludes.
 
     Kalshi documents that an earlier close is allowed only when
     ``can_close_early`` is true.  These observations remain in the immutable
@@ -1218,10 +1219,10 @@ def _policy_inconsistent_fast_labels(
     """
     excluded = 0
     for forecast in forecasts:
-        if (
-            forecast.specialist_id != FastPredictionSettlementV7Specialist.agent_id
-            or forecast.values.get("can_close_early") is not False
-        ):
+        if forecast.specialist_id not in {
+            FastPredictionSettlementV7Specialist.agent_id,
+            FastPredictionSettlementV8Specialist.agent_id,
+        }:
             continue
         expected_event_ticker = forecast.values.get("event_ticker")
         target_time = prediction_forecast_target_time(forecast)
@@ -1237,14 +1238,44 @@ def _policy_inconsistent_fast_labels(
             event_type=MarketEventType.SETTLEMENT,
         )
         if any(
-            event.available_at > forecast.generated_at
-            and forecast.generated_at <= event.event_time < target_time
-            and str(event.payload.get("result", "")).lower() in {"yes", "no"}
-            and prediction_settlement_event_ticker(event) == expected_event_ticker
+            _early_fast_label_is_excluded(forecast, event, target_time, expected_event_ticker)
             for event in settlements
         ):
             excluded += 1
     return excluded
+
+
+def _early_fast_label_is_excluded(
+    forecast: Forecast,
+    event: MarketEvent,
+    target_time: datetime,
+    expected_event_ticker: str,
+) -> bool:
+    if (
+        event.available_at <= forecast.generated_at
+        or not forecast.generated_at <= event.event_time < target_time
+        or str(event.payload.get("result", "")).lower() not in {"yes", "no"}
+        or prediction_settlement_event_ticker(event) != expected_event_ticker
+    ):
+        return False
+    if forecast.specialist_id == FastPredictionSettlementV7Specialist.agent_id:
+        return forecast.values.get("can_close_early") is not True
+    if forecast.values.get("can_close_early") is not True:
+        return True
+    raw_market = event.payload.get("raw_market")
+    if not isinstance(raw_market, Mapping):
+        return True
+    close_value = raw_market.get("close_time")
+    if not isinstance(close_value, str) or not close_value:
+        return True
+    try:
+        close_time = parse_datetime(close_value)
+    except (TypeError, ValueError):
+        return True
+    return not (
+        forecast.generated_at < close_time <= event.event_time
+        and close_time < target_time
+    )
 
 
 def _prediction_outcome_polling(
@@ -1780,7 +1811,7 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"not due: **{scorecard.outcome_queue.not_due:,}** · "
                 f"due without outcome: **{scorecard.outcome_queue.due_unmatched:,}** · "
                 f"quarantined legacy/invalid: **{scorecard.outcome_queue.quarantined:,}** · "
-                "policy-inconsistent early labels excluded: "
+                "policy-inconsistent or uncorroborated early labels excluded: "
                 f"**{scorecard.outcome_queue.policy_inconsistent_early_labels:,}**"
             ),
             "",

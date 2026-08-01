@@ -16,6 +16,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V5_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V6_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V7_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V8_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -575,6 +576,14 @@ class FastPredictionSettlementV7Specialist(FastPredictionSettlementV6Specialist)
     hypothesis = PREDICTION_FAST_SETTLEMENT_V7_HYPOTHESIS
 
 
+class FastPredictionSettlementV8Specialist(FastPredictionSettlementV7Specialist):
+    """Successor that requires venue-recorded early-close corroboration."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v8"
+    model_version = "baseline-v8"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V8_HYPOTHESIS
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -699,5 +708,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV5Specialist.agent_id,
         FastPredictionSettlementV6Specialist.agent_id,
         FastPredictionSettlementV7Specialist.agent_id,
+        FastPredictionSettlementV8Specialist.agent_id,
     }
 )
