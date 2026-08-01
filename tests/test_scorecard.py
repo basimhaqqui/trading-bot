@@ -680,6 +680,7 @@ class DailyScorecardTests(unittest.TestCase):
                     "status": "active",
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
+                    "close_time": (self.now + timedelta(hours=1)).isoformat(),
                     "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
                     "latest_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
                 },

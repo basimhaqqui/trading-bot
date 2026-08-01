@@ -18,6 +18,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V7_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V8_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V9_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V10_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -593,6 +594,118 @@ class FastPredictionSettlementV9Specialist(FastPredictionSettlementV8Specialist)
     hypothesis = PREDICTION_FAST_SETTLEMENT_V9_HYPOTHESIS
 
 
+class FastPredictionSettlementV10Specialist:
+    """Fast lane anchored to the observed trading-close time, not an estimate."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v10"
+    model_version = "baseline-v10"
+    supported_asset_classes = frozenset({AssetClass.PREDICTION})
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V10_HYPOTHESIS
+
+    def __init__(self, config: FastPredictionSettlementConfig | None = None) -> None:
+        self.config = config or FastPredictionSettlementConfig()
+
+    def evaluate(self, context: ReplayContext) -> Forecast | None:
+        primary_id = context.instrument.instrument_id
+        books = recent_events(
+            context.events,
+            instrument_id=primary_id,
+            event_type=MarketEventType.BOOK_SNAPSHOT,
+            decision_time=context.decision_time,
+            max_age=self.config.max_book_age,
+        )
+        rules = recent_events(
+            context.events,
+            instrument_id=primary_id,
+            event_type=MarketEventType.CONTRACT_RULE,
+            decision_time=context.decision_time,
+        )
+        if not books or not rules:
+            return None
+        rule = rules[-1]
+        if str(rule.payload.get("status", "")).lower() != "active":
+            return None
+        if not isinstance(rule.payload.get("can_close_early"), bool):
+            return None
+        timer = _positive_int(rule.payload.get("settlement_timer_seconds"))
+        if timer is None or timer > self.config.max_settlement_timer_seconds:
+            return None
+        event_ticker = rule.payload.get("event_ticker")
+        if not isinstance(event_ticker, str) or not event_ticker:
+            return None
+        close_time = prediction_close_time(rule)
+        expected_expiration = prediction_expected_expiration_time(rule)
+        latest_expiration = prediction_latest_expiration_time(rule)
+        if close_time is None or expected_expiration is None or latest_expiration is None:
+            return None
+        close_horizon = close_time - context.decision_time
+        if (
+            latest_expiration < expected_expiration
+            or not self.config.min_forecast_horizon < close_horizon
+            or close_horizon > self.config.forecast_horizon
+        ):
+            return None
+        executable = prediction_book(books[-1])
+        if executable is None:
+            return None
+        yes_bid, yes_ask, market_probability, spread = executable
+        if spread > self.config.max_book_spread:
+            return None
+        settlement_deadline = (
+            close_time
+            + timedelta(seconds=timer)
+            + self.config.max_finalization_lag
+        )
+        return Forecast(
+            forecast_id=str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{self.agent_id}:{primary_id}:{context.decision_time}",
+                )
+            ),
+            specialist_id=self.agent_id,
+            model_version=self.model_version,
+            instrument_id=primary_id,
+            kind=ForecastKind.BINARY_PROBABILITY,
+            generated_at=context.decision_time,
+            valid_until=close_time,
+            values={
+                "probability": market_probability,
+                "market_probability": market_probability,
+                "yes_bid": yes_bid,
+                "yes_ask": yes_ask,
+                "spread": spread,
+                "state": "executable_market_prior",
+                "event_ticker": event_ticker,
+                "outcome_cluster": event_ticker,
+                "can_close_early": rule.payload["can_close_early"],
+                "target_time": close_time.isoformat(),
+                "registered_close_time": close_time.isoformat(),
+                "expected_expiration_time": expected_expiration.isoformat(),
+                "latest_expiration_time": latest_expiration.isoformat(),
+                "settlement_deadline": settlement_deadline.isoformat(),
+                "fast_finalization_lag_seconds": self.config.max_finalization_lag.total_seconds(),
+                "venue_lifecycle_source": "https://docs.kalshi.com/getting_started/market_lifecycle",
+                "venue_settlement_source": "https://docs.kalshi.com/getting_started/market_settlement",
+            },
+            confidence=max(0.2, 0.45 - min(0.25, spread * 2.5)),
+            uncertainty={
+                "market_spread": spread,
+                "settlement_timer_seconds": float(timer),
+                "time_to_registered_close_seconds": close_horizon.total_seconds(),
+                "time_to_expected_expiration_seconds": (
+                    expected_expiration - context.decision_time
+                ).total_seconds(),
+                "time_to_latest_expiration_seconds": (
+                    latest_expiration - context.decision_time
+                ).total_seconds(),
+                "fast_finalization_lag_seconds": self.config.max_finalization_lag.total_seconds(),
+            },
+            evidence_event_ids=(rule.event_id, books[-1].event_id),
+            invalidation_conditions=self.hypothesis.invalidation_conditions,
+        )
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -663,6 +776,16 @@ def prediction_latest_expiration_time(rule: MarketEvent) -> datetime | None:
         return None
 
 
+def prediction_close_time(rule: MarketEvent) -> datetime | None:
+    value = rule.payload.get("close_time")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return parse_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _positive_int(value: object) -> int | None:
     if isinstance(value, bool):
         return None
@@ -719,5 +842,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV7Specialist.agent_id,
         FastPredictionSettlementV8Specialist.agent_id,
         FastPredictionSettlementV9Specialist.agent_id,
+        FastPredictionSettlementV10Specialist.agent_id,
     }
 )
