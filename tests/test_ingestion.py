@@ -1086,6 +1086,100 @@ class IngestionTests(unittest.TestCase):
         self.assertIn("KXFAST-WINDOW", tickers)
         self.assertEqual(sum(ticker.startswith("KXSTALE-") for ticker in tickers), 99)
 
+    def test_forecast_outcome_polling_prioritizes_early_close_v7_before_expected_expiration(self):
+        audit = AuditLedger(self.db_path)
+        audit.initialize()
+        runner = ShadowIngestionRunner(self.store, self.ledger, audit=audit)
+        for index in range(100):
+            symbol = f"KXSTALE-{index:03d}"
+            instrument = Instrument(
+                f"kalshi:prediction:{symbol}",
+                "kalshi",
+                symbol,
+                AssetClass.PREDICTION,
+                "USD",
+            )
+            self.store.register_instrument(instrument)
+            target_time = self.now - timedelta(days=2, minutes=index)
+            rule = MarketEvent(
+                f"rule-{symbol}",
+                MarketEventType.CONTRACT_RULE,
+                "kalshi",
+                instrument.instrument_id,
+                target_time - timedelta(minutes=1),
+                target_time - timedelta(minutes=1),
+                "fixture",
+                {},
+                ingested_at=target_time - timedelta(minutes=1),
+            )
+            self.store.append_event(rule)
+            audit.append_forecast(
+                Forecast(
+                    f"forecast-{symbol}",
+                    "prediction-market-calibration-baseline-v3",
+                    "baseline-v3",
+                    instrument.instrument_id,
+                    ForecastKind.BINARY_PROBABILITY,
+                    target_time - timedelta(hours=1),
+                    target_time,
+                    {"probability": 0.5, "target_time": target_time.isoformat()},
+                    0.25,
+                    {"market_spread": 0.1},
+                    (rule.event_id,),
+                    ("fixture",),
+                )
+            )
+
+        early_close = Instrument(
+            "kalshi:prediction:KXEARLY-CLOSE",
+            "kalshi",
+            "KXEARLY-CLOSE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(early_close)
+        target_time = self.now + timedelta(minutes=45)
+        generated_at = self.now - timedelta(minutes=15)
+        rule = MarketEvent(
+            "rule-KXEARLY-CLOSE",
+            MarketEventType.CONTRACT_RULE,
+            "kalshi",
+            early_close.instrument_id,
+            generated_at,
+            generated_at,
+            "fixture",
+            {},
+            ingested_at=generated_at,
+        )
+        self.store.append_event(rule)
+        audit.append_forecast(
+            Forecast(
+                "forecast-KXEARLY-CLOSE",
+                "prediction-market-fast-settlement-baseline-v7",
+                "baseline-v7",
+                early_close.instrument_id,
+                ForecastKind.BINARY_PROBABILITY,
+                generated_at,
+                target_time,
+                {
+                    "probability": 0.5,
+                    "target_time": target_time.isoformat(),
+                    "settlement_deadline": (target_time + timedelta(minutes=75)).isoformat(),
+                    "can_close_early": True,
+                },
+                0.25,
+                {"market_spread": 0.1},
+                (rule.event_id,),
+                ("fixture",),
+            )
+        )
+
+        tickers = runner._pending_prediction_tickers(self.now, 100)
+
+        self.assertEqual(len(tickers), 100)
+        self.assertIn("KXEARLY-CLOSE", tickers)
+        self.assertEqual(sum(ticker.startswith("KXSTALE-") for ticker in tickers), 99)
+
     def test_checked_in_option_plan_pairs_breadth_and_repeat_cohorts(self):
         plan = load_plan("config/shadow-ingestion.json")
         option_jobs = [job for job in plan.jobs if job.dataset == "chain"]

@@ -11,6 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Iterator, Protocol
 
+from trading_bot.agents.prediction import FastPredictionSettlementV7Specialist
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.database import (
     DatabaseLocation,
@@ -472,6 +473,24 @@ class ShadowIngestionRunner:
         def priority(item: tuple[Forecast, datetime]) -> tuple[object, ...]:
             forecast, target_time = item
             label_deadline = forecast_label_deadline(forecast)
+            # Kalshi documents that markets with can_close_early=true may close
+            # before expected_expiration_time. Poll those v7 forecasts for the
+            # full pre-registered window so the bounded request cap cannot
+            # delay receipt of an otherwise eligible early finalization.
+            if (
+                forecast.specialist_id == FastPredictionSettlementV7Specialist.agent_id
+                and forecast.values.get("can_close_early") is True
+                and label_deadline is not None
+                and label_deadline > forecast.generated_at
+                and forecast.generated_at <= as_of <= label_deadline
+            ):
+                return (
+                    0,
+                    label_deadline,
+                    target_time,
+                    forecast.generated_at,
+                    forecast.forecast_id,
+                )
             # Fast-lane labels are only useful while their immutable
             # finalization window remains open. Prioritize them over an
             # unbounded legacy overdue queue so the fixed 100-ticker request
@@ -483,7 +502,7 @@ class ShadowIngestionRunner:
                 and as_of <= label_deadline
             ):
                 return (
-                    0,
+                    1,
                     label_deadline,
                     target_time,
                     forecast.generated_at,
@@ -500,7 +519,7 @@ class ShadowIngestionRunner:
                 # receipt exists after the forecast target, prefer the overdue
                 # ticker so a 100-ticker API cap cannot permanently starve it.
                 return (
-                    1,
+                    2,
                     checked_at is not None,
                     checked_at or target_time,
                     target_time,
@@ -508,7 +527,7 @@ class ShadowIngestionRunner:
                     forecast.forecast_id,
                 )
             return (
-                2,
+                3,
                 target_time,
                 forecast.generated_at,
                 forecast.forecast_id,
