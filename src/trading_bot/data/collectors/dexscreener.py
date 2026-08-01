@@ -141,8 +141,12 @@ class DexscreenerCollector:
             token_addresses.append(token_address)
             if len(events) >= limit:
                 break
+        invalid_solana_pool_addresses_skipped = 0
         if include_pool_observations and token_addresses:
-            events.extend(self._collect_pool_observations(token_addresses, received_at))
+            pool_events, invalid_solana_pool_addresses_skipped = (
+                self._collect_pool_observations(token_addresses, received_at)
+            )
+            events.extend(pool_events)
         return CollectionBatch(
             self.venue,
             tuple(instruments),
@@ -154,6 +158,9 @@ class DexscreenerCollector:
                 "solana_profiles_seen": len(token_addresses),
                 "duplicate_profiles_skipped": duplicate_profiles_skipped,
                 "invalid_solana_addresses_skipped": invalid_solana_addresses_skipped,
+                "invalid_solana_pool_addresses_skipped": (
+                    invalid_solana_pool_addresses_skipped
+                ),
                 "malformed_profiles_skipped": malformed_profiles_skipped,
                 "pool_observations_seen": len(events) - len(token_addresses),
                 "pool_observations_enabled": include_pool_observations,
@@ -164,7 +171,7 @@ class DexscreenerCollector:
 
     def _collect_pool_observations(
         self, token_addresses: list[str], received_at: datetime
-    ) -> list[MarketEvent]:
+    ) -> tuple[list[MarketEvent], int]:
         # The documented batch endpoint accepts at most 30 comma-separated token
         # addresses. The profile job is capped at 25, preserving a single bounded
         # public read with no wallet, RPC, or transaction capability.
@@ -174,6 +181,7 @@ class DexscreenerCollector:
         candidates: dict[str, tuple[float, str, dict[str, object]]] = {}
         requested = set(token_addresses)
         malformed_pool_records_skipped = 0
+        invalid_solana_pool_addresses_skipped = 0
         for item in raw_pairs:
             # Pool metadata is an untrusted observation. Ignore malformed
             # records so they cannot turn a read-only discovery cycle into a
@@ -185,10 +193,15 @@ class DexscreenerCollector:
             if str(pair.get("chainId", "")).lower() != self.SOLANA_CHAIN:
                 continue
             pair_address = pair.get("pairAddress")
+            # A pool address is not used for an RPC read today, but it is
+            # retained as a durable point-in-time identifier. Validate it at
+            # the boundary so malformed public metadata cannot later be
+            # mistaken for a trustworthy Solana pool observation.
+            if not isinstance(pair_address, str) or not is_valid_solana_public_key(pair_address):
+                invalid_solana_pool_addresses_skipped += 1
+                continue
             base_token = pair.get("baseToken")
             quote_token = pair.get("quoteToken")
-            if not isinstance(pair_address, str) or not pair_address:
-                continue
             base_address = base_token.get("address") if isinstance(base_token, dict) else None
             quote_address = quote_token.get("address") if isinstance(quote_token, dict) else None
             matched = next(
@@ -257,8 +270,9 @@ class DexscreenerCollector:
                         "forecast_created": False,
                         "shadow_intent_created": False,
                         "malformed_pool_records_skipped": malformed_pool_records_skipped,
+                        "invalid_solana_pool_addresses_skipped": invalid_solana_pool_addresses_skipped,
                     },
                     ingested_at=received_at,
                 )
             )
-        return observations
+        return observations, invalid_solana_pool_addresses_skipped

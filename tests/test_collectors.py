@@ -103,20 +103,22 @@ class CollectorTests(unittest.TestCase):
 
     def test_dexscreener_pool_observations_are_bounded_and_remain_blocked(self):
         mint = "11111111111111111111111111111111"
+        small_pool_address = "So11111111111111111111111111111111111111112"
+        large_pool_address = "11111111111111111111111111111111"
         raw_profile = {
             "chainId": "solana",
             "tokenAddress": mint,
         }
         smaller_pool = {
             "chainId": "solana",
-            "pairAddress": "SmallPool",
+            "pairAddress": small_pool_address,
             "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 5},
         }
         selected_pool = {
             "chainId": "solana",
-            "pairAddress": "LargePool",
+            "pairAddress": large_pool_address,
             "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 100_000},
@@ -147,16 +149,18 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(pool_event.instrument_id, batch.instruments[0].instrument_id)
         self.assertEqual(pool_event.event_time, self.collected)
         self.assertEqual(pool_event.available_at, self.collected)
-        self.assertEqual(pool_event.payload["pair_address"], "LargePool")
+        self.assertEqual(pool_event.payload["pair_address"], large_pool_address)
         self.assertEqual(pool_event.payload["raw_pair"], selected_pool)
         self.assertEqual(pool_event.payload["safety_status"], "blocked_unverified")
         self.assertFalse(pool_event.payload["wallet_or_transaction_authority"])
         self.assertFalse(pool_event.payload["forecast_created"])
         self.assertFalse(pool_event.payload["shadow_intent_created"])
         self.assertEqual(batch.metadata["pool_observations_seen"], 1)
+        self.assertEqual(batch.metadata["invalid_solana_pool_addresses_skipped"], 0)
 
     def test_dexscreener_duplicate_profiles_do_not_amplify_discovery_or_pool_reads(self):
         mint = "11111111111111111111111111111111"
+        pool_address = "So11111111111111111111111111111111111111112"
         first_profile = {
             "chainId": "solana",
             "tokenAddress": mint,
@@ -169,7 +173,7 @@ class CollectorTests(unittest.TestCase):
         }
         pool = {
             "chainId": "solana",
-            "pairAddress": "OnlyPool",
+            "pairAddress": pool_address,
             "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 100_000},
@@ -200,10 +204,11 @@ class CollectorTests(unittest.TestCase):
 
     def test_dexscreener_skips_malformed_discovery_and_pool_records(self):
         mint = "11111111111111111111111111111111"
+        valid_pool_address = "So11111111111111111111111111111111111111112"
         profile = {"chainId": "solana", "tokenAddress": mint}
         pool = {
             "chainId": "solana",
-            "pairAddress": "ValidPool",
+            "pairAddress": valid_pool_address,
             "baseToken": {"address": mint},
             "quoteToken": {"address": "USDC"},
             "liquidity": {"usd": 50_000},
@@ -230,7 +235,41 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(
             batch.events[1].payload["malformed_pool_records_skipped"], 1
         )
-        self.assertEqual(batch.events[1].payload["pair_address"], "ValidPool")
+        self.assertEqual(batch.events[1].payload["pair_address"], valid_pool_address)
+
+    def test_dexscreener_ignores_invalid_pool_address_even_when_it_has_more_liquidity(self):
+        mint = "11111111111111111111111111111111"
+        valid_pool_address = "So11111111111111111111111111111111111111112"
+        profile = {"chainId": "solana", "tokenAddress": mint}
+        invalid_high_liquidity_pool = {
+            "chainId": "solana",
+            "pairAddress": "not-a-solana-public-key",
+            "baseToken": {"address": mint},
+            "quoteToken": {"address": "USDC"},
+            "liquidity": {"usd": 1_000_000},
+        }
+        valid_pool = {
+            "chainId": "solana",
+            "pairAddress": valid_pool_address,
+            "baseToken": {"address": mint},
+            "quoteToken": {"address": "USDC"},
+            "liquidity": {"usd": 50_000},
+        }
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [profile],
+                f"/tokens/v1/solana/{mint}": [invalid_high_liquidity_pool, valid_pool],
+            }
+        )
+
+        batch = DexscreenerCollector(transport).collect_token_profiles(
+            collected_at=self.collected, include_pool_observations=True
+        )
+
+        self.assertEqual(len(batch.events), 2)
+        self.assertEqual(batch.events[1].payload["pair_address"], valid_pool_address)
+        self.assertEqual(batch.metadata["invalid_solana_pool_addresses_skipped"], 1)
+        self.assertEqual(batch.events[1].payload["invalid_solana_pool_addresses_skipped"], 1)
 
     def test_solana_finalized_authority_observation_stays_safety_blocked(self):
         address = "11111111111111111111111111111111"
