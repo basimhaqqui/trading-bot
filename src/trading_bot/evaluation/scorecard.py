@@ -227,6 +227,15 @@ class FastPredictionCadenceSummary:
 
 
 @dataclass(frozen=True)
+class RapidLaneContinuityReport:
+    """Low-egress operational verification for the two rapid evidence lanes."""
+
+    checked_at: datetime
+    rapid_crypto: RapidCryptoCadenceSummary
+    fast_prediction: FastPredictionCadenceSummary
+
+
+@dataclass(frozen=True)
 class DailyScorecard:
     generated_at: datetime
     status: ScorecardStatus
@@ -258,6 +267,86 @@ def rapid_lane_continuity_passes(
         and cadence.largest_gap_minutes is not None
         and cadence.largest_gap_minutes <= cadence.max_allowed_gap_minutes
     )
+
+
+def build_rapid_lane_continuity_report(
+    path: str | Path,
+    plan: ShadowIngestionPlan,
+    *,
+    as_of: datetime,
+) -> RapidLaneContinuityReport:
+    """Verify rapid scheduled receipts without reading forecasts, scores, or events.
+
+    This is deliberately narrower than the operational scorecard so the
+    fifteen-minute workflow can attest its own bounded collection continuity
+    without adding a full evidence-store scan to every rapid cycle.
+    """
+    as_of = require_aware(as_of, "as_of")
+    return RapidLaneContinuityReport(
+        as_of,
+        _rapid_crypto_cadence(path, plan, as_of=as_of),
+        _fast_prediction_cadence(path, plan, as_of=as_of),
+    )
+
+
+def render_rapid_lane_continuity(
+    report: RapidLaneContinuityReport, output_format: str = "text"
+) -> str:
+    """Render receipt-only rapid-lane continuity telemetry for operators."""
+    if output_format == "json":
+        return canonical_json(report)
+    if output_format not in {"text", "markdown"}:
+        raise ValueError(f"unsupported rapid continuity output format: {output_format}")
+
+    passing = all(
+        rapid_lane_continuity_passes(cadence)
+        for cadence in (report.rapid_crypto, report.fast_prediction)
+    )
+    rows = (
+        ("rapid crypto", report.rapid_crypto),
+        ("fast prediction", report.fast_prediction),
+    )
+    if output_format == "markdown":
+        lines = [
+            "## Rapid evidence continuity",
+            "",
+            f"**{'pass' if passing else 'blocked'}** — checked at `{report.checked_at.isoformat()}`",
+            "",
+            "| Lane | Scheduled cycles | Latest cycle | Largest gap | Bound |",
+            "| --- | ---: | --- | ---: | ---: |",
+        ]
+        for name, cadence in rows:
+            latest = cadence.latest_started_at.isoformat() if cadence.latest_started_at else "—"
+            gap = f"{cadence.largest_gap_minutes:.1f}m" if cadence.largest_gap_minutes is not None else "—"
+            lines.append(
+                f"| {name} | {cadence.observed_cycles} | {latest} | {gap} | "
+                f"{cadence.max_allowed_gap_minutes:.0f}m |"
+            )
+        lines.extend(
+            [
+                "",
+                "A failed check records a missed prospective window; it does not create "
+                "replacement evidence or change research eligibility.",
+            ]
+        )
+        return "\n".join(lines)
+
+    lines = [
+        "rapid-evidence-continuity: " + ("pass" if passing else "blocked"),
+        f"checked_at={report.checked_at.isoformat()}",
+    ]
+    for name, cadence in rows:
+        latest = cadence.latest_started_at.isoformat() if cadence.latest_started_at else "none"
+        gap = (
+            f"{cadence.largest_gap_minutes:.1f}"
+            if cadence.largest_gap_minutes is not None
+            else "none"
+        )
+        lines.append(
+            f"{name}: cycles={cadence.observed_cycles} latest={latest} "
+            f"largest_gap_minutes={gap} bound_minutes={cadence.max_allowed_gap_minutes:.0f}"
+        )
+    return "\n".join(lines)
 
 
 def build_daily_scorecard(

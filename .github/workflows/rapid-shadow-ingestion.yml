@@ -119,3 +119,26 @@ jobs:
           --max-age-minutes 30
           --max-consecutive-failures 0
           --format markdown
+
+      - name: Verify rapid evidence continuity
+        # Receipt-only telemetry keeps the rapid workflow's own continuity gate
+        # low-egress. A missed window remains visible and cannot be backfilled.
+        if: ${{ always() && steps.persistence_check.outcome == 'success' }}
+        run: |
+          trading-bot rapid-continuity \
+            --plan config/rapid-shadow-ingestion.json \
+            --format markdown \
+            --output var/reports/rapid-continuity.md \
+            --json-output var/reports/rapid-continuity.json
+          cat var/reports/rapid-continuity.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload rapid continuity report
+        if: ${{ always() && hashFiles('var/reports/rapid-continuity.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: rapid-continuity-${{ github.run_id }}
+          path: |
+            var/reports/rapid-continuity.md
+            var/reports/rapid-continuity.json
+          if-no-files-found: error
+          retention-days: 90
