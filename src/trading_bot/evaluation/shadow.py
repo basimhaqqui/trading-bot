@@ -28,11 +28,13 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV7Specialist,
     FastPredictionSettlementV8Specialist,
     FastPredictionSettlementV9Specialist,
+    FastPredictionSettlementV10Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_expected_expiration_time,
+    prediction_close_time,
     prediction_latest_expiration_time,
     prediction_occurrence_time,
     prediction_settlement_event_ticker,
@@ -315,7 +317,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV9Specialist().agent_id,
+                FastPredictionSettlementV10Specialist().agent_id,
             )
         )
 
@@ -888,7 +890,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV9Specialist()
+        specialist = FastPredictionSettlementV10Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -985,19 +987,21 @@ class ShadowResearchRunner:
                 continue
             short_timer_markets += 1
             event_ticker = rule.payload.get("event_ticker")
+            close_time = prediction_close_time(rule)
             expected_expiration = prediction_expected_expiration_time(rule)
             latest_expiration = prediction_latest_expiration_time(rule)
             if (
                 not isinstance(event_ticker, str)
                 or not event_ticker
+                or close_time is None
                 or expected_expiration is None
                 or latest_expiration is None
                 or latest_expiration < expected_expiration
             ):
                 continue
-            expected_horizon = expected_expiration - decision_time
+            close_horizon = close_time - decision_time
             if not (
-                specialist.config.min_forecast_horizon < expected_horizon
+                specialist.config.min_forecast_horizon < close_horizon
                 <= specialist.config.forecast_horizon
             ):
                 continue
@@ -1243,6 +1247,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV7Specialist.agent_id,
             FastPredictionSettlementV8Specialist.agent_id,
             FastPredictionSettlementV9Specialist.agent_id,
+            FastPredictionSettlementV10Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1258,6 +1263,7 @@ class ShadowResearchRunner:
                 FastPredictionSettlementV7Specialist.agent_id,
                 FastPredictionSettlementV8Specialist.agent_id,
                 FastPredictionSettlementV9Specialist.agent_id,
+                FastPredictionSettlementV10Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1298,6 +1304,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV7Specialist.agent_id,
                     FastPredictionSettlementV8Specialist.agent_id,
                     FastPredictionSettlementV9Specialist.agent_id,
+                    FastPredictionSettlementV10Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):
@@ -1317,7 +1324,11 @@ class ShadowResearchRunner:
             ):
                 continue
             if (
-                forecast.specialist_id == FastPredictionSettlementV9Specialist.agent_id
+                forecast.specialist_id
+                in {
+                    FastPredictionSettlementV9Specialist.agent_id,
+                    FastPredictionSettlementV10Specialist.agent_id,
+                }
                 and event.event_time < target_time
                 and not _v9_early_settlement_is_corroborated(
                     forecast, event, target_time
