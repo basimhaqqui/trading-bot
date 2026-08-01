@@ -26,6 +26,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV5Specialist,
     FastPredictionSettlementV6Specialist,
     FastPredictionSettlementV7Specialist,
+    FastPredictionSettlementV8Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
@@ -313,7 +314,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV7Specialist().agent_id,
+                FastPredictionSettlementV8Specialist().agent_id,
             )
         )
 
@@ -886,7 +887,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV7Specialist()
+        specialist = FastPredictionSettlementV8Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -1239,6 +1240,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV5Specialist.agent_id,
             FastPredictionSettlementV6Specialist.agent_id,
             FastPredictionSettlementV7Specialist.agent_id,
+            FastPredictionSettlementV8Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1252,6 +1254,7 @@ class ShadowResearchRunner:
                 FastPredictionSettlementV5Specialist.agent_id,
                 FastPredictionSettlementV6Specialist.agent_id,
                 FastPredictionSettlementV7Specialist.agent_id,
+                FastPredictionSettlementV8Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1290,6 +1293,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV5Specialist.agent_id,
                     FastPredictionSettlementV6Specialist.agent_id,
                     FastPredictionSettlementV7Specialist.agent_id,
+                    FastPredictionSettlementV8Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):
@@ -1300,6 +1304,14 @@ class ShadowResearchRunner:
                 and forecast.values.get("can_close_early") is not True
             ):
                 continue
+            if (
+                forecast.specialist_id == FastPredictionSettlementV8Specialist.agent_id
+                and event.event_time < target_time
+                and not _v8_early_settlement_is_corroborated(
+                    forecast, event, target_time
+                )
+            ):
+                continue
             return score_binary_forecast(
                 forecast,
                 outcome=result == "yes",
@@ -1307,6 +1319,29 @@ class ShadowResearchRunner:
                 scored_at=as_of,
             )
         return None
+
+
+def _v8_early_settlement_is_corroborated(
+    forecast: Forecast, settlement: MarketEvent, expected_expiration: datetime
+) -> bool:
+    """Require a later venue response to prove the documented early-close path.
+
+    ``can_close_early`` is permission, not evidence that a close date moved.  The
+    final public market response must retain a concrete close time that is after
+    the prediction was made and before both the finalization and the registered
+    expected expiration.  Missing or malformed venue fields fail closed.
+    """
+    if forecast.values.get("can_close_early") is not True:
+        return False
+    raw_market = settlement.payload.get("raw_market")
+    if not isinstance(raw_market, Mapping):
+        return False
+    close_time = _payload_time(raw_market.get("close_time"))
+    return bool(
+        close_time is not None
+        and forecast.generated_at < close_time <= settlement.event_time
+        and close_time < expected_expiration
+    )
 
 
 def _finite_float(value: object) -> float | None:

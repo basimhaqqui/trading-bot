@@ -1173,7 +1173,7 @@ class DailyScorecardTests(unittest.TestCase):
             "prediction-market-calibration-baseline-v3", markdown
         )
 
-    def test_scorecard_surfaces_policy_inconsistent_fast_prediction_labels(self):
+    def test_scorecard_surfaces_uncorroborated_v8_early_prediction_labels(self):
         self.append_public_run()
         plan = ShadowIngestionPlan(
             "scorecard-plan",
@@ -1192,8 +1192,8 @@ class DailyScorecardTests(unittest.TestCase):
         self.audit.append_forecast(
             Forecast(
                 "fast-policy-forecast",
-                "prediction-market-fast-settlement-baseline-v7",
-                "baseline-v7",
+                "prediction-market-fast-settlement-baseline-v8",
+                "baseline-v8",
                 market.instrument_id,
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
@@ -1206,7 +1206,7 @@ class DailyScorecardTests(unittest.TestCase):
                     "settlement_deadline": (
                         expected_expiration + timedelta(minutes=75)
                     ).isoformat(),
-                    "can_close_early": False,
+                    "can_close_early": True,
                 },
                 0.5,
                 {},
@@ -1244,7 +1244,10 @@ class DailyScorecardTests(unittest.TestCase):
             )
         )
         markdown = render_scorecard(scorecard, "markdown")
-        self.assertIn("policy-inconsistent early labels excluded: **1**", markdown)
+        self.assertIn(
+            "policy-inconsistent or uncorroborated early labels excluded: **1**",
+            markdown,
+        )
 
     def test_scorecard_attests_incomplete_bounded_prediction_outcome_poll(self):
         finished_at = self.now - timedelta(minutes=5)
