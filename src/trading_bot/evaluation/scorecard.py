@@ -13,10 +13,15 @@ from trading_bot.agents.hypotheses import (
     BASELINE_HYPOTHESIS_SPECIALIST_IDS,
 )
 from trading_bot.agents.market_math import prediction_book_payload
-from trading_bot.agents.prediction import is_quarantined_prediction_identity_collision
+from trading_bot.agents.prediction import (
+    FastPredictionSettlementV7Specialist,
+    is_quarantined_prediction_identity_collision,
+    prediction_forecast_target_time,
+    prediction_settlement_event_ticker,
+)
 from trading_bot.core.audit import AuditLedger, AuditRecordType
 from trading_bot.core.database import connect_database
-from trading_bot.core.schemas import AssetClass, Forecast
+from trading_bot.core.schemas import AssetClass, Forecast, MarketEventType
 from trading_bot.core.serialization import canonical_json, parse_datetime, require_aware
 from trading_bot.core.store import PointInTimeStore
 from trading_bot.evaluation.costs import EconomicCostRegistry
@@ -162,6 +167,7 @@ class OutcomeQueueSummary:
     not_due: int
     due_unmatched: int
     quarantined: int
+    policy_inconsistent_early_labels: int
     next_due_at: datetime | None
     oldest_due_at: datetime | None
 
@@ -388,7 +394,7 @@ def build_daily_scorecard(
         control.reason,
         reconciliation_records,
     )
-    outcome_queue = _outcome_queue(evidence_forecasts, evidence_scores, as_of)
+    outcome_queue = _outcome_queue(store, evidence_forecasts, evidence_scores, as_of)
     prediction_outcome_polling = _prediction_outcome_polling(path, plan, as_of=as_of)
     strategy_outcome_queues = _strategy_outcome_queues(
         evidence_forecasts,
@@ -462,7 +468,9 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"outcome_queue: unscored={scorecard.outcome_queue.unscored} "
             f"not_due={scorecard.outcome_queue.not_due} "
             f"due_unmatched={scorecard.outcome_queue.due_unmatched} "
-            f"quarantined={scorecard.outcome_queue.quarantined}"
+            f"quarantined={scorecard.outcome_queue.quarantined} "
+            "policy_inconsistent_early_labels="
+            f"{scorecard.outcome_queue.policy_inconsistent_early_labels}"
         ),
         (
             "prediction_outcome_polling: "
@@ -868,6 +876,16 @@ def _build_alerts(
                 f"{outcome_queue.due_unmatched} due forecast(s) await a public outcome; oldest target {oldest}",
             )
         )
+    if outcome_queue.policy_inconsistent_early_labels:
+        alerts.append(
+            OperationalAlert(
+                "fast_prediction_policy_inconsistent_labels",
+                AlertSeverity.WARNING,
+                f"{outcome_queue.policy_inconsistent_early_labels} fast prediction label(s) "
+                "finalized before expected expiration despite recorded "
+                "can_close_early=false; excluded from evidence",
+            )
+        )
     if (
         prediction_outcome_polling.missing_instruments is not None
         and prediction_outcome_polling.missing_instruments > 0
@@ -1162,6 +1180,7 @@ def _scorecard_status(alerts: tuple[OperationalAlert, ...]) -> ScorecardStatus:
 
 
 def _outcome_queue(
+    store: PointInTimeStore,
     forecasts: tuple[Forecast, ...],
     scores: tuple[ForecastScore, ...],
     as_of: datetime,
@@ -1179,9 +1198,53 @@ def _outcome_queue(
         len(future),
         len(due),
         quarantined,
+        _policy_inconsistent_fast_labels(store, unscored, as_of),
         min(future) if future else None,
         min(due) if due else None,
     )
+
+
+def _policy_inconsistent_fast_labels(
+    store: PointInTimeStore,
+    forecasts: Sequence[Forecast],
+    as_of: datetime,
+) -> int:
+    """Count v7 early labels that its recorded close policy explicitly excludes.
+
+    Kalshi documents that an earlier close is allowed only when
+    ``can_close_early`` is true.  These observations remain in the immutable
+    store for audit, but must stay outside the prospective score set when a
+    forecast recorded the opposite policy.
+    """
+    excluded = 0
+    for forecast in forecasts:
+        if (
+            forecast.specialist_id != FastPredictionSettlementV7Specialist.agent_id
+            or forecast.values.get("can_close_early") is not False
+        ):
+            continue
+        expected_event_ticker = forecast.values.get("event_ticker")
+        target_time = prediction_forecast_target_time(forecast)
+        if (
+            not isinstance(expected_event_ticker, str)
+            or not expected_event_ticker
+            or target_time is None
+        ):
+            continue
+        settlements = store.events_available_at(
+            as_of,
+            instrument_id=forecast.instrument_id,
+            event_type=MarketEventType.SETTLEMENT,
+        )
+        if any(
+            event.available_at > forecast.generated_at
+            and forecast.generated_at <= event.event_time < target_time
+            and str(event.payload.get("result", "")).lower() in {"yes", "no"}
+            and prediction_settlement_event_ticker(event) == expected_event_ticker
+            for event in settlements
+        ):
+            excluded += 1
+    return excluded
 
 
 def _prediction_outcome_polling(
@@ -1716,7 +1779,9 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"Unscored: **{scorecard.outcome_queue.unscored:,}** · "
                 f"not due: **{scorecard.outcome_queue.not_due:,}** · "
                 f"due without outcome: **{scorecard.outcome_queue.due_unmatched:,}** · "
-                f"quarantined legacy/invalid: **{scorecard.outcome_queue.quarantined:,}**"
+                f"quarantined legacy/invalid: **{scorecard.outcome_queue.quarantined:,}** · "
+                "policy-inconsistent early labels excluded: "
+                f"**{scorecard.outcome_queue.policy_inconsistent_early_labels:,}**"
             ),
             "",
             (
