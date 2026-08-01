@@ -1173,6 +1173,79 @@ class DailyScorecardTests(unittest.TestCase):
             "prediction-market-calibration-baseline-v3", markdown
         )
 
+    def test_scorecard_surfaces_policy_inconsistent_fast_prediction_labels(self):
+        self.append_public_run()
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (ObservationJob("coinbase-products", "coinbase", "products"),),
+        )
+        market = Instrument(
+            "kalshi:prediction:FAST-POLICY",
+            "kalshi",
+            "FAST-POLICY",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        expected_expiration = self.now + timedelta(minutes=30)
+        generated_at = self.now - timedelta(minutes=10)
+        self.audit.append_forecast(
+            Forecast(
+                "fast-policy-forecast",
+                "prediction-market-fast-settlement-baseline-v7",
+                "baseline-v7",
+                market.instrument_id,
+                ForecastKind.BINARY_PROBABILITY,
+                generated_at,
+                expected_expiration,
+                {
+                    "probability": 0.5,
+                    "market_probability": 0.5,
+                    "event_ticker": "FAST-POLICY-EVENT",
+                    "target_time": expected_expiration.isoformat(),
+                    "settlement_deadline": (
+                        expected_expiration + timedelta(minutes=75)
+                    ).isoformat(),
+                    "can_close_early": False,
+                },
+                0.5,
+                {},
+                ("fixture-event",),
+                ("test fixture",),
+            )
+        )
+        self.store.append_event(
+            MarketEvent(
+                "fast-policy-early-finalization",
+                MarketEventType.SETTLEMENT,
+                "kalshi",
+                market.instrument_id,
+                self.now,
+                self.now,
+                "fixture",
+                {"result": "yes", "event_ticker": "FAST-POLICY-EVENT"},
+                ingested_at=self.now,
+            )
+        )
+
+        scorecard = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        )
+
+        self.assertEqual(scorecard.outcome_queue.policy_inconsistent_early_labels, 1)
+        self.assertTrue(
+            any(
+                alert.code == "fast_prediction_policy_inconsistent_labels"
+                for alert in scorecard.alerts
+            )
+        )
+        markdown = render_scorecard(scorecard, "markdown")
+        self.assertIn("policy-inconsistent early labels excluded: **1**", markdown)
+
     def test_scorecard_attests_incomplete_bounded_prediction_outcome_poll(self):
         finished_at = self.now - timedelta(minutes=5)
         self.ingestion.append(
