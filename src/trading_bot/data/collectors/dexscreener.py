@@ -52,6 +52,8 @@ class DexscreenerCollector:
         instruments: list[Instrument] = []
         events: list[MarketEvent] = []
         token_addresses: list[str] = []
+        discovered_addresses: set[str] = set()
+        duplicate_profiles_skipped = 0
         for raw in raw_profiles:
             profile = require_object(raw, "token profile")
             chain_id = require_string(profile.get("chainId"), "token profile.chainId").lower()
@@ -60,6 +62,14 @@ class DexscreenerCollector:
             token_address = require_string(
                 profile.get("tokenAddress"), "token profile.tokenAddress"
             )
+            # A discovery response may repeat a mint with different untrusted
+            # profile metadata.  Keep the first point-in-time observation only:
+            # duplicates must not consume the bounded follow-up RPC budget or
+            # manufacture additional discovery evidence for the same mint.
+            if token_address in discovered_addresses:
+                duplicate_profiles_skipped += 1
+                continue
+            discovered_addresses.add(token_address)
             instrument = Instrument(
                 f"dexscreener:memecoin:{chain_id}:{token_address}",
                 self.venue,
@@ -105,8 +115,7 @@ class DexscreenerCollector:
             )
             instruments.append(instrument)
             events.append(event)
-            if token_address not in token_addresses:
-                token_addresses.append(token_address)
+            token_addresses.append(token_address)
             if len(events) >= limit:
                 break
         if include_pool_observations and token_addresses:
@@ -120,6 +129,7 @@ class DexscreenerCollector:
                 "public_endpoint": True,
                 "source_documentation_url": self.PROFILE_DOCUMENTATION_URL,
                 "solana_profiles_seen": len(token_addresses),
+                "duplicate_profiles_skipped": duplicate_profiles_skipped,
                 "pool_observations_seen": len(events) - len(token_addresses),
                 "pool_observations_enabled": include_pool_observations,
                 "safety_status": "blocked_unverified",

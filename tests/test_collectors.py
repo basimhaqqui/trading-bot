@@ -151,6 +151,48 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(pool_event.payload["shadow_intent_created"])
         self.assertEqual(batch.metadata["pool_observations_seen"], 1)
 
+    def test_dexscreener_duplicate_profiles_do_not_amplify_discovery_or_pool_reads(self):
+        first_profile = {
+            "chainId": "solana",
+            "tokenAddress": "ExampleMint",
+            "description": "first point-in-time profile",
+        }
+        duplicate_profile = {
+            "chainId": "solana",
+            "tokenAddress": "ExampleMint",
+            "description": "later duplicate profile",
+        }
+        pool = {
+            "chainId": "solana",
+            "pairAddress": "OnlyPool",
+            "baseToken": {"address": "ExampleMint"},
+            "quoteToken": {"address": "USDC"},
+            "liquidity": {"usd": 100_000},
+        }
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [first_profile, duplicate_profile],
+                "/tokens/v1/solana/ExampleMint": [pool],
+            }
+        )
+
+        batch = DexscreenerCollector(transport).collect_token_profiles(
+            collected_at=self.collected, limit=25, include_pool_observations=True
+        )
+
+        self.assertEqual(len(batch.instruments), 1)
+        self.assertEqual(len(batch.events), 2)
+        self.assertEqual(batch.events[0].payload["raw_profile"], first_profile)
+        self.assertEqual(batch.metadata["solana_profiles_seen"], 1)
+        self.assertEqual(batch.metadata["duplicate_profiles_skipped"], 1)
+        self.assertEqual(
+            transport.calls,
+            [
+                ("/token-profiles/latest/v1", {}),
+                ("/tokens/v1/solana/ExampleMint", {}),
+            ],
+        )
+
     def test_solana_finalized_authority_observation_stays_safety_blocked(self):
         address = "11111111111111111111111111111111"
         mint = bytearray(82)
