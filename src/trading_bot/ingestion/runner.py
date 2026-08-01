@@ -14,6 +14,7 @@ from typing import Iterator, Protocol
 from trading_bot.agents.prediction import (
     FastPredictionSettlementV7Specialist,
     FastPredictionSettlementV8Specialist,
+    FastPredictionSettlementV9Specialist,
 )
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.database import (
@@ -477,7 +478,7 @@ class ShadowIngestionRunner:
             forecast, target_time = item
             label_deadline = forecast_label_deadline(forecast)
             # Kalshi documents that markets with can_close_early=true may close
-            # before expected_expiration_time. Poll those v7/v8 forecasts for the
+            # before expected_expiration_time. Poll those v7-v9 forecasts for the
             # full pre-registered window so the bounded request cap cannot
             # delay receipt of an otherwise eligible early finalization.
             if (
@@ -485,6 +486,7 @@ class ShadowIngestionRunner:
                 in {
                     FastPredictionSettlementV7Specialist.agent_id,
                     FastPredictionSettlementV8Specialist.agent_id,
+                    FastPredictionSettlementV9Specialist.agent_id,
                 }
                 and forecast.values.get("can_close_early") is True
                 and label_deadline is not None

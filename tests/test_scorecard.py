@@ -1173,7 +1173,7 @@ class DailyScorecardTests(unittest.TestCase):
             "prediction-market-calibration-baseline-v3", markdown
         )
 
-    def test_scorecard_surfaces_uncorroborated_v8_early_prediction_labels(self):
+    def test_scorecard_surfaces_uncorroborated_v9_early_prediction_labels(self):
         self.append_public_run()
         plan = ShadowIngestionPlan(
             "scorecard-plan",
@@ -1192,8 +1192,8 @@ class DailyScorecardTests(unittest.TestCase):
         self.audit.append_forecast(
             Forecast(
                 "fast-policy-forecast",
-                "prediction-market-fast-settlement-baseline-v8",
-                "baseline-v8",
+                "prediction-market-fast-settlement-baseline-v9",
+                "baseline-v9",
                 market.instrument_id,
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
