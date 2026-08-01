@@ -289,7 +289,15 @@ class KalshiCollector:
     ) -> MarketEvent | None:
         result = str(market.get("result", "")).lower()
         settlement_ts = market.get("settlement_ts")
-        if result not in {"yes", "no", "scalar"} or not settlement_ts:
+        # A market can expose a result while it is merely determined (and may
+        # still be disputed or amended).  Kalshi's lifecycle documentation
+        # identifies ``finalized`` as the terminal, paid-out state, so only a
+        # finalized response may become a research outcome label.
+        if (
+            str(market.get("status", "")).lower() != "finalized"
+            or result not in {"yes", "no", "scalar"}
+            or not settlement_ts
+        ):
             return None
         source_time = parse_time(settlement_ts, "market.settlement_ts")
         event_time = observed_event_time(
