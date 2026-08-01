@@ -42,6 +42,10 @@ class ShadowWorkflowTests(unittest.TestCase):
         self.assertIn("--egress-report var/reports/rapid-neon-egress.md", workflow)
         self.assertIn("Publish rapid egress accounting", workflow)
         self.assertIn("config/rapid-shadow-ingestion.json", workflow)
+        self.assertIn("Verify rapid evidence continuity", workflow)
+        self.assertIn("trading-bot rapid-continuity", workflow)
+        self.assertIn("rapid-continuity-${{ github.run_id }}", workflow)
+        self.assertIn("retention-days: 90", workflow)
         self.assertEqual(plan["name"], "public-shadow-observation")
         self.assertEqual(
             {job["job_id"] for job in plan["jobs"]},

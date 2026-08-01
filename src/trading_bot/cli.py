@@ -103,8 +103,10 @@ from trading_bot.evaluation.shadow import (
 from trading_bot.evaluation.scorecard import (
     ScorecardStatus,
     build_daily_scorecard,
+    build_rapid_lane_continuity_report,
     rapid_lane_continuity_passes,
     render_github_alerts,
+    render_rapid_lane_continuity,
     render_scorecard,
 )
 from trading_bot.evaluation.launch_readiness import (
@@ -203,6 +205,18 @@ def _parser() -> argparse.ArgumentParser:
     shadow_health.add_argument("--max-consecutive-failures", type=int, default=0)
     shadow_health.add_argument(
         "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    rapid_continuity = subparsers.add_parser(
+        "rapid-continuity",
+        help="verify scheduled receipt continuity for the rapid crypto and prediction lanes",
+    )
+    rapid_continuity.add_argument("--plan", required=True, help="validated rapid ingestion plan JSON")
+    rapid_continuity.add_argument(
+        "--format", choices=("text", "json", "markdown"), default="text"
+    )
+    rapid_continuity.add_argument("--output", help="optional rendered continuity report path")
+    rapid_continuity.add_argument(
+        "--json-output", help="optional machine-readable continuity report path"
     )
     economic_report = subparsers.add_parser(
         "economic-report",
@@ -1048,6 +1062,29 @@ def _daily_scorecard(path: DatabaseLocation, args: argparse.Namespace) -> int:
     return 0
 
 
+def _rapid_continuity(path: DatabaseLocation, args: argparse.Namespace) -> int:
+    _initialize(path)
+    report = build_rapid_lane_continuity_report(path, load_plan(args.plan), as_of=utc_now())
+    rendered = render_rapid_lane_continuity(report, args.format)
+    print(rendered)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    if args.json_output:
+        json_output = Path(args.json_output)
+        json_output.parent.mkdir(parents=True, exist_ok=True)
+        json_output.write_text(
+            render_rapid_lane_continuity(report, "json") + "\n", encoding="utf-8"
+        )
+    return int(
+        not all(
+            rapid_lane_continuity_passes(cadence)
+            for cadence in (report.rapid_crypto, report.fast_prediction)
+        )
+    )
+
+
 def _paper_status(path: DatabaseLocation, args: argparse.Namespace) -> int:
     store, _, audit = _initialize(path)
     client = _paper_client()
@@ -1343,6 +1380,8 @@ def main() -> int:
             return _shadow_report(path, min_outcomes=args.min_outcomes)
         if args.command == "shadow-health":
             return _shadow_health(path, args)
+        if args.command == "rapid-continuity":
+            return _rapid_continuity(path, args)
         if args.command == "snapshot":
             return _snapshot(
                 path,

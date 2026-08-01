@@ -24,8 +24,10 @@ from trading_bot.evaluation.scorecard import (
     RapidCryptoCadenceSummary,
     ScorecardStatus,
     build_daily_scorecard,
+    build_rapid_lane_continuity_report,
     rapid_lane_continuity_passes,
     render_github_alerts,
+    render_rapid_lane_continuity,
     render_scorecard,
 )
 from trading_bot.evaluation.outcomes import forecast_label_deadline
@@ -305,6 +307,34 @@ class DailyScorecardTests(unittest.TestCase):
         )
 
         self.assertTrue(rapid_lane_continuity_passes(cadence))
+
+    def test_receipt_only_rapid_continuity_report_passes_for_bounded_lanes(self):
+        for minute in range(0, 24 * 60, 15):
+            started_at = self.now - timedelta(minutes=minute)
+            self.append_rapid_crypto_run(f"crypto-{minute}", started_at)
+            self.append_fast_prediction_run(f"prediction-{minute}", started_at)
+        plan = ShadowIngestionPlan(
+            "scorecard-plan",
+            (
+                ObservationJob(
+                    "coinbase-btc-fifteen-minute-candles",
+                    "coinbase",
+                    "candles",
+                    symbol="BTC-USD",
+                    granularity="FIFTEEN_MINUTE",
+                ),
+                ObservationJob("kalshi-fast-settling-markets", "kalshi", "markets"),
+            ),
+        )
+
+        report = build_rapid_lane_continuity_report(self.path, plan, as_of=self.now)
+
+        self.assertTrue(rapid_lane_continuity_passes(report.rapid_crypto))
+        self.assertTrue(rapid_lane_continuity_passes(report.fast_prediction))
+        self.assertIn("**pass**", render_rapid_lane_continuity(report, "markdown"))
+        payload = json.loads(render_rapid_lane_continuity(report, "json"))
+        self.assertEqual(payload["rapid_crypto"]["observed_cycles"], 96)
+        self.assertEqual(payload["fast_prediction"]["observed_cycles"], 96)
 
     def test_scorecard_excludes_manual_cycles_from_rapid_continuity(self):
         self.ingestion.append(
