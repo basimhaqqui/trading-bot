@@ -438,6 +438,7 @@ def _initialize(path: DatabaseLocation) -> tuple[PointInTimeStore, ExperimentReg
 def _persistence_check(path: DatabaseLocation) -> int:
     """Fail before collection when the durable evidence store cannot be reached."""
     if not is_postgres_location(path):
+        _write_persistence_check_output("unsupported_database_location")
         raise RuntimeError("persistent shadow evidence requires a PostgreSQL database URL")
     try:
         integrity_ok = postgres_integrity_ok(path)
@@ -446,14 +447,27 @@ def _persistence_check(path: DatabaseLocation) -> int:
         # The scheduled research workflow needs an actionable but non-sensitive
         # operator message instead.
         if "data transfer quota" in str(exc).casefold():
+            _write_persistence_check_output("neon_data_transfer_quota_exceeded")
             raise RuntimeError(
                 "persistent shadow evidence unavailable: Neon data-transfer quota exceeded"
             ) from None
+        _write_persistence_check_output("database_unavailable")
         raise RuntimeError("persistent shadow evidence database is unavailable") from None
     if not integrity_ok:
+        _write_persistence_check_output("integrity_check_failed")
         raise RuntimeError("persistent shadow evidence database integrity check failed")
+    _write_persistence_check_output("reachable")
     print("Persistent shadow evidence database: reachable")
     return 0
+
+
+def _write_persistence_check_output(reason: str) -> None:
+    """Expose a fixed, non-sensitive preflight result to GitHub Actions."""
+    output_path = os.getenv("GITHUB_OUTPUT")
+    if not output_path:
+        return
+    with Path(output_path).open("a", encoding="utf-8") as output:
+        output.write(f"reason={reason}\n")
 
 
 def _migrate_sqlite(path: DatabaseLocation, source: Path) -> int:

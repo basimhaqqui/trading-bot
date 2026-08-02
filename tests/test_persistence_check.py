@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -23,6 +26,28 @@ class PersistenceCheckTests(unittest.TestCase):
             self.assertEqual(_persistence_check("postgresql://configured"), 0)
 
         integrity.assert_called_once_with("postgresql://configured")
+
+    def test_writes_only_fixed_reason_to_github_output(self):
+        with TemporaryDirectory() as directory:
+            output_path = Path(directory) / "github-output"
+            with (
+                patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_path)}),
+                patch("trading_bot.cli.is_postgres_location", return_value=True),
+                patch(
+                    "trading_bot.cli.postgres_integrity_ok",
+                    side_effect=RuntimeError(
+                        "connection to server at 'ep-example-pooler.c-4.aws.neon.tech' "
+                        "failed: Your project has exceeded the data transfer quota"
+                    ),
+                ),
+                self.assertRaisesRegex(RuntimeError, "Neon data-transfer quota exceeded"),
+            ):
+                _persistence_check("postgresql://configured")
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "reason=neon_data_transfer_quota_exceeded\n",
+            )
 
     def test_redacts_connection_details_when_neon_quota_is_exhausted(self):
         with (

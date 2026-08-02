@@ -52,7 +52,7 @@ jobs:
         run: trading-bot persistence-check
 
       - name: Attest unavailable persistent evidence
-        if: ${{ always() && steps.persistence_check.outcome == 'failure' }}
+        if: ${{ always() && steps.persistence_check.outcome != 'success' }}
         run: |
           {
             echo "## Shadow evidence unavailable"
@@ -68,6 +68,7 @@ jobs:
           {
             "observed_at": "${observed_at}",
             "status": "persistent_preflight_failed",
+            "reason": "${{ steps.persistence_check.outputs.reason || 'database_not_configured' }}",
             "evidence_collected": false,
             "retrospective_replacement_used": false
           }

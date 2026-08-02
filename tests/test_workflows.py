@@ -90,7 +90,7 @@ class ShadowWorkflowTests(unittest.TestCase):
         full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
         expected_condition = (
-            "if: ${{ always() && steps.persistence_check.outcome == 'failure' }}"
+            "if: ${{ always() && steps.persistence_check.outcome != 'success' }}"
         )
         for workflow in (rapid_workflow, full_workflow):
             self.assertIn("Attest unavailable persistent evidence", workflow)
@@ -111,6 +111,7 @@ class ShadowWorkflowTests(unittest.TestCase):
             self.assertIn("persistence-unavailable.json", workflow)
             self.assertIn(artifact_name, workflow)
             self.assertIn('"status": "persistent_preflight_failed"', workflow)
+            self.assertIn('"reason": "${{ steps.persistence_check.outputs.reason || \'database_not_configured\' }}"', workflow)
             self.assertIn('"evidence_collected": false', workflow)
             self.assertIn('"retrospective_replacement_used": false', workflow)
             self.assertIn("retention-days: 90", workflow)
