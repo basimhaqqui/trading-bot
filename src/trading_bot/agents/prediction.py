@@ -19,6 +19,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V8_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V9_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V10_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V11_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -346,7 +347,6 @@ class FastPredictionSettlementSpecialist:
             invalidation_conditions=self.hypothesis.invalidation_conditions,
         )
 
-
 class FastPredictionSettlementV3Specialist(FastPredictionSettlementSpecialist):
     """Prospective fast lane with a preregistered settlement label window."""
 
@@ -461,7 +461,6 @@ class FastPredictionSettlementV5Specialist:
             evidence_event_ids=(rule.event_id, books[-1].event_id),
             invalidation_conditions=self.hypothesis.invalidation_conditions,
         )
-
 
 class FastPredictionSettlementV6Specialist:
     """Prospective fast-finalization lane with a fixed label deadline."""
@@ -623,6 +622,8 @@ class FastPredictionSettlementV10Specialist:
         if not books or not rules:
             return None
         rule = rules[-1]
+        if not self._rule_is_current(rule, books[-1]):
+            return None
         if str(rule.payload.get("status", "")).lower() != "active":
             return None
         if not isinstance(rule.payload.get("can_close_early"), bool):
@@ -704,6 +705,22 @@ class FastPredictionSettlementV10Specialist:
             evidence_event_ids=(rule.event_id, books[-1].event_id),
             invalidation_conditions=self.hypothesis.invalidation_conditions,
         )
+
+    def _rule_is_current(self, rule: MarketEvent, book: MarketEvent) -> bool:
+        """Keep v10 behavior stable; stricter successors override this guard."""
+        return True
+
+
+class FastPredictionSettlementV11Specialist(FastPredictionSettlementV10Specialist):
+    """Prospective fast lane requiring a current lifecycle snapshot for each book."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v11"
+    model_version = "baseline-v11"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V11_HYPOTHESIS
+
+    def _rule_is_current(self, rule: MarketEvent, book: MarketEvent) -> bool:
+        age = book.available_at - rule.available_at
+        return timedelta(0) <= age <= self.config.max_book_age
 
 
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
@@ -843,5 +860,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV8Specialist.agent_id,
         FastPredictionSettlementV9Specialist.agent_id,
         FastPredictionSettlementV10Specialist.agent_id,
+        FastPredictionSettlementV11Specialist.agent_id,
     }
 )

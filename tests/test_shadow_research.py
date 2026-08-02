@@ -659,7 +659,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v10"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v11"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -806,8 +806,8 @@ class ShadowResearchTests(unittest.TestCase):
             target_time = generated_at + timedelta(minutes=30)
             forecast = Forecast(
                 f"rejected-fast-{index}",
-                "prediction-market-fast-settlement-baseline-v10",
-                "baseline-v10",
+                "prediction-market-fast-settlement-baseline-v11",
+                "baseline-v11",
                 f"kalshi:prediction:REJECTED-{index}",
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
@@ -907,6 +907,45 @@ class ShadowResearchTests(unittest.TestCase):
         generated = self.runner.generate_forecasts(as_of=self.now)
         self.assertEqual(generated.appended, 1)
         self.assertTrue(self.audit.forecasts()[0].values["can_close_early"])
+
+    def test_fast_prediction_rejects_stale_rule_snapshot(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-STALE-RULE",
+            "kalshi",
+            "FAST-STALE-RULE",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        close_time = self.now + timedelta(hours=1)
+        for event in (
+            self.event(
+                "fast-stale-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-STALE-RULE-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "close_time": close_time.isoformat(),
+                    "expected_expiration_time": close_time.isoformat(),
+                    "latest_expiration_time": close_time.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=16),
+            ),
+            self.event(
+                "fast-stale-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            ),
+        ):
+            self.store.append_event(event)
+
+        self.assertEqual(self.runner._fast_prediction_candidates(self.now), [])
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 0)
 
     def test_fast_prediction_eligibility_attributes_close_constraint_rejections(self):
         close_constraints = (
@@ -1106,7 +1145,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v10")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v11")
         self.store.append_event(
             self.event(
                 "fast-policy-early-settlement",
@@ -1159,7 +1198,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v10")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v11")
         early_settlement = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1229,7 +1268,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v10")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v11")
         early_finalization = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
