@@ -679,6 +679,12 @@ class ShadowResearchTests(unittest.TestCase):
             },
             {MarketEventType.CONTRACT_RULE, MarketEventType.BOOK_SNAPSHOT},
         )
+        for call in events_available_at.call_args_list:
+            self.assertEqual(call.kwargs.get("instrument_ids"), set())
+            self.assertEqual(
+                call.kwargs.get("available_since"),
+                self.now - timedelta(minutes=15),
+            )
 
     def test_fast_prediction_uses_recorded_close_not_expected_expiration(self):
         market = Instrument(

@@ -85,6 +85,44 @@ class PointInTimeStoreTests(unittest.TestCase):
                 instrument_ids=(other.instrument_id,),
             )
 
+    def test_large_instrument_cohort_is_queried_in_bounded_batches(self):
+        instruments = [
+            Instrument(
+                f"demo:batch-{index}",
+                "demo",
+                f"BATCH-{index}",
+                AssetClass.CRYPTO,
+                "USD",
+            )
+            for index in range(901)
+        ]
+        for index, instrument in enumerate(instruments):
+            self.store.register_instrument(instrument)
+            self.store.append_event(
+                MarketEvent(
+                    f"batch-event-{index}",
+                    MarketEventType.TRADE,
+                    instrument.venue,
+                    instrument.instrument_id,
+                    self.event_time,
+                    self.available_at,
+                    "test",
+                    {"price": float(index)},
+                    ingested_at=self.available_at,
+                )
+            )
+
+        selected = self.store.events_available_at(
+            self.available_at,
+            instrument_ids=tuple(item.instrument_id for item in instruments),
+        )
+
+        self.assertEqual(len(selected), len(instruments))
+        self.assertEqual(
+            {item.instrument_id for item in selected},
+            {item.instrument_id for item in instruments},
+        )
+
     def test_events_can_be_read_from_a_bounded_availability_window(self):
         self.store.append_event(self.event)
         later = MarketEvent(

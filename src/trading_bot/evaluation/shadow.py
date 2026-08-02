@@ -902,20 +902,25 @@ class ShadowResearchRunner:
         }
         latest_books: dict[str, MarketEvent] = {}
         rules_by_instrument: dict[str, list[MarketEvent]] = {}
-        # The rapid lane only needs contract rules and executable books.  Do
-        # not deserialize unrelated historical candles, trades, or settlements
-        # on every fifteen-minute cycle: they cannot affect this preregistered
-        # selection and eventually push the read-only job past its cadence.
+        # V11 only permits a lifecycle rule within fifteen minutes of its
+        # executable book, and the book itself must be that fresh. Restrict the
+        # durable reads to that immutable window and the current prediction
+        # cohort: historical observations cannot affect selection, but their
+        # payloads would consume the rapid lane's bounded database egress.
+        freshness_start = as_of - specialist.config.max_book_age
         for event in self.store.events_available_at(
-            as_of, event_type=MarketEventType.CONTRACT_RULE
+            as_of,
+            instrument_ids=instrument_ids,
+            event_type=MarketEventType.CONTRACT_RULE,
+            available_since=freshness_start,
         ):
-            if event.instrument_id in instrument_ids:
-                rules_by_instrument.setdefault(event.instrument_id, []).append(event)
+            rules_by_instrument.setdefault(event.instrument_id, []).append(event)
         for event in self.store.events_available_at(
-            as_of, event_type=MarketEventType.BOOK_SNAPSHOT
+            as_of,
+            instrument_ids=instrument_ids,
+            event_type=MarketEventType.BOOK_SNAPSHOT,
+            available_since=freshness_start,
         ):
-            if event.instrument_id not in instrument_ids:
-                continue
             existing = latest_books.get(event.instrument_id)
             if existing is None or (event.available_at, event.event_id) > (
                 existing.available_at,
