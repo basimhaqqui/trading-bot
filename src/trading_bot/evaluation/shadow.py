@@ -29,6 +29,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV8Specialist,
     FastPredictionSettlementV9Specialist,
     FastPredictionSettlementV10Specialist,
+    FastPredictionSettlementV11Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
@@ -317,7 +318,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV10Specialist().agent_id,
+                FastPredictionSettlementV11Specialist().agent_id,
             )
         )
 
@@ -890,7 +891,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV10Specialist()
+        specialist = FastPredictionSettlementV11Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -956,6 +957,8 @@ class ShadowResearchRunner:
             paired_markets += 1
             decision_time = book.available_at
             if as_of - decision_time > specialist.config.max_book_age:
+                continue
+            if book.available_at - rule.available_at > specialist.config.max_book_age:
                 continue
             fresh_book_markets += 1
             if str(rule.payload.get("status", "")).lower() != "active":
@@ -1248,6 +1251,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV8Specialist.agent_id,
             FastPredictionSettlementV9Specialist.agent_id,
             FastPredictionSettlementV10Specialist.agent_id,
+            FastPredictionSettlementV11Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1264,6 +1268,7 @@ class ShadowResearchRunner:
                 FastPredictionSettlementV8Specialist.agent_id,
                 FastPredictionSettlementV9Specialist.agent_id,
                 FastPredictionSettlementV10Specialist.agent_id,
+                FastPredictionSettlementV11Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1305,6 +1310,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV8Specialist.agent_id,
                     FastPredictionSettlementV9Specialist.agent_id,
                     FastPredictionSettlementV10Specialist.agent_id,
+                    FastPredictionSettlementV11Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):
@@ -1328,6 +1334,7 @@ class ShadowResearchRunner:
                 in {
                     FastPredictionSettlementV9Specialist.agent_id,
                     FastPredictionSettlementV10Specialist.agent_id,
+                    FastPredictionSettlementV11Specialist.agent_id,
                 }
                 and event.event_time < target_time
                 and not _v9_early_settlement_is_corroborated(
