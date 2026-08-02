@@ -301,21 +301,41 @@ class PointInTimeStore:
         if instrument_id:
             clauses.append("instrument_id = ?")
             parameters.append(instrument_id)
-        elif selected_ids:
-            placeholders = ", ".join("?" for _ in selected_ids)
-            clauses.append(f"instrument_id IN ({placeholders})")
-            parameters.extend(selected_ids)
         if event_type:
             clauses.append("event_type = ?")
             parameters.append(event_type.value)
-        query = f"""
-            SELECT * FROM market_events
-            WHERE {' AND '.join(clauses)}
-            ORDER BY event_time, COALESCE(sequence, -1), event_id
-        """
+        chunks = (
+            tuple(
+                selected_ids[offset : offset + BATCH_LOOKUP_SIZE]
+                for offset in range(0, len(selected_ids), BATCH_LOOKUP_SIZE)
+            )
+            if selected_ids
+            else ((),)
+        )
+        rows: list[Any] = []
         with self.connect() as connection:
-            rows = connection.execute(query, parameters).fetchall()
-        return [self._event_from_row(row) for row in rows]
+            for chunk in chunks:
+                chunk_clauses = list(clauses)
+                chunk_parameters = list(parameters)
+                if chunk:
+                    placeholders = ", ".join("?" for _ in chunk)
+                    chunk_clauses.append(f"instrument_id IN ({placeholders})")
+                    chunk_parameters.extend(chunk)
+                query = f"""
+                    SELECT * FROM market_events
+                    WHERE {' AND '.join(chunk_clauses)}
+                    ORDER BY event_time, COALESCE(sequence, -1), event_id
+                """
+                rows.extend(connection.execute(query, chunk_parameters).fetchall())
+        events = [self._event_from_row(row) for row in rows]
+        events.sort(
+            key=lambda item: (
+                item.event_time,
+                item.sequence if item.sequence is not None else -1,
+                item.event_id,
+            )
+        )
+        return events
 
     def has_events(self, event_ids: Iterable[str]) -> bool:
         """Check canonical evidence IDs without transferring their payloads."""
