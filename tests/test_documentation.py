@@ -6,11 +6,11 @@ class DocumentationTests(unittest.TestCase):
     def test_readme_describes_active_fast_prediction_preregistration(self):
         readme = Path("README.md").read_text(encoding="utf-8")
 
-        self.assertIn("Fast-settlement prediction v11", readme)
+        self.assertIn("Fast-settlement prediction v12", readme)
         self.assertIn("`event_ticker`", readme)
         self.assertIn("recorded `close_time`", readme)
         self.assertIn("fifteen minutes apart", readme)
-        self.assertIn("fast-settling v11 baseline", readme)
+        self.assertIn("fast-settling v12 baseline", readme)
         self.assertIn("cannot reuse the frozen or earlier fast-lane cohorts", readme)
         self.assertIn("does not use either as the scored boundary", readme)
         self.assertIn("policy-inconsistent timestamps remain unscored", readme)

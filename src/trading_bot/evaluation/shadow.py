@@ -30,6 +30,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV9Specialist,
     FastPredictionSettlementV10Specialist,
     FastPredictionSettlementV11Specialist,
+    FastPredictionSettlementV12Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
@@ -113,6 +114,8 @@ class FastPredictionEligibilitySummary:
     paired_markets: int
     fresh_book_markets: int
     active_markets: int
+    non_provisional_markets: int
+    provisional_markets: int
     documented_close_policy_markets: int
     early_close_enabled_markets: int
     early_close_disabled_markets: int
@@ -318,7 +321,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV11Specialist().agent_id,
+                FastPredictionSettlementV12Specialist().agent_id,
             )
         )
 
@@ -891,7 +894,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV11Specialist()
+        specialist = FastPredictionSettlementV12Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -902,7 +905,7 @@ class ShadowResearchRunner:
         }
         latest_books: dict[str, MarketEvent] = {}
         rules_by_instrument: dict[str, list[MarketEvent]] = {}
-        # V11 only permits a lifecycle rule within fifteen minutes of its
+        # V12 only permits a lifecycle rule within fifteen minutes of its
         # executable book, and the book itself must be that fresh. Restrict the
         # durable reads to that immutable window and the current prediction
         # cohort: historical observations cannot affect selection, but their
@@ -932,6 +935,8 @@ class ShadowResearchRunner:
         paired_markets = 0
         fresh_book_markets = 0
         active_markets = 0
+        non_provisional_markets = 0
+        provisional_markets = 0
         documented_close_policy_markets = 0
         early_close_enabled_markets = 0
         early_close_disabled_markets = 0
@@ -969,6 +974,10 @@ class ShadowResearchRunner:
             if str(rule.payload.get("status", "")).lower() != "active":
                 continue
             active_markets += 1
+            if rule.payload.get("is_provisional") is True:
+                provisional_markets += 1
+                continue
+            non_provisional_markets += 1
             close_constraint = rule.payload.get("can_close_early")
             if not isinstance(close_constraint, bool):
                 if "can_close_early" not in rule.payload:
@@ -1045,6 +1054,8 @@ class ShadowResearchRunner:
             paired_markets,
             fresh_book_markets,
             active_markets,
+            non_provisional_markets,
+            provisional_markets,
             documented_close_policy_markets,
             early_close_enabled_markets,
             early_close_disabled_markets,
@@ -1257,6 +1268,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV9Specialist.agent_id,
             FastPredictionSettlementV10Specialist.agent_id,
             FastPredictionSettlementV11Specialist.agent_id,
+            FastPredictionSettlementV12Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1274,6 +1286,7 @@ class ShadowResearchRunner:
                 FastPredictionSettlementV9Specialist.agent_id,
                 FastPredictionSettlementV10Specialist.agent_id,
                 FastPredictionSettlementV11Specialist.agent_id,
+                FastPredictionSettlementV12Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1316,6 +1329,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV9Specialist.agent_id,
                     FastPredictionSettlementV10Specialist.agent_id,
                     FastPredictionSettlementV11Specialist.agent_id,
+                    FastPredictionSettlementV12Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):
@@ -1340,6 +1354,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV9Specialist.agent_id,
                     FastPredictionSettlementV10Specialist.agent_id,
                     FastPredictionSettlementV11Specialist.agent_id,
+                    FastPredictionSettlementV12Specialist.agent_id,
                 }
                 and event.event_time < target_time
                 and not _v9_early_settlement_is_corroborated(

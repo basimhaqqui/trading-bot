@@ -19,6 +19,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV9Specialist,
     FastPredictionSettlementV10Specialist,
     FastPredictionSettlementV11Specialist,
+    FastPredictionSettlementV12Specialist,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_settlement_event_ticker,
@@ -584,6 +585,8 @@ def render_scorecard(scorecard: DailyScorecard, output_format: str = "text") -> 
             f"paired={scorecard.fast_prediction_eligibility.paired_markets} "
             f"fresh={scorecard.fast_prediction_eligibility.fresh_book_markets} "
             f"active={scorecard.fast_prediction_eligibility.active_markets} "
+            f"non_provisional={scorecard.fast_prediction_eligibility.non_provisional_markets} "
+            f"provisional={scorecard.fast_prediction_eligibility.provisional_markets} "
             f"documented_close_policy={scorecard.fast_prediction_eligibility.documented_close_policy_markets} "
             f"early_close_enabled={scorecard.fast_prediction_eligibility.early_close_enabled_markets} "
             f"early_close_disabled={scorecard.fast_prediction_eligibility.early_close_disabled_markets} "
@@ -1317,6 +1320,7 @@ def _policy_inconsistent_fast_labels(
             FastPredictionSettlementV9Specialist.agent_id,
             FastPredictionSettlementV10Specialist.agent_id,
             FastPredictionSettlementV11Specialist.agent_id,
+            FastPredictionSettlementV12Specialist.agent_id,
         }:
             continue
         expected_event_ticker = forecast.values.get("event_ticker")
@@ -1371,6 +1375,7 @@ def _early_fast_label_is_excluded(
         FastPredictionSettlementV9Specialist.agent_id,
         FastPredictionSettlementV10Specialist.agent_id,
         FastPredictionSettlementV11Specialist.agent_id,
+        FastPredictionSettlementV12Specialist.agent_id,
     }:
         return not (
             forecast.generated_at < close_time < event.event_time
@@ -1764,6 +1769,8 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
                 f"**{fast.paired_markets}** paired rule/book markets → "
                 f"**{fast.fresh_book_markets}** fresh books → "
                 f"**{fast.active_markets}** active → "
+                f"**{fast.non_provisional_markets}** non-provisional "
+                f"({fast.provisional_markets} provisional excluded) → "
                 f"**{fast.documented_close_policy_markets}** documented close policies → "
                 f"({fast.early_close_enabled_markets} early-close enabled, "
                 f"{fast.early_close_disabled_markets} early-close disabled, "
