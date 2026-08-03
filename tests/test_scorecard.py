@@ -858,6 +858,36 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("aggregate holder-activity observation", markdown)
         self.assertIn("1** blocked-unverified", markdown)
 
+        # The scorecard uses the latest record for each safety category. A
+        # newer unavailable RPC read is a diagnostic, not verified activity.
+        self.store.append_event(
+            MarketEvent(
+                "holder-activity-unavailable",
+                MarketEventType.ONCHAIN_STATE,
+                "solana",
+                instrument.instrument_id,
+                self.now - timedelta(minutes=1),
+                self.now - timedelta(minutes=1),
+                "solana-rpc-finalized-holder-activity-v1",
+                {
+                    "safety_status": "blocked_unverified",
+                    "holder_activity_observed": False,
+                    "transfer_behavior_observed": False,
+                    "round_trip_simulation_observed": False,
+                },
+                ingested_at=self.now - timedelta(minutes=1),
+            )
+        )
+        refreshed = build_daily_scorecard(
+            self.path,
+            plan,
+            self.costs,
+            as_of=self.now,
+            environment={},
+        ).memecoin_research
+        self.assertEqual(refreshed.holder_activity_observations, 0)
+        self.assertIsNone(refreshed.latest_holder_activity_observed_at)
+
     def test_scorecard_does_not_aggregate_stale_memecoin_gates_into_eligibility(self):
         instrument = Instrument(
             "dexscreener:memecoin:solana:STALE",

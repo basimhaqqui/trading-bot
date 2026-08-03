@@ -821,12 +821,17 @@ def _memecoin_research_summary(
                 ):
                     latest_holder_concentration_observed_at = observed_at
         else:
-            holder_activity += 1
-            if (
-                latest_holder_activity_observed_at is None
-                or observed_at > latest_holder_activity_observed_at
-            ):
-                latest_holder_activity_observed_at = observed_at
+            # A failed or incomplete read remains a durable diagnostic, but it
+            # is not evidence that finalized holder activity was observed.
+            # Report only the latest verified observation, matching the other
+            # hard-gate metrics and keeping the operational scorecard fail-closed.
+            if payload.get("holder_activity_observed") is True:
+                holder_activity += 1
+                if (
+                    latest_holder_activity_observed_at is None
+                    or observed_at > latest_holder_activity_observed_at
+                ):
+                    latest_holder_activity_observed_at = observed_at
     blocked = 0
     eligible = 0
     missing: set[str] = set()
