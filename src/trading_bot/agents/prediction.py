@@ -732,9 +732,16 @@ class FastPredictionSettlementV12Specialist(FastPredictionSettlementV11Specialis
     hypothesis = PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS
 
     def _rule_is_current(self, rule: MarketEvent, book: MarketEvent) -> bool:
-        return super()._rule_is_current(rule, book) and rule.payload.get(
-            "is_provisional"
-        ) is not True
+        if not super()._rule_is_current(rule, book):
+            return False
+        # Kalshi documents this as an optional boolean that is present as true
+        # for markets that can disappear from the public API.  An omitted flag
+        # remains compatible with the documented response; any supplied value
+        # other than a real boolean is malformed external data and must not
+        # become prospective evidence.
+        if "is_provisional" not in rule.payload:
+            return True
+        return rule.payload["is_provisional"] is False
 
 
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:

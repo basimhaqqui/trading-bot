@@ -787,6 +787,56 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(eligibility.missing_provisional_flag_markets, 1)
         self.assertEqual(eligibility.invalid_provisional_flag_markets, 0)
 
+    def test_fast_prediction_rejects_invalid_provisional_flag(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-INVALID-PROVISIONAL",
+            "kalshi",
+            "FAST-INVALID-PROVISIONAL",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        close_time = self.now + timedelta(hours=1)
+        self.store.append_event(
+            self.event(
+                "fast-invalid-provisional-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-INVALID-PROVISIONAL-EVENT",
+                    "status": "active",
+                    "is_provisional": "false",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "close_time": close_time.isoformat(),
+                    "expected_expiration_time": close_time.isoformat(),
+                    "latest_expiration_time": close_time.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "fast-invalid-provisional-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            )
+        )
+
+        candidates = self.runner._fast_prediction_candidates(self.now)
+        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
+
+        self.assertEqual(candidates, [])
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 0)
+        self.assertEqual(eligibility.active_markets, 1)
+        self.assertEqual(eligibility.non_provisional_markets, 0)
+        self.assertEqual(eligibility.provisional_markets, 0)
+        self.assertEqual(eligibility.missing_provisional_flag_markets, 0)
+        self.assertEqual(eligibility.invalid_provisional_flag_markets, 1)
+        self.assertEqual(eligibility.selected_events, 0)
+
     def test_fast_prediction_uses_recorded_close_not_expected_expiration(self):
         market = Instrument(
             "kalshi:prediction:FAST-CLOSE-ANCHOR",

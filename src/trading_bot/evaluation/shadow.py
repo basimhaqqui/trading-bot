@@ -981,6 +981,7 @@ class ShadowResearchRunner:
                 continue
             active_markets += 1
             provisional_flag = rule.payload.get("is_provisional")
+            provisional_flag_is_valid = True
             if provisional_flag is True:
                 provisional_markets += 1
                 continue
@@ -991,6 +992,7 @@ class ShadowResearchRunner:
                 missing_provisional_flag_markets += 1
             else:
                 invalid_provisional_flag_markets += 1
+                provisional_flag_is_valid = False
             close_constraint = rule.payload.get("can_close_early")
             if not isinstance(close_constraint, bool):
                 if "can_close_early" not in rule.payload:
@@ -1040,6 +1042,10 @@ class ShadowResearchRunner:
             if executable is None or executable[3] > specialist.config.max_book_spread:
                 continue
             executable_markets += 1
+            # Keep the rest of the funnel observable for malformed records,
+            # but never let their untrusted value enter candidate selection.
+            if not provisional_flag_is_valid:
+                continue
             if event_ticker in forecasted_events:
                 continue
             candidate = (decision_time, instrument, executable[3])
