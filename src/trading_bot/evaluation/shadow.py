@@ -115,7 +115,10 @@ class FastPredictionEligibilitySummary:
     fresh_book_markets: int
     active_markets: int
     non_provisional_markets: int
+    explicitly_non_provisional_markets: int
     provisional_markets: int
+    missing_provisional_flag_markets: int
+    invalid_provisional_flag_markets: int
     documented_close_policy_markets: int
     early_close_enabled_markets: int
     early_close_disabled_markets: int
@@ -936,7 +939,10 @@ class ShadowResearchRunner:
         fresh_book_markets = 0
         active_markets = 0
         non_provisional_markets = 0
+        explicitly_non_provisional_markets = 0
         provisional_markets = 0
+        missing_provisional_flag_markets = 0
+        invalid_provisional_flag_markets = 0
         documented_close_policy_markets = 0
         early_close_enabled_markets = 0
         early_close_disabled_markets = 0
@@ -974,10 +980,17 @@ class ShadowResearchRunner:
             if str(rule.payload.get("status", "")).lower() != "active":
                 continue
             active_markets += 1
-            if rule.payload.get("is_provisional") is True:
+            provisional_flag = rule.payload.get("is_provisional")
+            if provisional_flag is True:
                 provisional_markets += 1
                 continue
-            non_provisional_markets += 1
+            if provisional_flag is False:
+                non_provisional_markets += 1
+                explicitly_non_provisional_markets += 1
+            elif "is_provisional" not in rule.payload:
+                missing_provisional_flag_markets += 1
+            else:
+                invalid_provisional_flag_markets += 1
             close_constraint = rule.payload.get("can_close_early")
             if not isinstance(close_constraint, bool):
                 if "can_close_early" not in rule.payload:
@@ -1055,7 +1068,10 @@ class ShadowResearchRunner:
             fresh_book_markets,
             active_markets,
             non_provisional_markets,
+            explicitly_non_provisional_markets,
             provisional_markets,
+            missing_provisional_flag_markets,
+            invalid_provisional_flag_markets,
             documented_close_policy_markets,
             early_close_enabled_markets,
             early_close_disabled_markets,
