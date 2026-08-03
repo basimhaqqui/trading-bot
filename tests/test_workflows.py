@@ -103,15 +103,27 @@ class ShadowWorkflowTests(unittest.TestCase):
         rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
         full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
 
-        for workflow, artifact_name in (
-            (rapid_workflow, "rapid-persistence-unavailable-${{ github.run_id }}"),
-            (full_workflow, "full-persistence-unavailable-${{ github.run_id }}"),
+        for workflow, artifact_name, plan in (
+            (
+                rapid_workflow,
+                "rapid-persistence-unavailable-${{ github.run_id }}",
+                "config/rapid-shadow-ingestion.json",
+            ),
+            (
+                full_workflow,
+                "full-persistence-unavailable-${{ github.run_id }}",
+                "config/shadow-ingestion.json",
+            ),
         ):
             self.assertIn("Upload persistent-evidence availability attestation", workflow)
             self.assertIn("persistence-unavailable.json", workflow)
             self.assertIn(artifact_name, workflow)
             self.assertIn('"status": "persistent_preflight_failed"', workflow)
             self.assertIn('"reason": "${{ steps.persistence_check.outputs.reason || \'database_not_configured\' }}"', workflow)
+            self.assertIn('"workflow": "${{ github.workflow }}"', workflow)
+            self.assertIn('"trigger": "${{ github.event_name }}"', workflow)
+            self.assertIn('"head_sha": "${{ github.sha }}"', workflow)
+            self.assertIn(f'"plan": "{plan}"', workflow)
             self.assertIn('"evidence_collected": false', workflow)
             self.assertIn('"retrospective_replacement_used": false', workflow)
             self.assertIn("retention-days: 90", workflow)

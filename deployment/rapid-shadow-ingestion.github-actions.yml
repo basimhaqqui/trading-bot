@@ -68,6 +68,10 @@ jobs:
             "observed_at": "${observed_at}",
             "status": "persistent_preflight_failed",
             "reason": "${{ steps.persistence_check.outputs.reason || 'database_not_configured' }}",
+            "workflow": "${{ github.workflow }}",
+            "trigger": "${{ github.event_name }}",
+            "head_sha": "${{ github.sha }}",
+            "plan": "config/rapid-shadow-ingestion.json",
             "evidence_collected": false,
             "retrospective_replacement_used": false
           }
