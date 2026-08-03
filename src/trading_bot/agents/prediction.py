@@ -20,6 +20,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V9_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V10_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V11_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -723,6 +724,19 @@ class FastPredictionSettlementV11Specialist(FastPredictionSettlementV10Specialis
         return timedelta(0) <= age <= self.config.max_book_age
 
 
+class FastPredictionSettlementV12Specialist(FastPredictionSettlementV11Specialist):
+    """Successor excluding API-provisional markets with unreliable public labels."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v12"
+    model_version = "baseline-v12"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS
+
+    def _rule_is_current(self, rule: MarketEvent, book: MarketEvent) -> bool:
+        return super()._rule_is_current(rule, book) and rule.payload.get(
+            "is_provisional"
+        ) is not True
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -861,5 +875,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV9Specialist.agent_id,
         FastPredictionSettlementV10Specialist.agent_id,
         FastPredictionSettlementV11Specialist.agent_id,
+        FastPredictionSettlementV12Specialist.agent_id,
     }
 )
