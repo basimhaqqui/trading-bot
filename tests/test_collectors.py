@@ -158,6 +158,42 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(batch.metadata["pool_observations_seen"], 1)
         self.assertEqual(batch.metadata["invalid_solana_pool_addresses_skipped"], 0)
 
+    def test_dexscreener_pool_observation_receipt_follows_profile_receipt(self):
+        mint = "11111111111111111111111111111111"
+        pool_address = "So11111111111111111111111111111111111111112"
+        profile_received_at = self.collected
+        pool_received_at = self.collected + timedelta(seconds=3)
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [
+                    {"chainId": "solana", "tokenAddress": mint}
+                ],
+                f"/tokens/v1/solana/{mint}": [
+                    {
+                        "chainId": "solana",
+                        "pairAddress": pool_address,
+                        "baseToken": {"address": mint},
+                        "quoteToken": {"address": "USDC"},
+                        "liquidity": {"usd": 100_000},
+                    }
+                ],
+            }
+        )
+
+        with patch(
+            "trading_bot.data.collectors.dexscreener.utc_now",
+            side_effect=(profile_received_at, pool_received_at),
+        ):
+            batch = DexscreenerCollector(transport).collect_token_profiles(
+                include_pool_observations=True
+            )
+
+        profile_event, pool_event = batch.events
+        self.assertEqual(profile_event.available_at, profile_received_at)
+        self.assertEqual(pool_event.event_time, pool_received_at)
+        self.assertEqual(pool_event.available_at, pool_received_at)
+        self.assertGreater(pool_event.available_at, profile_event.available_at)
+
     def test_dexscreener_duplicate_profiles_do_not_amplify_discovery_or_pool_reads(self):
         mint = "11111111111111111111111111111111"
         pool_address = "So11111111111111111111111111111111111111112"

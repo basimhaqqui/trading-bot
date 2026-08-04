@@ -144,7 +144,7 @@ class DexscreenerCollector:
         invalid_solana_pool_addresses_skipped = 0
         if include_pool_observations and token_addresses:
             pool_events, invalid_solana_pool_addresses_skipped = (
-                self._collect_pool_observations(token_addresses, received_at)
+                self._collect_pool_observations(token_addresses, override)
             )
             events.extend(pool_events)
         return CollectionBatch(
@@ -170,7 +170,7 @@ class DexscreenerCollector:
         )
 
     def _collect_pool_observations(
-        self, token_addresses: list[str], received_at: datetime
+        self, token_addresses: list[str], collected_at: datetime | None
     ) -> tuple[list[MarketEvent], int]:
         # The documented batch endpoint accepts at most 30 comma-separated token
         # addresses. The profile job is capped at 25, preserving a single bounded
@@ -178,6 +178,11 @@ class DexscreenerCollector:
         raw_pairs = self.transport.get_json_array(
             f"{self.TOKEN_PAIRS_ENDPOINT}{','.join(token_addresses)}"
         )
+        # This endpoint is fetched after the profile feed.  Its payload cannot
+        # be available to research at the earlier profile receipt time.  Keep
+        # explicit caller timestamps deterministic for tests and controlled
+        # replay fixtures, but otherwise timestamp the pool response itself.
+        received_at = collected_at or utc_now()
         candidates: dict[str, tuple[float, str, dict[str, object]]] = {}
         requested = set(token_addresses)
         malformed_pool_records_skipped = 0
