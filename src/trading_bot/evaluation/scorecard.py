@@ -22,6 +22,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV12Specialist,
     FastPredictionSettlementV13Specialist,
     FastPredictionSettlementV14Specialist,
+    FastPredictionSettlementV15Specialist,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_settlement_event_ticker,
@@ -1336,6 +1337,7 @@ def _policy_inconsistent_fast_labels(
             FastPredictionSettlementV12Specialist.agent_id,
             FastPredictionSettlementV13Specialist.agent_id,
             FastPredictionSettlementV14Specialist.agent_id,
+            FastPredictionSettlementV15Specialist.agent_id,
         }:
             continue
         expected_event_ticker = forecast.values.get("event_ticker")
@@ -1393,6 +1395,7 @@ def _early_fast_label_is_excluded(
         FastPredictionSettlementV12Specialist.agent_id,
         FastPredictionSettlementV13Specialist.agent_id,
         FastPredictionSettlementV14Specialist.agent_id,
+        FastPredictionSettlementV15Specialist.agent_id,
     }:
         return not (
             forecast.generated_at < close_time < event.event_time

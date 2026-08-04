@@ -23,6 +23,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -762,6 +763,17 @@ class FastPredictionSettlementV14Specialist(FastPredictionSettlementV13Specialis
     hypothesis = PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS
 
 
+class FastPredictionSettlementV15Specialist(FastPredictionSettlementV14Specialist):
+    """Successor that treats an absent provisional-market flag as unknown."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v15"
+    model_version = "baseline-v15"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS
+
+    def _rule_is_current(self, rule: MarketEvent, book: MarketEvent) -> bool:
+        return super()._rule_is_current(rule, book) and rule.payload.get("is_provisional") is False
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -903,5 +915,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV12Specialist.agent_id,
         FastPredictionSettlementV13Specialist.agent_id,
         FastPredictionSettlementV14Specialist.agent_id,
+        FastPredictionSettlementV15Specialist.agent_id,
     }
 )

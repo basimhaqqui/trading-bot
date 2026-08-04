@@ -33,6 +33,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV12Specialist,
     FastPredictionSettlementV13Specialist,
     FastPredictionSettlementV14Specialist,
+    FastPredictionSettlementV15Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
@@ -326,7 +327,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV14Specialist().agent_id,
+                FastPredictionSettlementV15Specialist().agent_id,
             )
         )
 
@@ -899,7 +900,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV14Specialist()
+        specialist = FastPredictionSettlementV15Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -992,6 +993,10 @@ class ShadowResearchRunner:
                 explicitly_non_provisional_markets += 1
             elif "is_provisional" not in rule.payload:
                 missing_provisional_flag_markets += 1
+                # The v15 cohort is intentionally stricter than v12-v14: the
+                # public API's optional flag must be explicitly false rather
+                # than inferred from an absent field.
+                provisional_flag_is_valid = False
             else:
                 invalid_provisional_flag_markets += 1
                 provisional_flag_is_valid = False
@@ -1295,6 +1300,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV12Specialist.agent_id,
             FastPredictionSettlementV13Specialist.agent_id,
             FastPredictionSettlementV14Specialist.agent_id,
+            FastPredictionSettlementV15Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1360,6 +1366,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV12Specialist.agent_id,
                     FastPredictionSettlementV13Specialist.agent_id,
                     FastPredictionSettlementV14Specialist.agent_id,
+                    FastPredictionSettlementV15Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):
@@ -1370,7 +1377,11 @@ class ShadowResearchRunner:
             ):
                 continue
             if (
-                forecast.specialist_id == FastPredictionSettlementV14Specialist.agent_id
+                forecast.specialist_id
+                in {
+                    FastPredictionSettlementV14Specialist.agent_id,
+                    FastPredictionSettlementV15Specialist.agent_id,
+                }
                 and not _v14_settlement_close_is_consistent(forecast, event, target_time)
             ):
                 continue

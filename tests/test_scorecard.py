@@ -678,6 +678,7 @@ class DailyScorecardTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "close_time": (self.now + timedelta(hours=1)).isoformat(),
