@@ -183,7 +183,9 @@ class DexscreenerCollector:
         # explicit caller timestamps deterministic for tests and controlled
         # replay fixtures, but otherwise timestamp the pool response itself.
         received_at = collected_at or utc_now()
-        candidates: dict[str, tuple[float, str, dict[str, object]]] = {}
+        candidates: dict[
+            str, tuple[float, str, dict[str, object], str, str | None]
+        ] = {}
         requested = set(token_addresses)
         malformed_pool_records_skipped = 0
         invalid_solana_pool_addresses_skipped = 0
@@ -209,15 +211,19 @@ class DexscreenerCollector:
             quote_token = pair.get("quoteToken")
             base_address = base_token.get("address") if isinstance(base_token, dict) else None
             quote_address = quote_token.get("address") if isinstance(quote_token, dict) else None
-            matched = next(
+            matches: tuple[tuple[str, str, str | None], ...] = tuple(
                 (
-                    address
-                    for address in (base_address, quote_address)
-                    if isinstance(address, str) and address in requested
-                ),
-                None,
+                    address,
+                    side,
+                    counterparty if isinstance(counterparty, str) else None,
+                )
+                for address, side, counterparty in (
+                    (base_address, "base", quote_address),
+                    (quote_address, "quote", base_address),
+                )
+                if isinstance(address, str) and address in requested
             )
-            if matched is None:
+            if not matches:
                 continue
             liquidity = pair.get("liquidity")
             liquidity_usd = liquidity.get("usd") if isinstance(liquidity, dict) else None
@@ -228,17 +234,24 @@ class DexscreenerCollector:
             if not math.isfinite(liquidity_value) or liquidity_value < 0:
                 liquidity_value = -1.0
             raw_pair = dict(pair)
-            candidate = (liquidity_value, pair_address, raw_pair)
-            current = candidates.get(matched)
-            if current is None or candidate[:2] > current[:2]:
-                candidates[matched] = candidate
+            for matched, token_side, counterparty_address in matches:
+                candidate = (
+                    liquidity_value,
+                    pair_address,
+                    raw_pair,
+                    token_side,
+                    counterparty_address,
+                )
+                current = candidates.get(matched)
+                if current is None or candidate[:2] > current[:2]:
+                    candidates[matched] = candidate
 
         observations: list[MarketEvent] = []
         for token_address in token_addresses:
             selected = candidates.get(token_address)
             if selected is None:
                 continue
-            _, pair_address, raw_pair = selected
+            _, pair_address, raw_pair, token_side, counterparty_address = selected
             instrument_id = f"dexscreener:memecoin:{self.SOLANA_CHAIN}:{token_address}"
             observations.append(
                 MarketEvent(
@@ -261,6 +274,8 @@ class DexscreenerCollector:
                         "chain_id": self.SOLANA_CHAIN,
                         "token_address": token_address,
                         "pair_address": pair_address,
+                        "observed_token_side": token_side,
+                        "counterparty_token_address": counterparty_address,
                         "raw_pair": raw_pair,
                         "source_endpoint": f"{self.TOKEN_PAIRS_ENDPOINT}{{addresses}}",
                         "source_documentation_url": self.PROFILE_DOCUMENTATION_URL,
