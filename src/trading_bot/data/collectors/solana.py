@@ -33,6 +33,7 @@ class SolanaMintAuthorityCollector:
     TOKEN_DOCUMENTATION_URL = "https://solana.com/docs/tokens/basics"
     SOLANA_CHAIN = "solana"
     MAX_ADDRESSES = 25
+    MAX_HOLDER_CONCENTRATION_ADDRESSES = 25
     MAX_HOLDER_ACTIVITY_ADDRESSES = 10
     HOLDER_ACTIVITY_ACCOUNT_SAMPLE = 2
     HOLDER_ACTIVITY_SIGNATURE_LIMIT = 10
@@ -173,8 +174,14 @@ class SolanaMintAuthorityCollector:
         concentration is marked observed. This avoids presenting a supply and
         holder list from different ledger states as a single snapshot.
         """
-        if not token_addresses or len(token_addresses) > self.MAX_ADDRESSES:
-            raise ValueError(f"token_addresses must contain 1 to {self.MAX_ADDRESSES} addresses")
+        if (
+            not token_addresses
+            or len(token_addresses) > self.MAX_HOLDER_CONCENTRATION_ADDRESSES
+        ):
+            raise ValueError(
+                "token_addresses must contain 1 to "
+                f"{self.MAX_HOLDER_CONCENTRATION_ADDRESSES} addresses"
+            )
         if len(set(token_addresses)) != len(token_addresses):
             raise ValueError("token_addresses must be unique")
         if any(not self.is_valid_mint_address(address) for address in token_addresses):

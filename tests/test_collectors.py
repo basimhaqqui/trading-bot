@@ -593,6 +593,15 @@ class CollectorTests(unittest.TestCase):
         self.assertIn("round_trip_simulation_unobserved", event.payload["safety_reasons"])
         self.assertFalse(event.payload["wallet_or_transaction_authority"])
 
+    def test_solana_holder_concentration_rejects_more_than_its_own_cap(self):
+        collector = SolanaMintAuthorityCollector(FakeSolanaTransport({}))
+
+        with self.assertRaisesRegex(ValueError, "1 to 25 addresses"):
+            collector.collect_holder_concentrations(
+                ("11111111111111111111111111111111",) * 26,
+                collected_at=self.collected,
+            )
+
     @patch("trading_bot.data.collectors.solana.sleep")
     def test_solana_holder_reads_are_paced_without_widening_the_bound(self, sleep):
         addresses = (
