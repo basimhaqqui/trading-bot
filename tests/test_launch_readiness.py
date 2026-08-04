@@ -4,10 +4,12 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from trading_bot.evaluation.launch_readiness import (
     LaunchReadinessStatus,
+    _paper_review_candidate_counts,
     build_launch_readiness_report,
     load_launch_readiness_config,
     render_launch_readiness_report,
@@ -18,6 +20,8 @@ from trading_bot.evaluation.scorecard import (
     build_daily_scorecard,
 )
 from trading_bot.evaluation.costs import load_cost_registry
+from trading_bot.evaluation.economics import EconomicStatus
+from trading_bot.evaluation.reporting import EdgeStatus
 from trading_bot.ingestion.plan import load_plan
 
 
@@ -89,6 +93,32 @@ class LaunchReadinessTests(unittest.TestCase):
         self.assertIn("no observed collection cycles", gates["rapid-crypto-continuity"].detail)
         self.assertFalse(gates["fast-prediction-continuity"].passed)
         self.assertIn("no observed collection cycles", gates["fast-prediction-continuity"].detail)
+
+    def test_superseded_fast_lane_cannot_satisfy_paper_review_candidate_counts(self):
+        scorecard = SimpleNamespace(
+            strategies=(
+                SimpleNamespace(
+                    specialist_id="prediction-market-fast-settlement-baseline-v14",
+                    status=EdgeStatus.CANDIDATE,
+                ),
+                SimpleNamespace(
+                    specialist_id="prediction-market-fast-settlement-baseline-v15",
+                    status=EdgeStatus.CANDIDATE,
+                ),
+            ),
+            economics=(
+                SimpleNamespace(
+                    specialist_id="prediction-market-fast-settlement-baseline-v6",
+                    status=EconomicStatus.CANDIDATE,
+                ),
+                SimpleNamespace(
+                    specialist_id="prediction-market-fast-settlement-baseline-v15",
+                    status=EconomicStatus.CANDIDATE,
+                ),
+            ),
+        )
+
+        self.assertEqual(_paper_review_candidate_counts(scorecard), (1, 1))
 
     def test_accepts_rapid_lane_cadence_only_within_each_fixed_bound(self):
         with tempfile.TemporaryDirectory() as directory:
