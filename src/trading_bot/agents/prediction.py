@@ -21,6 +21,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V10_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V11_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -744,6 +745,14 @@ class FastPredictionSettlementV12Specialist(FastPredictionSettlementV11Specialis
         return rule.payload["is_provisional"] is False
 
 
+class FastPredictionSettlementV13Specialist(FastPredictionSettlementV12Specialist):
+    """Successor that excludes labels after a documented close-time extension."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v13"
+    model_version = "baseline-v13"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -883,5 +892,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV10Specialist.agent_id,
         FastPredictionSettlementV11Specialist.agent_id,
         FastPredictionSettlementV12Specialist.agent_id,
+        FastPredictionSettlementV13Specialist.agent_id,
     }
 )

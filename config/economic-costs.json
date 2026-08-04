@@ -190,6 +190,18 @@
       "latency_bps": 5.0,
       "binary_fee_coefficient": 0.07,
       "binary_fee_increment": 0.01
+    },
+    {
+      "model_id": "kalshi-general-contract-fee-fast-v13",
+      "specialist_id": "prediction-market-fast-settlement-baseline-v13",
+      "kind": "binary",
+      "basis": "binary_contract",
+      "source_url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+      "effective_date": "2026-08-04",
+      "slippage_bps": 5.0,
+      "latency_bps": 5.0,
+      "binary_fee_coefficient": 0.07,
+      "binary_fee_increment": 0.01
     }
   ]
 }

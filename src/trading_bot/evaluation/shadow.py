@@ -31,6 +31,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV10Specialist,
     FastPredictionSettlementV11Specialist,
     FastPredictionSettlementV12Specialist,
+    FastPredictionSettlementV13Specialist,
     TIMING_GUARDED_PREDICTION_SPECIALISTS,
     fast_prediction_settlement_deadline,
     is_quarantined_prediction_identity_collision,
@@ -324,7 +325,7 @@ class ShadowResearchRunner:
             (
                 CryptoIntradayMomentumSpecialist().agent_id,
                 CryptoIntradayMomentumV2Specialist().agent_id,
-                FastPredictionSettlementV12Specialist().agent_id,
+                FastPredictionSettlementV13Specialist().agent_id,
             )
         )
 
@@ -897,7 +898,7 @@ class ShadowResearchRunner:
     def _fast_prediction_selection(
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
-        specialist = FastPredictionSettlementV12Specialist()
+        specialist = FastPredictionSettlementV13Specialist()
         instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
         instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
@@ -908,7 +909,7 @@ class ShadowResearchRunner:
         }
         latest_books: dict[str, MarketEvent] = {}
         rules_by_instrument: dict[str, list[MarketEvent]] = {}
-        # V12 only permits a lifecycle rule within fifteen minutes of its
+        # V13 only permits a lifecycle rule within fifteen minutes of its
         # executable book, and the book itself must be that fresh. Restrict the
         # durable reads to that immutable window and the current prediction
         # cohort: historical observations cannot affect selection, but their
@@ -1291,6 +1292,7 @@ class ShadowResearchRunner:
             FastPredictionSettlementV10Specialist.agent_id,
             FastPredictionSettlementV11Specialist.agent_id,
             FastPredictionSettlementV12Specialist.agent_id,
+            FastPredictionSettlementV13Specialist.agent_id,
         }:
             settlement_deadline = fast_prediction_settlement_deadline(forecast)
             if settlement_deadline is None or settlement_deadline < target_time:
@@ -1309,6 +1311,7 @@ class ShadowResearchRunner:
                 FastPredictionSettlementV10Specialist.agent_id,
                 FastPredictionSettlementV11Specialist.agent_id,
                 FastPredictionSettlementV12Specialist.agent_id,
+                FastPredictionSettlementV13Specialist.agent_id,
             }
             and (not isinstance(expected_event_ticker, str) or not expected_event_ticker)
         ):
@@ -1354,6 +1357,11 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV12Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
+            ):
+                continue
+            if (
+                forecast.specialist_id == FastPredictionSettlementV13Specialist.agent_id
+                and not _v13_settlement_close_is_consistent(forecast, event, target_time)
             ):
                 continue
             if (
@@ -1435,6 +1443,30 @@ def _v9_early_settlement_is_corroborated(
         close_time is not None
         and forecast.generated_at < close_time < settlement.event_time
         and close_time < expected_expiration
+    )
+
+
+def _v13_settlement_close_is_consistent(
+    forecast: Forecast, settlement: MarketEvent, registered_close_time: datetime | None
+) -> bool:
+    """Require the final venue snapshot to rule out a close-date extension.
+
+    Kalshi documents that a closed market can reopen when ``close_time`` moves
+    into the future. A v13 result remains in the immutable store but is not an
+    outcome for a forecast tied to the original fast-close window if that final
+    close time is missing, malformed, equal to finalization, or later than the
+    close observed when the forecast was generated.
+    """
+    if registered_close_time is None:
+        return False
+    raw_market = settlement.payload.get("raw_market")
+    if not isinstance(raw_market, Mapping):
+        return False
+    close_time = _payload_time(raw_market.get("close_time"))
+    return bool(
+        close_time is not None
+        and forecast.generated_at < close_time < settlement.event_time
+        and close_time <= registered_close_time
     )
 
 
