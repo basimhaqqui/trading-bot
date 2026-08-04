@@ -242,9 +242,9 @@ operations sandbox, not an option strategy or proof of profitable volatility for
 The scheduled shadow plan collects at most 25 public Solana token-profile discoveries per
 cycle from Dexscreener. For that bounded discovery set it also makes one documented,
 read-only batch request for the most-liquid public pool snapshot per token and at most 25
-finalized mint-control account reads. Holder-concentration reads use a separate, conservative
-batch of at most 10 mints per cycle (20 read-only RPC requests) to respect shared public RPC
-capacity. The
+finalized mint-control account reads. Holder-concentration reads use a separate, bounded
+batch of at most 25 mints per cycle (50 read-only RPC requests); they only activate against the
+configured dedicated read-only endpoint, never the shared public RPC. The
 reader structurally records legacy mint/freeze authorities and Token-2022 transfer controls
 (including permanent delegates, transfer hooks, pausable/default-frozen, non-transferable, and
 unknown extensions). It is restricted to Solana's documented `getMultipleAccounts`,
