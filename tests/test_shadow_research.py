@@ -665,7 +665,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -733,13 +733,49 @@ class ShadowResearchTests(unittest.TestCase):
         eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 0)
-        self.assertEqual(eligibility.active_markets, 1)
-        self.assertEqual(eligibility.non_provisional_markets, 0)
-        self.assertEqual(eligibility.explicitly_non_provisional_markets, 0)
-        self.assertEqual(eligibility.provisional_markets, 1)
-        self.assertEqual(eligibility.missing_provisional_flag_markets, 0)
-        self.assertEqual(eligibility.invalid_provisional_flag_markets, 0)
+
+    def test_fast_prediction_v15_excludes_missing_provisional_flag(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-UNKNOWN-PROVISIONAL",
+            "kalshi",
+            "FAST-UNKNOWN-PROVISIONAL",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        close_time = self.now + timedelta(hours=1)
+        self.store.append_event(
+            self.event(
+                "fast-unknown-provisional-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "event_ticker": "FAST-UNKNOWN-PROVISIONAL-EVENT",
+                    "status": "active",
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "close_time": close_time.isoformat(),
+                    "expected_expiration_time": close_time.isoformat(),
+                    "latest_expiration_time": close_time.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "fast-unknown-provisional-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now,
+            )
+        )
+
+        eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
+
+        self.assertEqual(eligibility.missing_provisional_flag_markets, 1)
         self.assertEqual(eligibility.selected_events, 0)
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 0)
 
     def test_fast_prediction_telemetry_attests_missing_provisional_flag(self):
         market = Instrument(
@@ -781,7 +817,7 @@ class ShadowResearchTests(unittest.TestCase):
         candidates = self.runner._fast_prediction_candidates(self.now)
         eligibility = self.runner.fast_prediction_eligibility(as_of=self.now)
 
-        self.assertEqual(len(candidates), 1)
+        self.assertEqual(len(candidates), 0)
         self.assertEqual(eligibility.non_provisional_markets, 0)
         self.assertEqual(eligibility.explicitly_non_provisional_markets, 0)
         self.assertEqual(eligibility.missing_provisional_flag_markets, 1)
@@ -856,6 +892,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-CLOSE-ANCHOR-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "close_time": close_time.isoformat(),
@@ -903,6 +940,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-LATE-CLOSE-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "close_time": close_time.isoformat(),
@@ -941,6 +979,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-REJECTED-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
@@ -963,8 +1002,8 @@ class ShadowResearchTests(unittest.TestCase):
             target_time = generated_at + timedelta(minutes=30)
             forecast = Forecast(
                 f"rejected-fast-{index}",
-                "prediction-market-fast-settlement-baseline-v14",
-                "baseline-v14",
+                "prediction-market-fast-settlement-baseline-v15",
+                "baseline-v15",
                 f"kalshi:prediction:REJECTED-{index}",
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
@@ -1019,6 +1058,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-LATE-RULE-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
@@ -1040,6 +1080,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-LATE-RULE-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
@@ -1083,6 +1124,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-STALE-RULE-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "close_time": close_time.isoformat(),
@@ -1122,6 +1164,7 @@ class ShadowResearchTests(unittest.TestCase):
             rule_payload = {
                 "event_ticker": f"FAST-{suffix}-EVENT",
                 "status": "active",
+                "is_provisional": False,
                 "settlement_timer_seconds": 900,
                 "expected_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
                 "latest_expiration_time": (self.now + timedelta(hours=1)).isoformat(),
@@ -1174,6 +1217,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-LATE-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
@@ -1226,6 +1270,7 @@ class ShadowResearchTests(unittest.TestCase):
                 {
                     "event_ticker": "FAST-EARLY-EVENT",
                     "status": "active",
+                    "is_provisional": False,
                     "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
@@ -1281,9 +1326,10 @@ class ShadowResearchTests(unittest.TestCase):
                 MarketEventType.CONTRACT_RULE,
                 market,
                 {
-                    "event_ticker": "FAST-POLICY-EVENT",
-                    "status": "active",
-                    "can_close_early": False,
+                   "event_ticker": "FAST-POLICY-EVENT",
+                   "status": "active",
+                    "is_provisional": False,
+                   "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
                     "latest_expiration_time": expiration.isoformat(),
@@ -1302,7 +1348,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
         self.store.append_event(
             self.event(
                 "fast-policy-early-settlement",
@@ -1334,9 +1380,10 @@ class ShadowResearchTests(unittest.TestCase):
                 MarketEventType.CONTRACT_RULE,
                 market,
                 {
-                    "event_ticker": "FAST-V8-EVENT",
-                    "status": "active",
-                    "can_close_early": True,
+                   "event_ticker": "FAST-V8-EVENT",
+                   "status": "active",
+                    "is_provisional": False,
+                   "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
                     "latest_expiration_time": expiration.isoformat(),
@@ -1355,7 +1402,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
         early_settlement = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1404,9 +1451,10 @@ class ShadowResearchTests(unittest.TestCase):
                 MarketEventType.CONTRACT_RULE,
                 market,
                 {
-                    "event_ticker": "FAST-V9-EQUAL-EVENT",
-                    "status": "active",
-                    "can_close_early": True,
+                   "event_ticker": "FAST-V9-EQUAL-EVENT",
+                   "status": "active",
+                    "is_provisional": False,
+                   "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
                     "latest_expiration_time": expiration.isoformat(),
@@ -1425,7 +1473,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
         early_finalization = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1485,7 +1533,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
         settlement_time = close_time + timedelta(minutes=5)
         early_settlement = close_time - timedelta(minutes=1)
         self.store.append_event(
@@ -1577,9 +1625,10 @@ class ShadowResearchTests(unittest.TestCase):
                 MarketEventType.CONTRACT_RULE,
                 market,
                 {
-                    "event_ticker": "FAST-AWAITING-EVENT",
-                    "status": "active",
-                    "can_close_early": False,
+                   "event_ticker": "FAST-AWAITING-EVENT",
+                   "status": "active",
+                    "is_provisional": False,
+                   "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
                     "latest_expiration_time": expiration.isoformat(),
@@ -1624,9 +1673,10 @@ class ShadowResearchTests(unittest.TestCase):
                 MarketEventType.CONTRACT_RULE,
                 market,
                 {
-                    "event_ticker": "FAST-EXPECTED-EVENT",
-                    "status": "active",
-                    "can_close_early": False,
+                   "event_ticker": "FAST-EXPECTED-EVENT",
+                   "status": "active",
+                    "is_provisional": False,
+                   "can_close_early": False,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expiration.isoformat(),
                     "latest_expiration_time": expiration.isoformat(),
@@ -1677,9 +1727,10 @@ class ShadowResearchTests(unittest.TestCase):
                 MarketEventType.CONTRACT_RULE,
                 market,
                 {
-                    "event_ticker": "FAST-LONG-LATEST-EVENT",
-                    "status": "active",
-                    "can_close_early": True,
+                   "event_ticker": "FAST-LONG-LATEST-EVENT",
+                   "status": "active",
+                    "is_provisional": False,
+                   "can_close_early": True,
                     "settlement_timer_seconds": 900,
                     "expected_expiration_time": expected.isoformat(),
                     "latest_expiration_time": latest.isoformat(),

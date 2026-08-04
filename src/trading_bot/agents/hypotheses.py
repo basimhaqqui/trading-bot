@@ -22,6 +22,7 @@ PREDICTION_FAST_V11_PROPOSED_AT = datetime(2026, 8, 2, 2, 35, tzinfo=timezone.ut
 PREDICTION_FAST_V12_PROPOSED_AT = datetime(2026, 8, 3, 7, 6, tzinfo=timezone.utc)
 PREDICTION_FAST_V13_PROPOSED_AT = datetime(2026, 8, 4, 10, 35, tzinfo=timezone.utc)
 PREDICTION_FAST_V14_PROPOSED_AT = datetime(2026, 8, 4, 12, 35, tzinfo=timezone.utc)
+PREDICTION_FAST_V15_PROPOSED_AT = datetime(2026, 8, 4, 18, 5, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -682,6 +683,50 @@ PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-fast-settlement-baseline-v15",
+    family="prediction-market-fast-settlement",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "The executable probability of a short-dated, active binary market is a fixed "
+        "baseline for a fast finalization. This successor retains v14's lifecycle, "
+        "close-time, timing, event-identity, and independence rules, but requires the "
+        "public market response to explicitly report is_provisional=false at forecast "
+        "generation. Kalshi documents that a true provisional market may disappear from "
+        "the public API at settlement; an absent flag is therefore treated as unknown, "
+        "not as a safe negative. This lane is intentionally unadjusted and does not "
+        "reuse earlier fast-lane cohorts."
+    ),
+    target="binary finalized settlement probability for a pre-registered fast-close window",
+    horizon="20 minutes to two hours until recorded close_time; finalization no later than one hour plus the recorded settlement timer afterward",
+    information_set=(
+        "current executable yes and no bids",
+        "Kalshi event ticker, recorded close_time, expected expiration time, and latest expiration time",
+        "active market status, documented boolean can_close_early policy, and explicit is_provisional=false lifecycle flag",
+        "a public finalization response whose close_time is strictly after forecast generation and strictly before finalization",
+        "a public finalization response whose close_time is no later than the close_time recorded at forecast generation",
+        "an earlier final close_time only when the recorded can_close_early policy is true",
+        "a settlement timer no longer than fifteen minutes",
+        "a pre-declared maximum executable spread of ten cents",
+        "one public market-list page per cycle with the returned cursor resumed next cycle",
+        "the pre-recorded close_time plus settlement-timer plus one-hour label deadline",
+        "Kalshi Market Lifecycle documentation: https://docs.kalshi.com/getting_started/market_lifecycle",
+        "Kalshi Market Settlement documentation: https://docs.kalshi.com/getting_started/market_settlement",
+        "Kalshi Get Markets reference: https://docs.kalshi.com/api-reference/market/get-markets",
+        "Kalshi API changelog: https://docs.kalshi.com/changelog",
+    ),
+    invalidation_conditions=(
+        "market probabilities do not beat the fixed neutral benchmark out of sample",
+        "results disappear when one event ticker or resolution period is removed",
+        "the fixed fast-close window leaves insufficient independent outcomes",
+        "late, missing, policy-inconsistent, provisional, or rescheduled-close label exclusion rates indicate that the lane is not operationally representative",
+        "cursor order or page coverage explains the apparent performance",
+        "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_FAST_V15_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -788,6 +833,7 @@ BASELINE_HYPOTHESES = (
     PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
@@ -851,6 +897,9 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
     ),
     PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS.hypothesis_id: (
         "prediction-market-fast-settlement-baseline-v14",
+    ),
+    PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v15",
     ),
     CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
         "crypto-range-breakout-continuation-baseline",
