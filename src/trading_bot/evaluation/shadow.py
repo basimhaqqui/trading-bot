@@ -1355,6 +1355,7 @@ class ShadowResearchRunner:
                     FastPredictionSettlementV10Specialist.agent_id,
                     FastPredictionSettlementV11Specialist.agent_id,
                     FastPredictionSettlementV12Specialist.agent_id,
+                    FastPredictionSettlementV13Specialist.agent_id,
                 }
                 and prediction_settlement_event_ticker(event) != expected_event_ticker
             ):

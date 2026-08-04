@@ -1446,7 +1446,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.not_due, 1)
 
-    def test_fast_prediction_v13_rejects_a_final_close_time_extension(self):
+    def test_fast_prediction_v13_rejects_cross_event_and_rescheduled_labels(self):
         market = Instrument(
             "kalshi:prediction:FAST-V13-RESCHEDULE",
             "kalshi",
@@ -1487,6 +1487,25 @@ class ShadowResearchTests(unittest.TestCase):
         forecast = self.audit.forecasts()[0]
         self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v13")
         settlement_time = close_time + timedelta(minutes=5)
+        self.store.append_event(
+            self.event(
+                "fast-v13-foreign-event-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {
+                    "result": "yes",
+                    "event_ticker": "FAST-V13-FOREIGN-EVENT",
+                    "raw_market": {"close_time": close_time.isoformat()},
+                },
+                event_time=settlement_time - timedelta(seconds=1),
+            )
+        )
+        cross_event = self.runner.score_available(
+            as_of=settlement_time - timedelta(seconds=1)
+        )
+        self.assertEqual(cross_event.appended, 0)
+        self.assertEqual(cross_event.not_due, 1)
+
         self.store.append_event(
             self.event(
                 "fast-v13-rescheduled-settlement",
