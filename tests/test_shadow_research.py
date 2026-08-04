@@ -670,13 +670,19 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
     def test_fast_prediction_selection_reads_only_rules_and_books(self):
-        with patch.object(
-            self.store,
-            "events_available_at",
-            wraps=self.store.events_available_at,
-        ) as events_available_at:
+        with (
+            patch.object(
+                self.store,
+                "events_available_at",
+                wraps=self.store.events_available_at,
+            ) as events_available_at,
+            patch.object(
+                self.store, "instruments", wraps=self.store.instruments
+            ) as instruments,
+        ):
             self.runner._fast_prediction_candidates(self.now)
 
+        instruments.assert_not_called()
         self.assertEqual(events_available_at.call_count, 2)
         self.assertEqual(
             {
@@ -686,7 +692,8 @@ class ShadowResearchTests(unittest.TestCase):
             {MarketEventType.CONTRACT_RULE, MarketEventType.BOOK_SNAPSHOT},
         )
         for call in events_available_at.call_args_list:
-            self.assertEqual(call.kwargs.get("instrument_ids"), set())
+            self.assertIs(call.kwargs.get("asset_class"), AssetClass.PREDICTION)
+            self.assertNotIn("instrument_ids", call.kwargs)
             self.assertEqual(
                 call.kwargs.get("available_since"),
                 self.now - timedelta(minutes=15),

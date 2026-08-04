@@ -85,6 +85,31 @@ class PointInTimeStoreTests(unittest.TestCase):
                 instrument_ids=(other.instrument_id,),
             )
 
+    def test_events_can_be_filtered_by_instrument_asset_class(self):
+        prediction = Instrument(
+            "demo:prediction", "demo", "PREDICTION", AssetClass.PREDICTION, "USD"
+        )
+        self.store.register_instrument(prediction)
+        prediction_event = MarketEvent(
+            "prediction-event",
+            MarketEventType.CONTRACT_RULE,
+            prediction.venue,
+            prediction.instrument_id,
+            self.event_time,
+            self.available_at,
+            "test",
+            {"status": "active"},
+            ingested_at=self.available_at,
+        )
+        self.store.append_event(self.event)
+        self.store.append_event(prediction_event)
+
+        selected = self.store.events_available_at(
+            self.available_at, asset_class=AssetClass.PREDICTION
+        )
+
+        self.assertEqual([item.event_id for item in selected], [prediction_event.event_id])
+
     def test_large_instrument_cohort_is_queried_in_bounded_batches(self):
         instruments = [
             Instrument(

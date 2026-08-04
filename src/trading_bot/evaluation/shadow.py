@@ -901,8 +901,6 @@ class ShadowResearchRunner:
         self, as_of: datetime
     ) -> tuple[list[_Candidate], FastPredictionEligibilitySummary]:
         specialist = FastPredictionSettlementV15Specialist()
-        instruments = self.store.instruments(asset_class=AssetClass.PREDICTION)
-        instrument_ids = {item.instrument_id for item in instruments}
         forecasted_events = {
             str(forecast.values.get("event_ticker") or forecast.instrument_id)
             for forecast in self.audit.forecasts()
@@ -919,14 +917,14 @@ class ShadowResearchRunner:
         freshness_start = as_of - specialist.config.max_book_age
         for event in self.store.events_available_at(
             as_of,
-            instrument_ids=instrument_ids,
+            asset_class=AssetClass.PREDICTION,
             event_type=MarketEventType.CONTRACT_RULE,
             available_since=freshness_start,
         ):
             rules_by_instrument.setdefault(event.instrument_id, []).append(event)
         for event in self.store.events_available_at(
             as_of,
-            instrument_ids=instrument_ids,
+            asset_class=AssetClass.PREDICTION,
             event_type=MarketEventType.BOOK_SNAPSHOT,
             available_since=freshness_start,
         ):
@@ -937,7 +935,7 @@ class ShadowResearchRunner:
             ):
                 latest_books[event.instrument_id] = event
 
-        best_by_event: dict[str, tuple[datetime, Instrument, float]] = {}
+        best_by_event: dict[str, tuple[datetime, str, float]] = {}
         paired_markets = 0
         fresh_book_markets = 0
         active_markets = 0
@@ -954,13 +952,13 @@ class ShadowResearchRunner:
         short_timer_markets = 0
         horizon_markets = 0
         executable_markets = 0
-        for instrument in instruments:
-            book = latest_books.get(instrument.instrument_id)
+        for instrument_id in sorted(set(rules_by_instrument) | set(latest_books)):
+            book = latest_books.get(instrument_id)
             if book is None:
                 continue
             eligible_rules = [
                 rule
-                for rule in rules_by_instrument.get(instrument.instrument_id, ())
+                for rule in rules_by_instrument.get(instrument_id, ())
                 if rule.available_at <= book.available_at
             ]
             rule = (
@@ -1055,26 +1053,26 @@ class ShadowResearchRunner:
                 continue
             if event_ticker in forecasted_events:
                 continue
-            candidate = (decision_time, instrument, executable[3])
+            candidate = (decision_time, instrument_id, executable[3])
             existing = best_by_event.get(event_ticker)
             if existing is None or (
                 candidate[2],
                 -candidate[0].timestamp(),
-                candidate[1].instrument_id,
+                candidate[1],
             ) < (
                 existing[2],
                 -existing[0].timestamp(),
-                existing[1].instrument_id,
+                existing[1],
             ):
                 best_by_event[event_ticker] = candidate
         selected = sorted(
             best_by_event.values(),
-            key=lambda item: (item[0], item[1].instrument_id),
+            key=lambda item: (item[0], item[1]),
             reverse=True,
         )[: self.config.max_prediction_forecasts]
         candidates = [
-            _Candidate(specialist, instrument.instrument_id, (), decision_time)
-            for decision_time, instrument, _ in selected
+            _Candidate(specialist, instrument_id, (), decision_time)
+            for decision_time, instrument_id, _ in selected
         ]
         return candidates, FastPredictionEligibilitySummary(
             paired_markets,

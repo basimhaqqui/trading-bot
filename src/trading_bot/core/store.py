@@ -280,6 +280,7 @@ class PointInTimeStore:
         *,
         instrument_id: str | None = None,
         instrument_ids: Iterable[str] | None = None,
+        asset_class: AssetClass | None = None,
         event_type: MarketEventType | None = None,
         available_since: datetime | None = None,
     ) -> list[MarketEvent]:
@@ -293,17 +294,20 @@ class PointInTimeStore:
             raise ValueError("instrument_id and instrument_ids are mutually exclusive")
         if instrument_ids is not None and not selected_ids:
             return []
-        clauses = ["available_at <= ?"]
+        clauses = ["market_events.available_at <= ?"]
         parameters: list[str] = [as_of.isoformat()]
         if available_since is not None:
-            clauses.append("available_at >= ?")
+            clauses.append("market_events.available_at >= ?")
             parameters.append(available_since.isoformat())
         if instrument_id:
-            clauses.append("instrument_id = ?")
+            clauses.append("market_events.instrument_id = ?")
             parameters.append(instrument_id)
         if event_type:
-            clauses.append("event_type = ?")
+            clauses.append("market_events.event_type = ?")
             parameters.append(event_type.value)
+        if asset_class is not None:
+            clauses.append("instruments.asset_class = ?")
+            parameters.append(asset_class.value)
         chunks = (
             tuple(
                 selected_ids[offset : offset + BATCH_LOOKUP_SIZE]
@@ -319,12 +323,20 @@ class PointInTimeStore:
                 chunk_parameters = list(parameters)
                 if chunk:
                     placeholders = ", ".join("?" for _ in chunk)
-                    chunk_clauses.append(f"instrument_id IN ({placeholders})")
+                    chunk_clauses.append(
+                        f"market_events.instrument_id IN ({placeholders})"
+                    )
                     chunk_parameters.extend(chunk)
+                instrument_join = (
+                    " JOIN instruments ON instruments.instrument_id = market_events.instrument_id"
+                    if asset_class is not None
+                    else ""
+                )
                 query = f"""
-                    SELECT * FROM market_events
+                    SELECT market_events.* FROM market_events{instrument_join}
                     WHERE {' AND '.join(chunk_clauses)}
-                    ORDER BY event_time, COALESCE(sequence, -1), event_id
+                    ORDER BY market_events.event_time,
+                        COALESCE(market_events.sequence, -1), market_events.event_id
                 """
                 rows.extend(connection.execute(query, chunk_parameters).fetchall())
         events = [self._event_from_row(row) for row in rows]
