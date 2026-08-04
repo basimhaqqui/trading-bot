@@ -150,6 +150,8 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(pool_event.event_time, self.collected)
         self.assertEqual(pool_event.available_at, self.collected)
         self.assertEqual(pool_event.payload["pair_address"], large_pool_address)
+        self.assertEqual(pool_event.payload["observed_token_side"], "base")
+        self.assertEqual(pool_event.payload["counterparty_token_address"], "USDC")
         self.assertEqual(pool_event.payload["raw_pair"], selected_pool)
         self.assertEqual(pool_event.payload["safety_status"], "blocked_unverified")
         self.assertFalse(pool_event.payload["wallet_or_transaction_authority"])
@@ -157,6 +159,35 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(pool_event.payload["shadow_intent_created"])
         self.assertEqual(batch.metadata["pool_observations_seen"], 1)
         self.assertEqual(batch.metadata["invalid_solana_pool_addresses_skipped"], 0)
+
+    def test_dexscreener_pool_observation_records_quote_side_context(self):
+        mint = "11111111111111111111111111111111"
+        pool_address = "So11111111111111111111111111111111111111112"
+        base_token = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        pool = {
+            "chainId": "solana",
+            "pairAddress": pool_address,
+            "baseToken": {"address": base_token},
+            "quoteToken": {"address": mint},
+            "liquidity": {"usd": 100_000},
+            "priceUsd": "12.34",
+        }
+        transport = FakeTransport(
+            {
+                "/token-profiles/latest/v1": [{"chainId": "solana", "tokenAddress": mint}],
+                f"/tokens/v1/solana/{mint}": [pool],
+            }
+        )
+
+        batch = DexscreenerCollector(transport).collect_token_profiles(
+            collected_at=self.collected, include_pool_observations=True
+        )
+
+        pool_event = batch.events[1]
+        self.assertEqual(pool_event.payload["token_address"], mint)
+        self.assertEqual(pool_event.payload["observed_token_side"], "quote")
+        self.assertEqual(pool_event.payload["counterparty_token_address"], base_token)
+        self.assertEqual(pool_event.payload["raw_pair"], pool)
 
     def test_dexscreener_pool_observation_receipt_follows_profile_receipt(self):
         mint = "11111111111111111111111111111111"
