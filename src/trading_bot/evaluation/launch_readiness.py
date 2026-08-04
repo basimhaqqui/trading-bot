@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
+from trading_bot.agents.hypotheses import SUPERSEDED_PAPER_REVIEW_SPECIALIST_IDS
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.database import DatabaseLocation, postgres_integrity_ok
 from trading_bot.core.schemas import AssetClass, Instrument
@@ -234,12 +235,7 @@ def build_launch_readiness_report(
         max_consecutive_failures=config.max_consecutive_ingestion_failures,
         environment={},
     )
-    forecast_candidates = sum(
-        item.status is EdgeStatus.CANDIDATE for item in scorecard.strategies
-    )
-    economic_candidates = sum(
-        item.status is EconomicStatus.CANDIDATE for item in scorecard.economics
-    )
+    forecast_candidates, economic_candidates = _paper_review_candidate_counts(scorecard)
     paper = PaperControlStore(database).status()
     integrity = _database_integrity(database)
     live_rejected = _probe_live_rejection(as_of)
@@ -293,14 +289,14 @@ def build_launch_readiness_report(
             LaunchGateCategory.EVIDENCE,
             forecast_candidates >= config.min_forecast_candidates,
             True,
-            f"{forecast_candidates}/{config.min_forecast_candidates} forecast candidates",
+            f"{forecast_candidates}/{config.min_forecast_candidates} eligible forecast candidates",
         ),
         LaunchGate(
             "after-cost-candidates",
             LaunchGateCategory.EVIDENCE,
             economic_candidates >= config.min_economic_candidates,
             True,
-            f"{economic_candidates}/{config.min_economic_candidates} after-cost candidates",
+            f"{economic_candidates}/{config.min_economic_candidates} eligible after-cost candidates",
         ),
         LaunchGate(
             "live-intent-rejection",
@@ -387,6 +383,28 @@ def _suite_gate(
         True,
         f"{passed}/{expected} isolated scenarios passed",
     )
+
+
+def _paper_review_candidate_counts(scorecard: object) -> tuple[int, int]:
+    """Count only cohorts that remain eligible for supervised paper review.
+
+    Superseded fast-settlement studies remain visible in scorecards and cannot
+    be deleted, but their results cannot be pooled with v15's fresh
+    preregistered cohort to unlock a readiness gate.
+    """
+    strategies = getattr(scorecard, "strategies")
+    economics = getattr(scorecard, "economics")
+    forecast_candidates = sum(
+        item.status is EdgeStatus.CANDIDATE
+        and item.specialist_id not in SUPERSEDED_PAPER_REVIEW_SPECIALIST_IDS
+        for item in strategies
+    )
+    economic_candidates = sum(
+        item.status is EconomicStatus.CANDIDATE
+        and item.specialist_id not in SUPERSEDED_PAPER_REVIEW_SPECIALIST_IDS
+        for item in economics
+    )
+    return forecast_candidates, economic_candidates
 
 
 def _cadence_gate(
