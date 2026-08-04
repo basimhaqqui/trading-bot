@@ -1320,16 +1320,25 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(latest_job.cursor_mode, "restart")
         self.assertEqual(latest_job.mve_filter, "exclude")
 
-    def test_checked_in_holder_concentration_batch_stays_below_public_rpc_capacity(self):
+    def test_checked_in_solana_safety_reads_use_the_enforced_read_only_caps(self):
         plan = load_plan("config/shadow-ingestion.json")
-        holder_job = next(
+        holder_concentration_job = next(
             job for job in plan.jobs if job.job_id == "solana-finalized-holder-concentrations"
         )
+        holder_activity_job = next(
+            job for job in plan.jobs if job.job_id == "solana-finalized-holder-activity"
+        )
 
-        self.assertEqual(holder_job.venue, "solana")
-        self.assertEqual(holder_job.dataset, "holder_concentrations")
-        self.assertEqual(holder_job.limit, 10)
-        self.assertEqual(holder_job.activation_profile, "solana_read_only_rpc")
+        self.assertEqual(holder_concentration_job.venue, "solana")
+        self.assertEqual(holder_concentration_job.dataset, "holder_concentrations")
+        self.assertEqual(holder_concentration_job.limit, 25)
+        self.assertEqual(
+            holder_concentration_job.activation_profile, "solana_read_only_rpc"
+        )
+        self.assertEqual(holder_activity_job.venue, "solana")
+        self.assertEqual(holder_activity_job.dataset, "holder_activity")
+        self.assertEqual(holder_activity_job.limit, 10)
+        self.assertEqual(holder_activity_job.activation_profile, "solana_read_only_rpc")
 
     def test_alpaca_activation_requires_both_read_only_environment_values(self):
         job = ObservationJob(
