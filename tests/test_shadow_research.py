@@ -665,7 +665,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v13"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -963,8 +963,8 @@ class ShadowResearchTests(unittest.TestCase):
             target_time = generated_at + timedelta(minutes=30)
             forecast = Forecast(
                 f"rejected-fast-{index}",
-                "prediction-market-fast-settlement-baseline-v13",
-                "baseline-v13",
+                "prediction-market-fast-settlement-baseline-v14",
+                "baseline-v14",
                 f"kalshi:prediction:REJECTED-{index}",
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
@@ -1302,7 +1302,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v13")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
         self.store.append_event(
             self.event(
                 "fast-policy-early-settlement",
@@ -1355,7 +1355,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v13")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
         early_settlement = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1425,7 +1425,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v13")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
         early_finalization = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1446,7 +1446,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(scored.appended, 0)
         self.assertEqual(scored.not_due, 1)
 
-    def test_fast_prediction_v13_rejects_cross_event_and_rescheduled_labels(self):
+    def test_fast_prediction_v14_rejects_policy_inconsistent_cross_event_and_rescheduled_labels(self):
         market = Instrument(
             "kalshi:prediction:FAST-V13-RESCHEDULE",
             "kalshi",
@@ -1485,8 +1485,28 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v13")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v14")
         settlement_time = close_time + timedelta(minutes=5)
+        early_settlement = close_time - timedelta(minutes=1)
+        self.store.append_event(
+            self.event(
+                "fast-v14-policy-inconsistent-early-settlement",
+                MarketEventType.SETTLEMENT,
+                market,
+                {
+                    "result": "yes",
+                    "event_ticker": "FAST-V13-RESCHEDULE-EVENT",
+                    "raw_market": {"close_time": early_settlement.isoformat()},
+                },
+                event_time=early_settlement + timedelta(seconds=1),
+            )
+        )
+        self.assertEqual(
+            self.runner.score_available(
+                as_of=early_settlement + timedelta(seconds=1)
+            ).appended,
+            0,
+        )
         self.store.append_event(
             self.event(
                 "fast-v13-foreign-event-settlement",
