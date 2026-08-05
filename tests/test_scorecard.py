@@ -676,6 +676,7 @@ class DailyScorecardTests(unittest.TestCase):
                 "fast-rule",
                 MarketEventType.CONTRACT_RULE,
                 {
+                    "market_type": "binary",
                     "event_ticker": "FAST-EVENT",
                     "status": "active",
                     "is_provisional": False,
@@ -976,6 +977,7 @@ class DailyScorecardTests(unittest.TestCase):
                 "early-close-rule",
                 MarketEventType.CONTRACT_RULE,
                 {
+                    "market_type": "binary",
                     "event_ticker": "EARLY-CLOSE-EVENT",
                     "status": "active",
                     "settlement_timer_seconds": 900,

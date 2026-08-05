@@ -981,6 +981,11 @@ class ShadowResearchRunner:
             if str(rule.payload.get("status", "")).lower() != "active":
                 continue
             active_markets += 1
+            # Kalshi's public response includes the contract type.  The fast
+            # hypothesis is binary-only; do not infer binary semantics from a
+            # generic prediction instrument or a scalar contract's top-of-book.
+            if rule.payload.get("market_type") != "binary":
+                continue
             provisional_flag = rule.payload.get("is_provisional")
             provisional_flag_is_valid = True
             if provisional_flag is True:

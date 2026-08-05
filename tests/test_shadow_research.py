@@ -155,9 +155,16 @@ class ShadowResearchTests(unittest.TestCase):
             event_type is MarketEventType.CONTRACT_RULE
             and "settlement_timer_seconds" in payload
             and "expected_expiration_time" in payload
-            and "close_time" not in payload
         ):
-            payload = {**payload, "close_time": payload["expected_expiration_time"]}
+            payload = {
+                "market_type": "binary",
+                **payload,
+                **(
+                    {"close_time": payload["expected_expiration_time"]}
+                    if "close_time" not in payload
+                    else {}
+                ),
+            }
         return MarketEvent(
             event_id,
             event_type,
@@ -668,6 +675,48 @@ class ShadowResearchTests(unittest.TestCase):
             forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
+
+    def test_fast_prediction_rejects_non_binary_contracts(self):
+        market = Instrument(
+            "kalshi:prediction:FAST-SCALAR",
+            "kalshi",
+            "FAST-SCALAR",
+            AssetClass.PREDICTION,
+            "USD",
+        )
+        self.store.register_instrument(market)
+        close_time = self.now + timedelta(hours=1)
+        self.store.append_event(
+            self.event(
+                "fast-scalar-rule",
+                MarketEventType.CONTRACT_RULE,
+                market,
+                {
+                    "market_type": "scalar",
+                    "event_ticker": "FAST-SCALAR-EVENT",
+                    "status": "active",
+                    "is_provisional": False,
+                    "can_close_early": False,
+                    "settlement_timer_seconds": 900,
+                    "close_time": close_time.isoformat(),
+                    "expected_expiration_time": close_time.isoformat(),
+                    "latest_expiration_time": close_time.isoformat(),
+                },
+                event_time=self.now - timedelta(minutes=2),
+            )
+        )
+        self.store.append_event(
+            self.event(
+                "fast-scalar-book",
+                MarketEventType.BOOK_SNAPSHOT,
+                market,
+                {"yes_bids": [["0.45", "10"]], "no_bids": [["0.53", "10"]]},
+                event_time=self.now - timedelta(minutes=1),
+            )
+        )
+
+        self.assertEqual(self.runner._fast_prediction_candidates(self.now), [])
+        self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 0)
 
     def test_fast_prediction_selection_reads_only_rules_and_books(self):
         with (
