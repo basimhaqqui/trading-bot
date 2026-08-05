@@ -17,6 +17,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("`can_close_early=true`", readme)
         self.assertIn("market_lifecycle", readme)
         self.assertIn("market_settlement", readme)
+        self.assertIn("freshly restarted bounded fast Kalshi close-time window", readme)
         self.assertNotIn("Fast-settlement prediction v9 records", readme)
 
 

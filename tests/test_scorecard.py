@@ -484,6 +484,7 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertIn("1390.0 minutes", alert.message)
         markdown = render_scorecard(scorecard, "markdown")
         self.assertIn("Fast prediction collection cadence", markdown)
+        self.assertIn("Bounded close-window public market jobs", markdown)
         self.assertIn("largest collection gap: **1390.0 minutes**", markdown)
 
     def test_scorecard_excludes_manual_cycles_from_fast_prediction_continuity(self):
