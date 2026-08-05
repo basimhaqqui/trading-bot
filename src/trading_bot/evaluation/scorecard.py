@@ -1063,6 +1063,25 @@ def _build_alerts(
             )
         )
     if (
+        fast_prediction_eligibility.missing_provisional_flag_markets
+        and not fast_prediction_eligibility.explicitly_non_provisional_markets
+        and not fast_prediction_eligibility.provisional_markets
+        and not fast_prediction_eligibility.invalid_provisional_flag_markets
+        and not fast_prediction_eligibility.selected_events
+    ):
+        alerts.append(
+            OperationalAlert(
+                "fast_prediction_provisional_status_unavailable",
+                AlertSeverity.INFO,
+                (
+                    f"{fast_prediction_eligibility.missing_provisional_flag_markets} "
+                    "current binary fast-settlement market(s) omitted the required "
+                    "is_provisional=false field; v15 selected no forecast and omission "
+                    "is not treated as non-provisional evidence"
+                ),
+            )
+        )
+    if (
         fast_prediction_eligibility.active_markets
         and not fast_prediction_eligibility.documented_close_policy_markets
     ):
