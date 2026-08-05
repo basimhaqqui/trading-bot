@@ -1029,7 +1029,21 @@ class DailyScorecardTests(unittest.TestCase):
         self.assertEqual(alert.severity, AlertSeverity.INFO)
         self.assertIn("documented boolean can_close_early", alert.message)
         self.assertIn("1 omit the field", alert.message)
+        provisional_alert = next(
+            item
+            for item in scorecard.alerts
+            if item.code == "fast_prediction_provisional_status_unavailable"
+        )
+        self.assertEqual(provisional_alert.severity, AlertSeverity.INFO)
+        self.assertIn("omitted the required is_provisional=false field", provisional_alert.message)
+        self.assertIn("not treated as non-provisional evidence", provisional_alert.message)
         self.assertEqual(scorecard.fast_prediction_eligibility.active_markets, 1)
+        self.assertEqual(
+            scorecard.fast_prediction_eligibility.explicitly_non_provisional_markets, 0
+        )
+        self.assertEqual(
+            scorecard.fast_prediction_eligibility.missing_provisional_flag_markets, 1
+        )
         self.assertEqual(scorecard.fast_prediction_eligibility.documented_close_policy_markets, 0)
         self.assertEqual(scorecard.fast_prediction_eligibility.early_close_enabled_markets, 0)
         self.assertEqual(scorecard.fast_prediction_eligibility.early_close_disabled_markets, 0)
