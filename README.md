@@ -241,7 +241,9 @@ operations sandbox, not an option strategy or proof of profitable volatility for
 ## Memecoin safety sandbox
 
 The scheduled shadow plan collects at most 25 public Solana token-profile discoveries per
-cycle from Dexscreener. For that bounded discovery set it also makes one documented,
+cycle from Dexscreener. Each following Solana safety read is restricted to that same
+cycle's point-in-time discovery cohort, so historical mint backlogs cannot consume its
+fixed read budget. For that bounded discovery set it also makes one documented,
 read-only batch request for the most-liquid public pool snapshot per token and at most 25
 finalized mint-control account reads. Holder-concentration reads use a separate, bounded
 batch of at most 25 mints per cycle (50 read-only RPC requests); they only activate against the

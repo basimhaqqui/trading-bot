@@ -265,6 +265,57 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(records[0].status, IngestionRunStatus.SUCCESS)
         self.assertEqual(collector.addresses, (mint,))
 
+    def test_solana_safety_followups_use_only_the_current_discovery_cohort(self):
+        historical_mint = "11111111111111111111111111111111"
+        current_mint = "11111111111111111111111111111112"
+        historical = Instrument(
+            f"dexscreener:memecoin:solana:{historical_mint}",
+            "dexscreener",
+            historical_mint,
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        current = Instrument(
+            f"dexscreener:memecoin:solana:{current_mint}",
+            "dexscreener",
+            current_mint,
+            AssetClass.MEMECOIN,
+            "USD",
+        )
+        self.store.register_instrument(historical)
+        profile = MarketEvent(
+            "current-discovery",
+            MarketEventType.ONCHAIN_STATE,
+            "dexscreener",
+            current.instrument_id,
+            self.now,
+            self.now,
+            "dexscreener-public-token-profile-v1",
+            {"token_address": current_mint, "safety_status": "blocked_unverified"},
+            ingested_at=self.now,
+        )
+
+        class CurrentCohortCollector(FakeSolanaCollector):
+            def collect_token_profiles(self, **kwargs):
+                return CollectionBatch("dexscreener", (current,), (profile,))
+
+        collector = CurrentCohortCollector()
+        plan = ShadowIngestionPlan(
+            "fixture",
+            (
+                ObservationJob("discover", "dexscreener", "token_profiles", limit=25),
+                ObservationJob("authorities", "solana", "mint_authorities", limit=25),
+            ),
+        )
+        runner = ShadowIngestionRunner(
+            self.store, self.ledger, collector_factory=lambda venue, dataset: collector
+        )
+
+        records = runner.run_plan(plan, collected_at=self.now)
+
+        self.assertEqual(collector.addresses, (current_mint,))
+        self.assertEqual(records[1].requested_instruments, 1)
+
     def test_solana_holder_concentration_jobs_are_bounded_and_select_discovered_mints(self):
         job = ObservationJob("holder-concentrations", "solana", "holder_concentrations", limit=25)
         self.assertEqual(job.limit, 25)

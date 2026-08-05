@@ -34,6 +34,7 @@ from trading_bot.core.schemas import (
     AssetClass,
     Forecast,
     ForecastKind,
+    Instrument,
     MarketEvent,
     MarketEventType,
 )
@@ -263,18 +264,45 @@ class ShadowIngestionRunner:
         collection_override = (
             require_aware(collected_at, "collected_at") if collected_at is not None else None
         )
+        # A plan that discovers public Solana mints must observe its safety
+        # signals for that exact bounded cohort.  Reaching back into the
+        # complete instrument history would let an old backlog consume the
+        # current cycle's fixed RPC budget and would break the explicit
+        # discovery-to-observation availability boundary.
+        has_solana_discovery_job = any(
+            job.venue == "dexscreener"
+            and job.dataset == "token_profiles"
+            and job.is_active()
+            for job in plan.jobs
+        )
         if is_postgres_location(self.store.path):
             # GitHub Actions serializes production cycles. Neon uses transaction-mode
             # pooling, where session advisory locks are intentionally unsupported.
+            cycle_started_at = collection_override or utc_now()
             return tuple(
-                self._run_job(plan.name, job, collection_override, observation_origin)
+                self._run_job(
+                    plan.name,
+                    job,
+                    collection_override,
+                    observation_origin,
+                    cycle_started_at,
+                    has_solana_discovery_job,
+                )
                 for job in plan.jobs
                 if job.is_active()
             )
         lock_path = Path(self.store.path).with_suffix(Path(self.store.path).suffix + ".shadow.lock")
         with exclusive_run_lock(lock_path):
+            cycle_started_at = collection_override or utc_now()
             return tuple(
-                self._run_job(plan.name, job, collection_override, observation_origin)
+                self._run_job(
+                    plan.name,
+                    job,
+                    collection_override,
+                    observation_origin,
+                    cycle_started_at,
+                    has_solana_discovery_job,
+                )
                 for job in plan.jobs
                 if job.is_active()
             )
@@ -285,6 +313,8 @@ class ShadowIngestionRunner:
         job: ObservationJob,
         collected_at: datetime | None,
         observation_origin: IngestionObservationOrigin,
+        cycle_started_at: datetime,
+        restrict_solana_to_cycle_discoveries: bool,
     ) -> IngestionRunRecord:
         run_id = str(uuid.uuid4())
         started_at = utc_now()
@@ -331,8 +361,13 @@ class ShadowIngestionRunner:
                     )
             elif job.venue == "solana" and job.dataset == "mint_authorities":
                 token_addresses = self._pending_solana_mint_addresses(
-                    collected_at or started_at, job.limit
+                    collected_at or started_at,
+                    job.limit,
+                    discovered_since=(
+                        cycle_started_at if restrict_solana_to_cycle_discoveries else None
+                    ),
                 )
+                requested_instruments = len(token_addresses)
                 if not token_addresses:
                     batch = CollectionBatch(
                         "solana", metadata={"pending_mint_authority_addresses": 0}
@@ -347,8 +382,13 @@ class ShadowIngestionRunner:
                     )
             elif job.venue == "solana" and job.dataset == "holder_concentrations":
                 token_addresses = self._pending_solana_holder_concentration_addresses(
-                    collected_at or started_at, job.limit
+                    collected_at or started_at,
+                    job.limit,
+                    discovered_since=(
+                        cycle_started_at if restrict_solana_to_cycle_discoveries else None
+                    ),
                 )
+                requested_instruments = len(token_addresses)
                 if not token_addresses:
                     batch = CollectionBatch(
                         "solana", metadata={"pending_holder_concentration_addresses": 0}
@@ -363,8 +403,13 @@ class ShadowIngestionRunner:
                     )
             elif job.venue == "solana" and job.dataset == "holder_activity":
                 token_addresses = self._pending_solana_holder_activity_addresses(
-                    collected_at or started_at, job.limit
+                    collected_at or started_at,
+                    job.limit,
+                    discovered_since=(
+                        cycle_started_at if restrict_solana_to_cycle_discoveries else None
+                    ),
                 )
+                requested_instruments = len(token_addresses)
                 if not token_addresses:
                     batch = CollectionBatch(
                         "solana", metadata={"pending_holder_activity_addresses": 0}
@@ -602,14 +647,20 @@ class ShadowIngestionRunner:
                 return close
         return None
 
-    def _pending_solana_mint_addresses(self, as_of: datetime, limit: int) -> tuple[str, ...]:
+    def _pending_solana_mint_addresses(
+        self,
+        as_of: datetime,
+        limit: int,
+        *,
+        discovered_since: datetime | None = None,
+    ) -> tuple[str, ...]:
         """Select mints missing v2 transfer-control reads, then oldest-observed.
 
         This is a read-only fairness queue.  It never turns a discovery into a
         forecast or intent and uses only the existing public instrument symbols.
         """
         candidates: list[tuple[bool, datetime | None, str]] = []
-        for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
+        for instrument in self._solana_discovery_instruments(as_of, discovered_since):
             if (
                 instrument.venue != "dexscreener"
                 or not SolanaMintAuthorityCollector.is_valid_mint_address(instrument.symbol)
@@ -641,11 +692,15 @@ class ShadowIngestionRunner:
         return tuple(address for _, _, address in candidates[:limit])
 
     def _pending_solana_holder_concentration_addresses(
-        self, as_of: datetime, limit: int
+        self,
+        as_of: datetime,
+        limit: int,
+        *,
+        discovered_since: datetime | None = None,
     ) -> tuple[str, ...]:
         """Select mints missing a bounded finalized concentration observation."""
         candidates: list[tuple[bool, datetime | None, str]] = []
-        for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
+        for instrument in self._solana_discovery_instruments(as_of, discovered_since):
             if (
                 instrument.venue != "dexscreener"
                 or not SolanaMintAuthorityCollector.is_valid_mint_address(instrument.symbol)
@@ -669,11 +724,15 @@ class ShadowIngestionRunner:
         return tuple(address for _, _, address in candidates[:limit])
 
     def _pending_solana_holder_activity_addresses(
-        self, as_of: datetime, limit: int
+        self,
+        as_of: datetime,
+        limit: int,
+        *,
+        discovered_since: datetime | None = None,
     ) -> tuple[str, ...]:
         """Select discovered mints missing aggregate finalized account-activity reads."""
         candidates: list[tuple[bool, datetime | None, str]] = []
-        for instrument in self.store.instruments(asset_class=AssetClass.MEMECOIN):
+        for instrument in self._solana_discovery_instruments(as_of, discovered_since):
             if (
                 instrument.venue != "dexscreener"
                 or not SolanaMintAuthorityCollector.is_valid_mint_address(instrument.symbol)
@@ -695,6 +754,41 @@ class ShadowIngestionRunner:
             key=lambda item: (item[0], item[1] is not None, item[1] or as_of, item[2])
         )
         return tuple(address for _, _, address in candidates[:limit])
+
+    def _solana_discovery_instruments(
+        self, as_of: datetime, discovered_since: datetime | None
+    ) -> tuple[Instrument, ...]:
+        """Return valid Solana discovery instruments available in one cohort.
+
+        `None` preserves the bounded maintenance queue for an explicit
+        safety-only plan.  A plan that includes discovery passes its cycle
+        boundary, which prevents a historical discovery from being treated as
+        newly eligible for a current point-in-time safety observation.
+        """
+        instruments = {
+            item.instrument_id: item
+            for item in self.store.instruments(asset_class=AssetClass.MEMECOIN)
+            if item.venue == "dexscreener"
+            and SolanaMintAuthorityCollector.is_valid_mint_address(item.symbol)
+        }
+        if discovered_since is None:
+            return tuple(instruments.values())
+        discovered_since = require_aware(discovered_since, "discovered_since")
+        discovered_ids = {
+            event.instrument_id
+            for event in self.store.events_available_at(
+                as_of,
+                asset_class=AssetClass.MEMECOIN,
+                event_type=MarketEventType.ONCHAIN_STATE,
+                available_since=discovered_since,
+            )
+            if event.source == "dexscreener-public-token-profile-v1"
+        }
+        return tuple(
+            instrument
+            for instrument_id, instrument in instruments.items()
+            if instrument_id in discovered_ids
+        )
 
 
 def default_collector_factory(venue: str, dataset: str) -> object:
