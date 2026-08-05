@@ -1274,7 +1274,11 @@ class IngestionTests(unittest.TestCase):
             job for job in plan.jobs if job.job_id == "kalshi-fast-settling-markets"
         )
         self.assertEqual(fast_prediction.limit, 250)
-        self.assertEqual(fast_prediction.cursor_mode, "resume")
+        # Query the documented close-time window fresh each rapid cycle. A
+        # saved cursor from a broad market listing could otherwise move past
+        # contracts that newly enter the two-hour research cohort.
+        self.assertEqual(fast_prediction.cursor_mode, "restart")
+        self.assertEqual(fast_prediction.close_lookahead_hours, 2)
 
     def test_checked_in_perpetual_plan_pairs_btc_and_eth_books(self):
         plan = load_plan("config/shadow-ingestion.json")
