@@ -105,6 +105,10 @@ class LaunchReadinessTests(unittest.TestCase):
                     specialist_id="prediction-market-fast-settlement-baseline-v15",
                     status=EdgeStatus.CANDIDATE,
                 ),
+                SimpleNamespace(
+                    specialist_id="prediction-market-fast-settlement-baseline-v16",
+                    status=EdgeStatus.CANDIDATE,
+                ),
             ),
             economics=(
                 SimpleNamespace(
@@ -113,6 +117,10 @@ class LaunchReadinessTests(unittest.TestCase):
                 ),
                 SimpleNamespace(
                     specialist_id="prediction-market-fast-settlement-baseline-v15",
+                    status=EconomicStatus.CANDIDATE,
+                ),
+                SimpleNamespace(
+                    specialist_id="prediction-market-fast-settlement-baseline-v16",
                     status=EconomicStatus.CANDIDATE,
                 ),
             ),

@@ -23,6 +23,7 @@ PREDICTION_FAST_V12_PROPOSED_AT = datetime(2026, 8, 3, 7, 6, tzinfo=timezone.utc
 PREDICTION_FAST_V13_PROPOSED_AT = datetime(2026, 8, 4, 10, 35, tzinfo=timezone.utc)
 PREDICTION_FAST_V14_PROPOSED_AT = datetime(2026, 8, 4, 12, 35, tzinfo=timezone.utc)
 PREDICTION_FAST_V15_PROPOSED_AT = datetime(2026, 8, 4, 18, 5, tzinfo=timezone.utc)
+PREDICTION_FAST_V16_PROPOSED_AT = datetime(2026, 8, 5, 17, 5, tzinfo=timezone.utc)
 
 
 PERPETUAL_FUNDING_HYPOTHESIS = Hypothesis(
@@ -727,6 +728,54 @@ PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS = Hypothesis(
 )
 
 
+PREDICTION_FAST_SETTLEMENT_V16_HYPOTHESIS = Hypothesis(
+    hypothesis_id="prediction-market-fast-settlement-baseline-v16",
+    family="prediction-market-fast-settlement",
+    market=AssetClass.PREDICTION,
+    mechanism=(
+        "The executable probability of a short-dated, active binary market is a fixed "
+        "baseline for a fast finalization. This successor preserves v15's lifecycle, "
+        "close-time, timing, and outcome-label rules, but preregisters the documented "
+        "market-discovery method now used in production: every rapid cycle starts a new "
+        "two-hour close-time query with no status filter, then retains only REST-reported "
+        "active contracts locally. Kalshi documents that close-time filters cannot be "
+        "combined with status=open, and documents event_ticker as the event identity; "
+        "therefore one lowest-spread contract and one scored outcome may represent each "
+        "event_ticker. This lane is intentionally unadjusted and cannot reuse v15 or "
+        "earlier fast-lane outcomes."
+    ),
+    target="binary finalized settlement probability for a pre-registered fast-close window",
+    horizon="20 minutes to two hours until recorded close_time; finalization no later than one hour plus the recorded settlement timer afterward",
+    information_set=(
+        "current executable yes and no bids",
+        "Kalshi event ticker, recorded close_time, expected expiration time, and latest expiration time",
+        "active market status, documented boolean can_close_early policy, and explicit is_provisional=false lifecycle flag",
+        "a fresh public GET /markets query with min_close_ts and max_close_ts spanning the next two hours, status omitted, and mve_filter=exclude",
+        "a local retention rule accepting only REST-reported status=active responses from that bounded query",
+        "one tightest executable binary contract per Kalshi event_ticker, with one outcome cluster per event_ticker",
+        "a public finalization response whose close_time is strictly after forecast generation and strictly before finalization",
+        "a public finalization response whose close_time is no later than the close_time recorded at forecast generation",
+        "an earlier final close_time only when the recorded can_close_early policy is true",
+        "a settlement timer no longer than fifteen minutes",
+        "a pre-declared maximum executable spread of ten cents",
+        "the pre-recorded close_time plus settlement-timer plus one-hour label deadline",
+        "Kalshi Get Markets reference: https://docs.kalshi.com/api-reference/market/get-markets",
+        "Kalshi Market Lifecycle documentation: https://docs.kalshi.com/getting_started/market_lifecycle",
+        "Kalshi Market Settlement documentation: https://docs.kalshi.com/getting_started/market_settlement",
+        "Kalshi Glossary: https://docs.kalshi.com/getting_started/terms",
+    ),
+    invalidation_conditions=(
+        "market probabilities do not beat the fixed neutral benchmark out of sample",
+        "results disappear when one event ticker or resolution period is removed",
+        "the fixed fast-close window leaves insufficient independent event outcomes",
+        "late, missing, policy-inconsistent, provisional, or rescheduled-close label exclusion rates indicate that the lane is not operationally representative",
+        "bounded close-time query coverage or page ordering explains the apparent performance",
+        "the baseline does not survive fees, slippage, latency, and doubled-cost stress",
+    ),
+    proposed_at=PREDICTION_FAST_V16_PROPOSED_AT,
+)
+
+
 CRYPTO_BREAKOUT_HYPOTHESIS = Hypothesis(
     hypothesis_id="crypto-range-breakout-continuation-baseline-v1",
     family="crypto-range-breakout-continuation",
@@ -834,6 +883,7 @@ BASELINE_HYPOTHESES = (
     PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V16_HYPOTHESIS,
     CRYPTO_BREAKOUT_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_HYPOTHESIS,
     CRYPTO_INTRADAY_MOMENTUM_V2_HYPOTHESIS,
@@ -901,6 +951,9 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
     PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS.hypothesis_id: (
         "prediction-market-fast-settlement-baseline-v15",
     ),
+    PREDICTION_FAST_SETTLEMENT_V16_HYPOTHESIS.hypothesis_id: (
+        "prediction-market-fast-settlement-baseline-v16",
+    ),
     CRYPTO_BREAKOUT_HYPOTHESIS.hypothesis_id: (
         "crypto-range-breakout-continuation-baseline",
     ),
@@ -913,8 +966,9 @@ BASELINE_HYPOTHESIS_SPECIALIST_IDS = {
 }
 
 
-# Fast-settlement cohorts v1-v14 remain in the append-only audit trail, but
-# their lifecycle assumptions were superseded before v15 was preregistered.
+# Fast-settlement cohorts v1-v15 remain in the append-only audit trail, but
+# their lifecycle or universe-selection assumptions were superseded before v16
+# was preregistered.
 # They must never satisfy a paper-review gate for the current lane.
 SUPERSEDED_PAPER_REVIEW_SPECIALIST_IDS = frozenset(
     BASELINE_HYPOTHESIS_SPECIALIST_IDS[hypothesis.hypothesis_id][0]
@@ -933,5 +987,6 @@ SUPERSEDED_PAPER_REVIEW_SPECIALIST_IDS = frozenset(
         PREDICTION_FAST_SETTLEMENT_V12_HYPOTHESIS,
         PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS,
         PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS,
+        PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS,
     )
 )

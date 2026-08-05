@@ -24,6 +24,7 @@ from trading_bot.agents.hypotheses import (
     PREDICTION_FAST_SETTLEMENT_V13_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V14_HYPOTHESIS,
     PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS,
+    PREDICTION_FAST_SETTLEMENT_V16_HYPOTHESIS,
 )
 from trading_bot.agents.market_math import prediction_book, recent_events
 from trading_bot.core.schemas import AssetClass, Forecast, ForecastKind, MarketEvent, MarketEventType
@@ -781,6 +782,14 @@ class FastPredictionSettlementV15Specialist(FastPredictionSettlementV14Specialis
         )
 
 
+class FastPredictionSettlementV16Specialist(FastPredictionSettlementV15Specialist):
+    """Fresh close-window successor with the same strict contract eligibility."""
+
+    agent_id = "prediction-market-fast-settlement-baseline-v16"
+    model_version = "baseline-v16"
+    hypothesis = PREDICTION_FAST_SETTLEMENT_V16_HYPOTHESIS
+
+
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
     occurrence = settlement.payload.get("occurrence_datetime")
     event_ticker = prediction_settlement_event_ticker(settlement)
@@ -923,5 +932,6 @@ TIMING_GUARDED_PREDICTION_SPECIALISTS = frozenset(
         FastPredictionSettlementV13Specialist.agent_id,
         FastPredictionSettlementV14Specialist.agent_id,
         FastPredictionSettlementV15Specialist.agent_id,
+        FastPredictionSettlementV16Specialist.agent_id,
     }
 )
