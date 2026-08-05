@@ -21,6 +21,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV13Specialist,
     FastPredictionSettlementV14Specialist,
     FastPredictionSettlementV15Specialist,
+    FastPredictionSettlementV16Specialist,
 )
 from trading_bot.core.audit import AuditLedger
 from trading_bot.core.database import (
@@ -499,6 +500,7 @@ class ShadowIngestionRunner:
                     FastPredictionSettlementV13Specialist.agent_id,
                     FastPredictionSettlementV14Specialist.agent_id,
                     FastPredictionSettlementV15Specialist.agent_id,
+                    FastPredictionSettlementV16Specialist.agent_id,
                 }
                 and forecast.values.get("can_close_early") is True
                 and label_deadline is not None

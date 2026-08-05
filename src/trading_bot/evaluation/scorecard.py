@@ -23,6 +23,7 @@ from trading_bot.agents.prediction import (
     FastPredictionSettlementV13Specialist,
     FastPredictionSettlementV14Specialist,
     FastPredictionSettlementV15Specialist,
+    FastPredictionSettlementV16Specialist,
     is_quarantined_prediction_identity_collision,
     prediction_forecast_target_time,
     prediction_settlement_event_ticker,
@@ -1076,7 +1077,7 @@ def _build_alerts(
                 (
                     f"{fast_prediction_eligibility.missing_provisional_flag_markets} "
                     "current binary fast-settlement market(s) omitted the required "
-                    "is_provisional=false field; v15 selected no forecast and omission "
+                    "is_provisional=false field; v16 selected no forecast and omission "
                     "is not treated as non-provisional evidence"
                 ),
             )
@@ -1357,6 +1358,7 @@ def _policy_inconsistent_fast_labels(
             FastPredictionSettlementV13Specialist.agent_id,
             FastPredictionSettlementV14Specialist.agent_id,
             FastPredictionSettlementV15Specialist.agent_id,
+            FastPredictionSettlementV16Specialist.agent_id,
         }:
             continue
         expected_event_ticker = forecast.values.get("event_ticker")
@@ -1415,6 +1417,7 @@ def _early_fast_label_is_excluded(
         FastPredictionSettlementV13Specialist.agent_id,
         FastPredictionSettlementV14Specialist.agent_id,
         FastPredictionSettlementV15Specialist.agent_id,
+        FastPredictionSettlementV16Specialist.agent_id,
     }:
         return not (
             forecast.generated_at < close_time < event.event_time

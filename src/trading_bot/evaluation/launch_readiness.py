@@ -389,7 +389,7 @@ def _paper_review_candidate_counts(scorecard: object) -> tuple[int, int]:
     """Count only cohorts that remain eligible for supervised paper review.
 
     Superseded fast-settlement studies remain visible in scorecards and cannot
-    be deleted, but their results cannot be pooled with v15's fresh
+    be deleted, but their results cannot be pooled with v16's fresh
     preregistered cohort to unlock a readiness gate.
     """
     strategies = getattr(scorecard, "strategies")

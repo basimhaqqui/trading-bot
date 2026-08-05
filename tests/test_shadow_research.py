@@ -672,7 +672,7 @@ class ShadowResearchTests(unittest.TestCase):
         self.assertEqual(generated.appended, 1)
         forecast = self.audit.forecasts()[0]
         self.assertEqual(
-            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15"
+            forecast.specialist_id, "prediction-market-fast-settlement-baseline-v16"
         )
         self.assertEqual(forecast.values["outcome_cluster"], "FAST-EVENT")
 
@@ -790,7 +790,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 0)
 
-    def test_fast_prediction_v15_excludes_missing_provisional_flag(self):
+    def test_fast_prediction_v16_excludes_missing_provisional_flag(self):
         market = Instrument(
             "kalshi:prediction:FAST-UNKNOWN-PROVISIONAL",
             "kalshi",
@@ -1058,8 +1058,8 @@ class ShadowResearchTests(unittest.TestCase):
             target_time = generated_at + timedelta(minutes=30)
             forecast = Forecast(
                 f"rejected-fast-{index}",
-                "prediction-market-fast-settlement-baseline-v15",
-                "baseline-v15",
+                "prediction-market-fast-settlement-baseline-v16",
+                "baseline-v16",
                 f"kalshi:prediction:REJECTED-{index}",
                 ForecastKind.BINARY_PROBABILITY,
                 generated_at,
@@ -1404,7 +1404,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v16")
         self.store.append_event(
             self.event(
                 "fast-policy-early-settlement",
@@ -1458,7 +1458,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v16")
         early_settlement = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1529,7 +1529,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v16")
         early_finalization = expiration - timedelta(minutes=1)
         self.store.append_event(
             self.event(
@@ -1589,7 +1589,7 @@ class ShadowResearchTests(unittest.TestCase):
 
         self.assertEqual(self.runner.generate_forecasts(as_of=self.now).appended, 1)
         forecast = self.audit.forecasts()[0]
-        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v15")
+        self.assertEqual(forecast.specialist_id, "prediction-market-fast-settlement-baseline-v16")
         settlement_time = close_time + timedelta(minutes=5)
         early_settlement = close_time - timedelta(minutes=1)
         self.store.append_event(
