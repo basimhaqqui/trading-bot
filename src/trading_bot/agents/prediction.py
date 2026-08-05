@@ -764,14 +764,21 @@ class FastPredictionSettlementV14Specialist(FastPredictionSettlementV13Specialis
 
 
 class FastPredictionSettlementV15Specialist(FastPredictionSettlementV14Specialist):
-    """Successor that treats an absent provisional-market flag as unknown."""
+    """Successor that requires explicit non-provisional binary contracts."""
 
     agent_id = "prediction-market-fast-settlement-baseline-v15"
     model_version = "baseline-v15"
     hypothesis = PREDICTION_FAST_SETTLEMENT_V15_HYPOTHESIS
 
     def _rule_is_current(self, rule: MarketEvent, book: MarketEvent) -> bool:
-        return super()._rule_is_current(rule, book) and rule.payload.get("is_provisional") is False
+        # ``market_type`` is a documented field on the public market response.
+        # The registered lane is binary-only, so an omitted, scalar, or otherwise
+        # malformed value is not interchangeable with a binary contract.
+        return (
+            super()._rule_is_current(rule, book)
+            and rule.payload.get("is_provisional") is False
+            and rule.payload.get("market_type") == "binary"
+        )
 
 
 def prediction_settlement_event_key(settlement: MarketEvent) -> str:
