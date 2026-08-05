@@ -1888,7 +1888,7 @@ def _render_markdown(scorecard: DailyScorecard) -> str:
             "### Fast prediction collection cadence",
             "",
             (
-                f"Cursor-resuming public market jobs: **{len(fast_cadence.job_ids)}** · "
+                f"Bounded close-window public market jobs: **{len(fast_cadence.job_ids)}** · "
                 f"observed cycles: **{fast_cadence.observed_cycles}** · "
                 f"latest cycle: {fast_latest_cycle} · "
                 f"largest collection gap: **{fast_largest_gap}** "
