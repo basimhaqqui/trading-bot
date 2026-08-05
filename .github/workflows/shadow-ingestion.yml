@@ -54,8 +54,27 @@ jobs:
       - name: Attest unavailable persistent evidence
         if: ${{ always() && steps.persistence_check.outcome != 'success' }}
         run: |
+          reason="${{ steps.persistence_check.outputs.reason || 'database_not_configured' }}"
           {
             echo "## Shadow evidence unavailable"
+            echo
+            case "$reason" in
+              neon_data_transfer_quota_exceeded)
+                echo "Persistent preflight reason: Neon data-transfer quota exceeded."
+                ;;
+              database_not_configured)
+                echo "Persistent preflight reason: shadow database is not configured."
+                ;;
+              unsupported_database_location)
+                echo "Persistent preflight reason: configured database is not PostgreSQL."
+                ;;
+              integrity_check_failed)
+                echo "Persistent preflight reason: database integrity check failed."
+                ;;
+              *)
+                echo "Persistent preflight reason: database is unavailable."
+                ;;
+            esac
             echo
             echo "Persistent preflight failed. No collection, scoring, health, economic, reconciliation, or retrospective replacement evidence ran."
             echo

@@ -99,6 +99,20 @@ class ShadowWorkflowTests(unittest.TestCase):
             self.assertIn("retrospective replacement evidence", workflow)
             self.assertIn("$GITHUB_STEP_SUMMARY", workflow)
 
+    def test_preflight_summaries_surface_only_fixed_nonsensitive_reasons(self):
+        rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
+        full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
+
+        for workflow in (rapid_workflow, full_workflow):
+            self.assertIn('reason="${{ steps.persistence_check.outputs.reason', workflow)
+            self.assertIn("case \"$reason\" in", workflow)
+            self.assertIn(
+                "Persistent preflight reason: Neon data-transfer quota exceeded.", workflow
+            )
+            self.assertIn(
+                "Persistent preflight reason: database is unavailable.", workflow
+            )
+
     def test_persistent_preflight_failures_publish_sanitized_availability_artifacts(self):
         rapid_workflow = Path(".github/workflows/rapid-shadow-ingestion.yml").read_text()
         full_workflow = Path(".github/workflows/shadow-ingestion.yml").read_text()
