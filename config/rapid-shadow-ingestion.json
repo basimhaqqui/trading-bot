@@ -7,8 +7,9 @@
       "dataset": "markets",
       "status": "open",
       "limit": 250,
-      "cursor_mode": "resume",
-      "mve_filter": "exclude"
+      "cursor_mode": "restart",
+      "mve_filter": "exclude",
+      "close_lookahead_hours": 2
     },
     {
       "job_id": "kalshi-forecast-outcomes",
